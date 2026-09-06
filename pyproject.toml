@@ -4,10 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "orbit-research"
-version = "0.2.0"
+version = "0.3.0"
 description = "Immutable scientific authoring and conservative read-only legacy imports"
 requires-python = ">=3.11"
 dependencies = ["jsonschema>=4.18,<5", "referencing>=0.30,<1"]
+
+[project.optional-dependencies]
+browser-tests = ["playwright>=1.40,<2"]
 
 [project.scripts]
 orbit-research = "orbit_research.cli:main"
@@ -16,4 +19,4 @@ orbit-research = "orbit_research.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-orbit_research = ["schemas/v1/*.json", "schemas/v2/*.json", "resources/v1/*"]
+orbit_research = ["schemas/v1/*.json", "schemas/v2/*.json", "resources/v1/*", "web/*"]

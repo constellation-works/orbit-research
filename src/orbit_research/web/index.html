@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>Research atlas · Evidence browser</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="data.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#detail">Skip to evidence</a>
+  <header><a class="brand" href="#">◈ <strong>Research atlas</strong></a><span>LOCAL SNAPSHOT <i></i></span><a href="index.json" download>Export JSON ↗</a></header>
+  <main>
+    <div class="intro"><div><p class="eyebrow">QUESTIONS → EVIDENCE → NEXT OBLIGATIONS</p><h1>What do we actually know?</h1></div><p>Owner records, exact revisions.<br>Execution success is not scientific support.</p></div>
+    <div id="stats" class="stats" aria-label="Collection summary"></div>
+    <div class="workspace">
+      <aside aria-label="Research collection">
+        <label for="search">Search across owners</label><input id="search" type="search" placeholder="Question, alias, evidence…">
+        <div class="filters"><div><label for="owner">Owner</label><select id="owner"><option value="">All owners</option></select></div><div><label for="kind">Record</label><select id="kind"><option value="">All records</option></select></div></div>
+        <label for="view">Focus</label><select id="view"><option value="">All research</option><option value="open">Open questions</option><option value="controls">Failed controls</option><option value="pending">Pending reconciliation</option><option value="current">Current confirmatory assessments</option><option value="historical">Historical assessments</option></select>
+        <p id="count" class="muted" aria-live="polite"></p>
+        <div id="results" class="results"></div>
+      </aside>
+      <article id="detail" tabindex="-1" aria-label="Evidence detail"></article>
+    </div>
+    <details id="unresolved"><summary>Unresolved manifest targets</summary><div></div></details>
+    <footer id="snapshot"></footer>
+  </main>
+  <noscript>This local browser needs JavaScript. The complete portable records are available in index.json.</noscript>
+</body>
+</html>

@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import sqlite3
 
 from .contract import reference, reconcile, validate
 from .native import OPERATIONS, Owner, write_json_new
@@ -10,11 +11,23 @@ from .orbit_path import task_context
 from importlib.resources import files
 import subprocess
 from .importers import PATTERNS, import_source, strict_json, write_report
+from .index import IndexBuildError, rebuild, trace as index_trace
+from .browser import export_browser
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(prog='orbit-research')
     commands = parser.add_subparsers(dest='command', required=True)
+    index = commands.add_parser('index', help='atomically rebuild a disposable SQLite projection')
+    index.add_argument('--config', type=Path, required=True)
+    index.add_argument('--database', type=Path, required=True)
+    browse = commands.add_parser('browse-export', help='export a portable local static evidence browser')
+    browse.add_argument('--config', type=Path, required=True)
+    browse.add_argument('--database', type=Path, required=True)
+    browse.add_argument('--output', type=Path, required=True)
+    indexed_trace = commands.add_parser('index-trace', help='trace an exact indexed snapshot including assessments')
+    indexed_trace.add_argument('--database', type=Path, required=True)
+    indexed_trace.add_argument('--key', required=True)
     resource = commands.add_parser('resource', help='print packaged native workflow instructions')
     resource.add_argument('--version', choices=['1'], default='1')
     context = commands.add_parser('task-context', help='read an assigned Orbit task through the registered CLI')
@@ -55,6 +68,15 @@ def main(argv=None):
     rec.add_argument('--output', type=Path, required=True)
     args = parser.parse_args(argv)
     try:
+        if args.command in {'index', 'browse-export', 'index-trace'}:
+            if args.command == 'index':
+                result = rebuild(args.config, args.database)
+            elif args.command == 'browse-export':
+                result = export_browser(args.database, args.output, config_path=args.config)
+            else:
+                result = index_trace(args.database, args.key)
+            print(json.dumps(result, ensure_ascii=False, allow_nan=False))
+            return 0
         if args.command == 'resource':
             print(json.dumps(dict(version=1, skill=files('orbit_research').joinpath('resources/v1/SKILL.md').read_text())))
             return 0
@@ -111,6 +133,9 @@ def main(argv=None):
         else:
             print(json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
-    except (ValueError, OSError, KeyError, TypeError, subprocess.SubprocessError) as exc:
+    except IndexBuildError as exc:
+        print(json.dumps(dict(error=dict(code='invalid-owner-documents', message=str(exc)), problems=exc.problems)), file=sys.stderr)
+        return 2
+    except (ValueError, OSError, KeyError, TypeError, sqlite3.Error, subprocess.SubprocessError) as exc:
         print(json.dumps(dict(error=dict(code='invalid-input', message=str(exc)))), file=sys.stderr)
         return 2

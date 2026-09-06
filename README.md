@@ -3,10 +3,12 @@
 Scientific claims, protocols, evidence and assessments, with reproducible workflows powered by Orbit.
 
 This installable Python CLI/library provides immutable native scientific authoring and
-conservative read-only legacy imports. Principia, Parallax, Orrery and Astrolabe retain their
+conservative read-only legacy imports, a disposable SQLite index and a local static evidence
+browser. Principia, Parallax, Orrery and Astrolabe retain their
 own records and artifacts. Orbit remains authoritative for operational tasks, crews, runs
 and delivery. The approved starting contract is Constellation task ORB-11353; this milestone
-is ORB-11367; native authoring is ORB-11391 (package 0.2, native record schema v2).
+is ORB-11367; native authoring is ORB-11391 (native record schema v2); the index/browser is
+ORB-11392 (package 0.3, unchanged scientific record schemas).
 
 ## Install and validate
 
@@ -56,6 +58,8 @@ roots; full live reports retain private source content and should stay outside G
 
 ## Contract and evidence
 
+- [Local evidence browser](docs/browser.md): explicit checkout/manifest mapping, atomic
+  rebuild, portable export, exact reconciliation, safe media and rendered acceptance checks.
 - [Native workflow](docs/native-workflow.md): fresh CLI examples, atomic appends,
   registration chronology, assessments, exact trace/export and versioned Orbit instructions.
 - [Scientific contract](docs/contract.md): six record kinds, semantic protocol identity,
@@ -70,4 +74,5 @@ Library entry points include `Owner`, `make_record`, `protocol_digest`, `validat
 and `import_source`. `validate` returns errors rather than modifying data; `reconcile` returns
 a copy with exact supplied pins resolved. No import command writes scientific records.
 `Owner` provides native appends, exact reference resolution, trace and validated export.
-The rebuildable SQLite projection, static browser and sibling cutovers remain later milestones.
+`index`, `index-trace` and `browse-export` provide the disposable projection and static browser.
+Sibling cutovers remain owning-repository work; the index never writes scientific records.
