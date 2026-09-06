@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:orbit-research:schema:v1:program",
+  "allOf": [
+    {
+      "$ref": "urn:orbit-research:schema:v1:record"
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "program"
+        }
+      }
+    }
+  ]
+}

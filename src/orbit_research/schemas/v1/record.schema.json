@@ -1,0 +1,727 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:orbit-research:schema:v1:record",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "enum": [
+        "program",
+        "claim",
+        "protocol",
+        "experiment",
+        "artifact",
+        "assessment"
+      ]
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+    },
+    "revision_id": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "activity": {
+      "enum": [
+        "active",
+        "paused",
+        "retired",
+        "resolved",
+        "unknown"
+      ]
+    },
+    "scope": {
+      "enum": [
+        "derivation",
+        "simulation-under-assumptions",
+        "synthetic-calibration",
+        "observation",
+        "literature",
+        "unknown"
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "git_revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "blob_oid": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "historical": {
+          "type": "boolean"
+        },
+        "working_tree": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "repository",
+        "git_revision",
+        "blob_oid",
+        "sha256",
+        "path",
+        "selector",
+        "historical",
+        "working_tree"
+      ],
+      "additionalProperties": false
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "missingness": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "legacy": {},
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+          },
+          "revision_id": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "source_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "resolved"
+            ]
+          }
+        },
+        "required": [
+          "repository",
+          "id",
+          "revision_id",
+          "source_revision",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "presentation": {
+      "type": "object"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "orbit_links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "host": {
+            "type": "string",
+            "minLength": 1
+          },
+          "workspace": {
+            "type": "string",
+            "minLength": 1
+          },
+          "task": {
+            "type": "string",
+            "minLength": 1
+          },
+          "run": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "host",
+          "workspace",
+          "task"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "id",
+    "revision_id",
+    "aliases",
+    "activity",
+    "scope",
+    "provenance",
+    "limitations",
+    "missingness",
+    "legacy",
+    "references",
+    "presentation",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "program"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "program",
+                  "theory"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "role",
+              "title"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "claim"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "hypothesis",
+                  "postulate",
+                  "claim"
+                ]
+              },
+              "statement": {
+                "type": "string",
+                "minLength": 1
+              },
+              "domain": {
+                "enum": [
+                  "model",
+                  "nature",
+                  "empirical",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "role",
+              "statement",
+              "domain"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "protocol"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "semantic": {
+                "type": "object",
+                "minProperties": 1
+              },
+              "semantic_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "freeze": {
+                "enum": [
+                  "historical-unverified",
+                  "prospective"
+                ]
+              },
+              "frozen_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "freeze_evidence": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+                      },
+                      "revision_id": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      },
+                      "source_revision": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                      },
+                      "status": {
+                        "enum": [
+                          "pending",
+                          "resolved"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "repository",
+                      "id",
+                      "revision_id",
+                      "source_revision",
+                      "status"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "semantic",
+              "semantic_digest",
+              "freeze",
+              "frozen_at",
+              "freeze_evidence"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "experiment"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "execution_status": {
+                "enum": [
+                  "planned",
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled",
+                  "unknown"
+                ]
+              },
+              "controls": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not-run",
+                  "unknown",
+                  "not-applicable"
+                ]
+              },
+              "protocol": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "id": {
+                        "type": "string",
+                        "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+                      },
+                      "revision_id": {
+                        "type": "string",
+                        "pattern": "^sha256:[0-9a-f]{64}$"
+                      },
+                      "source_revision": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                      },
+                      "status": {
+                        "enum": [
+                          "pending",
+                          "resolved"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "repository",
+                      "id",
+                      "revision_id",
+                      "source_revision",
+                      "status"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "result_artifacts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "repository": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+                    },
+                    "revision_id": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "source_revision": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                    },
+                    "status": {
+                      "enum": [
+                        "pending",
+                        "resolved"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "repository",
+                    "id",
+                    "revision_id",
+                    "source_revision",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "execution_status",
+              "controls",
+              "protocol",
+              "result_artifacts"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "artifact"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "role": {
+                "enum": [
+                  "source",
+                  "dataset",
+                  "result"
+                ]
+              },
+              "availability": {
+                "enum": [
+                  "available",
+                  "missing",
+                  "external",
+                  "unknown"
+                ]
+              },
+              "snapshot_digest": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "locator": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "media_type": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "role",
+              "availability",
+              "snapshot_digest",
+              "locator",
+              "media_type"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "assessment"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "properties": {
+              "claim": {
+                "type": "object",
+                "properties": {
+                  "repository": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+                  },
+                  "revision_id": {
+                    "type": "string",
+                    "pattern": "^sha256:[0-9a-f]{64}$"
+                  },
+                  "source_revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                  },
+                  "status": {
+                    "enum": [
+                      "pending",
+                      "resolved"
+                    ]
+                  }
+                },
+                "required": [
+                  "repository",
+                  "id",
+                  "revision_id",
+                  "source_revision",
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              "verdict": {
+                "enum": [
+                  "supported",
+                  "refuted",
+                  "inconclusive",
+                  "conditional",
+                  "untested",
+                  "unknown"
+                ]
+              },
+              "inference": {
+                "enum": [
+                  "confirmatory-primary",
+                  "exploratory",
+                  "historical"
+                ]
+              },
+              "controls": {
+                "enum": [
+                  "passed",
+                  "failed",
+                  "not-run",
+                  "unknown",
+                  "not-applicable"
+                ]
+              },
+              "basis": {
+                "enum": [
+                  "scientific-evidence",
+                  "execution-only",
+                  "legacy-report"
+                ]
+              },
+              "rationale": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "repository": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "id": {
+                      "type": "string",
+                      "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+                    },
+                    "revision_id": {
+                      "type": "string",
+                      "pattern": "^sha256:[0-9a-f]{64}$"
+                    },
+                    "source_revision": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+                    },
+                    "status": {
+                      "enum": [
+                        "pending",
+                        "resolved"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "repository",
+                    "id",
+                    "revision_id",
+                    "source_revision",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "legacy_verdict": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "claim",
+              "verdict",
+              "inference",
+              "controls",
+              "basis",
+              "rationale",
+              "evidence",
+              "legacy_verdict"
+            ],
+            "additionalProperties": false
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:orbit-research:schema:v1:manifest",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "manifest"
+    },
+    "repositories": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "git_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+          }
+        },
+        "required": [
+          "id",
+          "git_revision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "repository": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+          },
+          "revision_id": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "source_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "resolved"
+            ]
+          }
+        },
+        "required": [
+          "repository",
+          "id",
+          "revision_id",
+          "source_revision",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "repositories",
+    "references"
+  ],
+  "additionalProperties": false
+}

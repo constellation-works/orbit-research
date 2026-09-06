@@ -1,0 +1,384 @@
+{
+  "schema_version": 1,
+  "kind": "import-report",
+  "adapter": "principia",
+  "repository": "principia",
+  "source_revision": null,
+  "dry_run": true,
+  "discovery": [
+    "theory/**/claims.json",
+    "theory/**/*.md",
+    "gates/*.json",
+    "studies/*preregistration*.md",
+    "ledger.md"
+  ],
+  "files": [
+    {
+      "path": "gates/control.json",
+      "sha256": "sha256:fca482a05e90614b33be70eaa6f00776f0a7dda272840fc2ade40efc4308c9fb",
+      "blob_oid": null,
+      "working_tree": true
+    },
+    {
+      "path": "theory/calibration/claims.json",
+      "sha256": "sha256:9f2fbae851601a9f41637611051843019e40bce36a1b1aa684c12377f869e77c",
+      "blob_oid": null,
+      "working_tree": true
+    }
+  ],
+  "inventory": [
+    {
+      "key": "gates/control.json#$",
+      "path": "gates/control.json",
+      "selector": "$",
+      "sha256": "sha256:fca482a05e90614b33be70eaa6f00776f0a7dda272840fc2ade40efc4308c9fb",
+      "raw": {
+        "id": "control",
+        "control": "zero injected effect",
+        "kill": "absolute error >= 0.04",
+        "decision": "Failed control leaves primary inference unresolved."
+      },
+      "disposition": "exception",
+      "candidate_ids": [
+        "urn:research:principia:protocol:control"
+      ],
+      "exceptions": [
+        {
+          "code": "historical-protocol",
+          "message": "Gate text preserved; normative freeze and chronology require owner verification."
+        }
+      ]
+    },
+    {
+      "key": "theory/calibration/claims.json#$",
+      "path": "theory/calibration/claims.json",
+      "selector": "$",
+      "sha256": "sha256:9f2fbae851601a9f41637611051843019e40bce36a1b1aa684c12377f869e77c",
+      "raw": {
+        "doc": "calibration",
+        "title": "Synthetic control calibration",
+        "status": "retired",
+        "claims": [
+          {
+            "id": "control-null",
+            "kind": "model-property",
+            "status": "mixed",
+            "claim": "The synthetic zero-effect control stays below the fixed threshold.",
+            "evidence": "Execution completed, but the negative control failed.",
+            "control_ran": true,
+            "control": "failed",
+            "limitation": "No inference about nature."
+          }
+        ]
+      },
+      "disposition": "exception",
+      "candidate_ids": [
+        "urn:research:principia:program:calibration"
+      ],
+      "exceptions": [
+        {
+          "code": "legacy-program-state",
+          "message": "Theory status retained; exploratory/growing/refuted do not imply activity or scientific support."
+        }
+      ]
+    },
+    {
+      "key": "theory/calibration/claims.json#$/claims/0",
+      "path": "theory/calibration/claims.json",
+      "selector": "$/claims/0",
+      "sha256": "sha256:9f2fbae851601a9f41637611051843019e40bce36a1b1aa684c12377f869e77c",
+      "raw": {
+        "id": "control-null",
+        "kind": "model-property",
+        "status": "mixed",
+        "claim": "The synthetic zero-effect control stays below the fixed threshold.",
+        "evidence": "Execution completed, but the negative control failed.",
+        "control_ran": true,
+        "control": "failed",
+        "limitation": "No inference about nature."
+      },
+      "disposition": "exception",
+      "candidate_ids": [
+        "urn:research:principia:claim:control-null",
+        "urn:research:principia:assessment:control-null%3Alegacy-verdict"
+      ],
+      "exceptions": [
+        {
+          "code": "pending-evidence",
+          "message": "Exact claim/verdict retained; evidence, scope and controls are not independently verified."
+        }
+      ]
+    }
+  ],
+  "candidates": [
+    {
+      "schema_version": 1,
+      "kind": "protocol",
+      "id": "urn:research:principia:protocol:control",
+      "aliases": [
+        "control"
+      ],
+      "activity": "unknown",
+      "scope": "unknown",
+      "provenance": {
+        "repository": "principia",
+        "git_revision": null,
+        "blob_oid": null,
+        "sha256": "sha256:fca482a05e90614b33be70eaa6f00776f0a7dda272840fc2ade40efc4308c9fb",
+        "path": "gates/control.json",
+        "selector": "$",
+        "historical": true,
+        "working_tree": true
+      },
+      "limitations": [
+        "Historical candidate; owner reconciliation required."
+      ],
+      "missingness": [
+        "activity",
+        "scope",
+        "git-revision"
+      ],
+      "legacy": {
+        "id": "control",
+        "control": "zero injected effect",
+        "kill": "absolute error >= 0.04",
+        "decision": "Failed control leaves primary inference unresolved."
+      },
+      "references": [],
+      "presentation": {},
+      "payload": {
+        "semantic": {
+          "id": "control",
+          "control": "zero injected effect",
+          "kill": "absolute error >= 0.04",
+          "decision": "Failed control leaves primary inference unresolved."
+        },
+        "semantic_digest": "sha256:598c4a1e65dd9881019a3d2f70b3be280faec6fbad02297983a82eef69ac3a98",
+        "freeze": "historical-unverified",
+        "frozen_at": null,
+        "freeze_evidence": null
+      },
+      "revision_id": "sha256:598c4a1e65dd9881019a3d2f70b3be280faec6fbad02297983a82eef69ac3a98"
+    },
+    {
+      "schema_version": 1,
+      "kind": "program",
+      "id": "urn:research:principia:program:calibration",
+      "aliases": [
+        "calibration"
+      ],
+      "activity": "retired",
+      "scope": "unknown",
+      "provenance": {
+        "repository": "principia",
+        "git_revision": null,
+        "blob_oid": null,
+        "sha256": "sha256:9f2fbae851601a9f41637611051843019e40bce36a1b1aa684c12377f869e77c",
+        "path": "theory/calibration/claims.json",
+        "selector": "$",
+        "historical": true,
+        "working_tree": true
+      },
+      "limitations": [
+        "Historical candidate; owner reconciliation required."
+      ],
+      "missingness": [
+        "scope",
+        "git-revision"
+      ],
+      "legacy": {
+        "doc": "calibration",
+        "title": "Synthetic control calibration",
+        "status": "retired",
+        "claims": [
+          {
+            "id": "control-null",
+            "kind": "model-property",
+            "status": "mixed",
+            "claim": "The synthetic zero-effect control stays below the fixed threshold.",
+            "evidence": "Execution completed, but the negative control failed.",
+            "control_ran": true,
+            "control": "failed",
+            "limitation": "No inference about nature."
+          }
+        ]
+      },
+      "references": [],
+      "presentation": {},
+      "payload": {
+        "role": "theory",
+        "title": "Synthetic control calibration"
+      },
+      "revision_id": "sha256:ec0a54c1fee479165f868be70702d36ebac70ef0577bc5945ed3ad625011b6d7"
+    },
+    {
+      "schema_version": 1,
+      "kind": "claim",
+      "id": "urn:research:principia:claim:control-null",
+      "aliases": [
+        "control-null"
+      ],
+      "activity": "unknown",
+      "scope": "unknown",
+      "provenance": {
+        "repository": "principia",
+        "git_revision": null,
+        "blob_oid": null,
+        "sha256": "sha256:9f2fbae851601a9f41637611051843019e40bce36a1b1aa684c12377f869e77c",
+        "path": "theory/calibration/claims.json",
+        "selector": "$/claims/0",
+        "historical": true,
+        "working_tree": true
+      },
+      "limitations": [
+        "Historical candidate; owner reconciliation required."
+      ],
+      "missingness": [
+        "scope",
+        "activity",
+        "git-revision"
+      ],
+      "legacy": {
+        "id": "control-null",
+        "kind": "model-property",
+        "status": "mixed",
+        "claim": "The synthetic zero-effect control stays below the fixed threshold.",
+        "evidence": "Execution completed, but the negative control failed.",
+        "control_ran": true,
+        "control": "failed",
+        "limitation": "No inference about nature."
+      },
+      "references": [],
+      "presentation": {},
+      "payload": {
+        "role": "claim",
+        "statement": "The synthetic zero-effect control stays below the fixed threshold.",
+        "domain": "model"
+      },
+      "revision_id": "sha256:848eb47e3460195794fcd78b7529f393719c390efcf2c99d5e8338ca7c7fb1d8"
+    },
+    {
+      "schema_version": 1,
+      "kind": "assessment",
+      "id": "urn:research:principia:assessment:control-null%3Alegacy-verdict",
+      "aliases": [
+        "control-null:legacy-verdict"
+      ],
+      "activity": "unknown",
+      "scope": "unknown",
+      "provenance": {
+        "repository": "principia",
+        "git_revision": null,
+        "blob_oid": null,
+        "sha256": "sha256:9f2fbae851601a9f41637611051843019e40bce36a1b1aa684c12377f869e77c",
+        "path": "theory/calibration/claims.json",
+        "selector": "$/claims/0",
+        "historical": true,
+        "working_tree": true
+      },
+      "limitations": [
+        "Historical candidate; owner reconciliation required."
+      ],
+      "missingness": [
+        "verified-evidence",
+        "controls",
+        "activity",
+        "scope",
+        "git-revision"
+      ],
+      "legacy": {
+        "id": "control-null",
+        "kind": "model-property",
+        "status": "mixed",
+        "claim": "The synthetic zero-effect control stays below the fixed threshold.",
+        "evidence": "Execution completed, but the negative control failed.",
+        "control_ran": true,
+        "control": "failed",
+        "limitation": "No inference about nature."
+      },
+      "references": [],
+      "presentation": {},
+      "payload": {
+        "claim": {
+          "repository": "principia",
+          "id": "urn:research:principia:claim:control-null",
+          "revision_id": "sha256:848eb47e3460195794fcd78b7529f393719c390efcf2c99d5e8338ca7c7fb1d8",
+          "source_revision": null,
+          "status": "pending"
+        },
+        "verdict": "inconclusive",
+        "inference": "historical",
+        "controls": "unknown",
+        "basis": "legacy-report",
+        "rationale": "Execution completed, but the negative control failed.",
+        "evidence": [],
+        "legacy_verdict": "mixed"
+      },
+      "revision_id": "sha256:8ce4869056990aaa4aa20b2dd8d4c982ffa6cd7ff19780e660de7523c4777e43"
+    }
+  ],
+  "aliases": [
+    {
+      "alias": "control",
+      "id": "urn:research:principia:protocol:control"
+    },
+    {
+      "alias": "calibration",
+      "id": "urn:research:principia:program:calibration"
+    },
+    {
+      "alias": "control-null",
+      "id": "urn:research:principia:claim:control-null"
+    },
+    {
+      "alias": "control-null:legacy-verdict",
+      "id": "urn:research:principia:assessment:control-null%3Alegacy-verdict"
+    }
+  ],
+  "manifest": {
+    "schema_version": 1,
+    "kind": "manifest",
+    "repositories": [
+      {
+        "id": "principia",
+        "git_revision": null
+      }
+    ],
+    "references": [
+      {
+        "repository": "principia",
+        "id": "urn:research:principia:protocol:control",
+        "revision_id": "sha256:598c4a1e65dd9881019a3d2f70b3be280faec6fbad02297983a82eef69ac3a98",
+        "source_revision": null,
+        "status": "pending"
+      },
+      {
+        "repository": "principia",
+        "id": "urn:research:principia:program:calibration",
+        "revision_id": "sha256:ec0a54c1fee479165f868be70702d36ebac70ef0577bc5945ed3ad625011b6d7",
+        "source_revision": null,
+        "status": "pending"
+      },
+      {
+        "repository": "principia",
+        "id": "urn:research:principia:claim:control-null",
+        "revision_id": "sha256:848eb47e3460195794fcd78b7529f393719c390efcf2c99d5e8338ca7c7fb1d8",
+        "source_revision": null,
+        "status": "pending"
+      },
+      {
+        "repository": "principia",
+        "id": "urn:research:principia:assessment:control-null%3Alegacy-verdict",
+        "revision_id": "sha256:8ce4869056990aaa4aa20b2dd8d4c982ffa6cd7ff19780e660de7523c4777e43",
+        "source_revision": null,
+        "status": "pending"
+      }
+    ]
+  },
+  "counts": {
+    "discovered": 3,
+    "mapped": 0,
+    "exceptions": 3
+  },
+  "source_unchanged": true
+}

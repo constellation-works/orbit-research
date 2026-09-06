@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:orbit-research:schema:v1:import-report",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "import-report"
+    },
+    "adapter": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_revision": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "dry_run": {
+      "const": true
+    },
+    "discovery": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "blob_oid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^([0-9a-f]{40}|[0-9a-f]{64})$"
+          },
+          "working_tree": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "sha256",
+          "blob_oid",
+          "working_tree"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "inventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "selector": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "disposition": {
+            "enum": [
+              "mapped",
+              "exception"
+            ]
+          },
+          "candidate_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+            }
+          },
+          "raw": {},
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "key",
+          "path",
+          "selector",
+          "sha256",
+          "disposition",
+          "candidate_ids",
+          "raw",
+          "exceptions"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:orbit-research:schema:v1:record"
+      }
+    },
+    "aliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "alias": {
+            "type": "string",
+            "minLength": 1
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^urn:research:[a-z0-9][a-z0-9.-]*:[a-z]+:[^\\s/]+$"
+          }
+        },
+        "required": [
+          "alias",
+          "id"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "manifest": {
+      "$ref": "urn:orbit-research:schema:v1:manifest"
+    },
+    "counts": {
+      "type": "object",
+      "properties": {
+        "discovered": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mapped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exceptions": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "discovered",
+        "mapped",
+        "exceptions"
+      ],
+      "additionalProperties": false
+    },
+    "source_unchanged": {
+      "const": true
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "adapter",
+    "repository",
+    "source_revision",
+    "dry_run",
+    "discovery",
+    "files",
+    "inventory",
+    "candidates",
+    "aliases",
+    "manifest",
+    "counts",
+    "source_unchanged"
+  ],
+  "additionalProperties": false
+}
