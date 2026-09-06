@@ -113,7 +113,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('pending references cannot be current confirmatory evidence', validate(revise(a)))
 
     def test_malformed_records_fail_structurally(self):
-        for value in [[], {}, {'schema_version':2}, {'kind':'claim'}]:
+        for value in [[], {}, {'schema_version':2}, {'schema_version':[]}, {'schema_version':True}, {'kind':'claim'}]:
             self.assertTrue(validate(value))
         c = claim()
         c['provenance']['git_revision'] = 'main'

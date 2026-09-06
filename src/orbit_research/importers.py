@@ -18,7 +18,7 @@ from .contract import digest_bytes, make_record, protocol_digest, reference, rev
 PATTERNS = {
     'principia': ['theory/**/claims.json', 'theory/**/*.md', 'gates/*.json',
                   'studies/*preregistration*.md', 'ledger.md'],
-    'parallax': ['docs/*.md', 'data/**/*.db', 'data/**/*.sqlite', 'data/**/*.sqlite3',
+    'parallax': ['docs/*.md', 'docs/research/**/*.md', 'data/**/*.db', 'data/**/*.sqlite', 'data/**/*.sqlite3',
                  'artifacts/**/*.db', 'artifacts/**/*.sqlite', 'artifacts/**/*.sqlite3'],
     'orrery': ['lab/sims/**/*.json'],
     'astrolabe': ['data/processed/**/*.json'],
@@ -225,6 +225,8 @@ class Importer:
         self.item(path, '$', content, [source], [('prose-preserved', 'Whole prose, frontmatter, ledgers and limitations retained; no inferred freeze or verdict.')])
         if self.adapter != 'parallax':
             return
+        if self.parallax_document(path, content):
+            return
         # Conservative grammar: exact standalone R/H/E IDs in pipe-table first cells.
         for n, line in enumerate(content.splitlines(keepends=True), 1):
             match = re.match(r'^\|\s*([RHE][0-9]+)\s*\|', line)
@@ -245,6 +247,81 @@ class Importer:
         for n, line in enumerate(content.splitlines(keepends=True), 1):
             if re.match(r'^#{1,6}\s+[RHE][0-9]+\s*[:.]\s', line):
                 self.item(path, f'heading:{n}', line, issues=[('unmapped-register-heading', 'Definition/discussion heading retained with its full source document.')])
+
+    def parallax_document(self, path, content):
+        """Recognize only the delivered scalar R/H/E grammar; retain every raw byte."""
+        front = re.match(r'\A---\r?\n(.*?)\r?\n---\r?\n', content, re.S)
+        if not front:
+            return False
+        fields = {}
+        for line in front[1].splitlines():
+            match = re.fullmatch(r'([a-z_]+):\s*(.*)', line)
+            if not match:
+                continue
+            key, value = match.groups()
+            if key in fields:
+                self.item(path, 'frontmatter', front[0], issues=[('ambiguous-frontmatter', 'Duplicate key; no R/H/E identity inferred.')])
+                return True
+            # Scalars and JSON-style arrays occur in delivered files. Unsupported YAML
+            # remains an exact string, never executed or normalized into guessed meaning.
+            try:
+                fields[key] = strict_json(value)
+            except ValueError:
+                fields[key] = value
+        rid = fields.get('research_id')
+        if not isinstance(rid, str) or not re.fullmatch(r'R[0-9]+', rid):
+            return False
+        sections = {}
+        matches = list(re.finditer(r'^## (.+)\r?$', content, re.M))
+        for n, match in enumerate(matches):
+            end = matches[n+1].start() if n+1 < len(matches) else len(content)
+            name = match[1]
+            if name in sections:
+                self.item(path, 'sections', content, issues=[('ambiguous-sections', 'Repeated section heading; no scientific extraction.')])
+                return True
+            sections[name] = content[match.end():end].strip('\r\n')
+        raw = dict(frontmatter=fields, sections=sections, text=content)
+        activity = fields.get('status') if fields.get('status') in ACTIVITY else 'unknown'
+        eid, hid = fields.get('experiment_id'), fields.get('hypothesis_id')
+        records, issues = [], []
+        if isinstance(eid, str) and re.fullmatch(r'E[0-9]+', eid):
+            ident = rid + '/' + eid
+            # Freeze the full source, including all normative terms and historical results;
+            # it is explicitly unverified, not a reconstructed prospective protocol.
+            semantic = dict(source_text=content, frontmatter=fields, sections=sections)
+            protocol = self.record(path, 'protocol', ident + ':protocol',
+                                   dict(semantic=semantic, semantic_digest=protocol_digest(semantic),
+                                        freeze='historical-unverified', frozen_at=None, freeze_evidence=None), raw,
+                                   'frontmatter', scope='observation', missing=['independent-freeze-chronology'])
+            status = fields.get('status')
+            execution = status if status in {'completed', 'failed', 'cancelled', 'running', 'planned'} else 'unknown'
+            run = self.record(path, 'experiment', ident,
+                              dict(execution_status=execution, controls='unknown', protocol=reference(protocol), result_artifacts=[]),
+                              raw, 'frontmatter', scope='observation', missing=['controls', 'exact-result-artifacts', 'assessment'])
+            records = [protocol, run]
+            issues.append(('historical-experiment', 'preregistered/status/outcome and full methodology preserved; revise/advance/reject are not scientific verdicts; no prospective chronology inferred.'))
+        elif isinstance(hid, str) and re.fullmatch(r'H[0-9]+', hid) and sections.get('Claim'):
+            ident = rid + '/' + hid
+            claim = self.record(path, 'claim', ident,
+                                dict(role='hypothesis', statement=sections['Claim'], domain='empirical'), raw,
+                                'section:Claim', scope='observation', activity=activity, missing=['verified-evidence'])
+            verdict = fields.get('outcome')
+            assessment = self.record(path, 'assessment', ident + ':legacy-verdict',
+                                     dict(claim=reference(claim), verdict=VERDICTS.get(verdict, 'unknown'),
+                                          inference='historical', controls='unknown', basis='legacy-report',
+                                          rationale=sections.get('Decision history') or 'Exact source outcome retained; no independent assessment.',
+                                          evidence=[], legacy_verdict=verdict if isinstance(verdict, str) else None),
+                                     {**raw, 'status': verdict}, 'frontmatter:outcome', scope='observation',
+                                     missing=['verified-evidence', 'controls'])
+            records = [claim, assessment]
+            issues.append(('historical-hypothesis', 'Exact Claim and outcome retained; revised is unknown, archived is not silently translated into a scientific verdict.'))
+        elif path.name == 'README.md' and path.parent.name.startswith(rid + '-') and isinstance(fields.get('title'), str) and fields['title'].strip():
+            records = [self.record(path, 'program', rid, dict(role='program', title=fields['title']), raw,
+                                   'frontmatter', activity=activity, scope='observation')]
+        else:
+            return False
+        self.item(path, 'research-definition', raw, records, issues)
+        return True
 
     def database(self, path):
         # Copy stable bytes BEFORE sqlite opens anything. WAL recovery happens only in a
@@ -285,11 +362,21 @@ class Importer:
                             self.item(path, loc, raw, issues=[('nonfinite-sqlite-row', 'Nonfinite SQL value retained with explicit encoding; no candidate emitted.')])
                             continue
                         if name in {'trade_intents', 'research_intents'} and isinstance(raw.get('id'), str) and isinstance(raw.get('hypothesis'), str) and raw['hypothesis']:
-                            rec = self.record(path, 'claim', 'journal:'+raw['id'], dict(role='hypothesis', statement=raw['hypothesis'], domain='empirical'), raw, loc,
+                            ident = ('research-journal:' if name == 'research_intents' else 'journal:') + raw['id']
+                            rec = self.record(path, 'claim', ident, dict(role='hypothesis', statement=raw['hypothesis'], domain='empirical'), raw, loc,
                                               scope='observation', missing=['verified-freeze', 'verdict'])
-                            self.item(path, loc, raw, [rec], [('historical-intent', 'Intent timestamp/rules retained; no prospective preregistration fabricated.')])
-                        elif name in {'trade_outcomes', 'research_outcomes'} and isinstance(raw.get('trade_id'), str):
-                            rec = self.record(path, 'experiment', 'journal:'+raw['trade_id'],
+                            records = [rec]
+                            if name == 'research_intents':
+                                semantic = dict(raw)
+                                records.append(self.record(path, 'protocol', ident,
+                                    dict(semantic=semantic, semantic_digest=protocol_digest(semantic),
+                                         freeze='historical-unverified', frozen_at=None, freeze_evidence=None),
+                                    raw, loc, scope='observation', missing=['independent-freeze-chronology']))
+                            self.item(path, loc, raw, records, [('historical-intent', 'Intent timestamp/rules retained; no prospective preregistration fabricated.')])
+                        elif name in {'trade_outcomes', 'research_outcomes'} and isinstance(raw.get('experiment_id' if name == 'research_outcomes' else 'trade_id'), str):
+                            key = 'experiment_id' if name == 'research_outcomes' else 'trade_id'
+                            ident = ('research-journal:' if name == 'research_outcomes' else 'journal:') + raw[key]
+                            rec = self.record(path, 'experiment', ident,
                                               dict(execution_status='completed', controls='unknown', protocol=None, result_artifacts=[]), raw, loc,
                                               scope='observation', missing=['protocol', 'controls', 'assessment'])
                             self.item(path, loc, raw, [rec], [('outcome-not-support', 'Recorded outcome is execution history; free-text result is not a scientific verdict.')])

@@ -59,6 +59,7 @@ def reference(record, status='pending'):
 
 def _references(record):
     yield from record['references']
+    yield from record.get('authorship', {}).get('supersedes', [])
     p = record['payload']
     if record['kind'] == 'assessment':
         yield p['claim']
@@ -67,30 +68,64 @@ def _references(record):
         if p['protocol']:
             yield p['protocol']
         yield from p['result_artifacts']
+        yield from p.get('inputs', [])
+        if p.get('start'):
+            yield p['start']
     elif record['kind'] == 'protocol' and p['freeze_evidence']:
         yield p['freeze_evidence']
+    if record['kind'] == 'protocol' and record.get('schema_version') == 2:
+        yield from p['semantic'].get('claims', [])
+        yield from p['semantic'].get('inputs', [])
 
 
 @lru_cache(maxsize=1)
 def _schemas():
-    return {p.name.removesuffix('.schema.json'): json.loads(p.read_text())
-            for p in files('orbit_research').joinpath('schemas/v1').iterdir()
+    return {(version, p.name.removesuffix('.schema.json')): json.loads(p.read_text())
+            for version in (1, 2)
+            for p in files('orbit_research').joinpath(f'schemas/v{version}').iterdir()
             if p.name.endswith('.schema.json')}
 
 
 def _schema_errors(value, name):
+    if not isinstance(value, dict):
+        return ['$: expected an object']
     schemas = _schemas()
     registry = Registry().with_resources((s['$id'], Resource.from_contents(s)) for s in schemas.values())
-    schema = schemas[name]
+    version = value.get('schema_version', 1)
+    if type(version) is not int:
+        return ['schema_version must be an integer']
+    schema = schemas.get((version, name))
+    if schema is None:
+        return ['unsupported schema version or document kind']
     return [f'{"/".join(map(str, e.absolute_path)) or "$"}: {e.message}'
             for e in Draft202012Validator(schema, registry=registry).iter_errors(value)]
 
 
-def validate(document, *, targets=()):
+def validate(document, *, targets=(), artifact_resolver=None, _structural=False, _verification_cache=None):
     """Return errors; unresolved references are valid pending data, never current evidence."""
     if not isinstance(document, dict):
         return ['$: expected an object']
-    kind = document.get('kind')
+    targets = list(targets)
+    verification_cache = {} if _verification_cache is None else _verification_cache
+    kind = document.get('kind') if isinstance(document.get('kind'), str) else None
+    if kind == 'export':
+        errors = _schema_errors(document, 'export')
+        if errors:
+            return errors
+        records = document['records']
+        for i, record in enumerate(records):
+            errors.extend(validate(record, targets=records[:i] + records[i+1:], artifact_resolver=artifact_resolver,
+                                   _verification_cache=verification_cache))
+        for manifest in document['manifests']:
+            errors.extend(validate(manifest, targets=records, artifact_resolver=artifact_resolver,
+                                   _verification_cache=verification_cache))
+        pinned = {(ref['repository'], ref['id'], ref['revision_id'], ref['source_revision'])
+                  for manifest in document['manifests'] for ref in manifest['references']}
+        expected = {(r['provenance']['repository'], r['id'], r['revision_id'], r['provenance']['git_revision'])
+                    for r in records if isinstance(r, dict) and not _schema_errors(r, 'record')}
+        if pinned != expected:
+            errors.append('export manifests must account for every exact record snapshot')
+        return errors
     name = kind if kind in {'manifest', 'import-report'} else 'record'
     errors = _schema_errors(document, name)
     if errors:
@@ -99,20 +134,20 @@ def validate(document, *, targets=()):
     known = {}
     for target in targets:
         # Context is independently validated before it can establish an exact pin.
-        if not isinstance(target, dict) or target.get('kind') in {'manifest', 'import-report'}:
+        if not isinstance(target, dict) or not isinstance(target.get('kind'), str) or target.get('kind') not in {'program', 'claim', 'protocol', 'experiment', 'artifact', 'assessment'}:
             errors.append('target must be an individual scientific record')
             continue
-        target_errors = validate(target)
+        target_errors = validate(target, _structural=True)
         if target_errors:
             errors.extend('target: ' + e for e in target_errors)
         else:
-            key = (target['id'], target['revision_id'])
+            key = (target['id'], target['revision_id'], target['provenance']['git_revision'])
             if key in known:
                 errors.append(f'ambiguous target: {key}')
             known[key] = target
     aliases = {}
     for r in records:
-        key = (r['id'], r['revision_id'])
+        key = (r['id'], r['revision_id'], r['provenance']['git_revision'])
         if key in known:
             errors.append(f'duplicate identity/revision: {key}')
         known[key] = r
@@ -160,7 +195,7 @@ def validate(document, *, targets=()):
                     errors.append('historical verdict was strengthened or changed')
                 if isinstance(r['legacy'], dict) and r['legacy'].get('status') != p['legacy_verdict']:
                     errors.append('legacy verdict differs from retained source status')
-    refs = document['references'] if kind == 'manifest' else [ref for r in records for ref in _references(r)]
+    refs = list(document['references']) if kind == 'manifest' else [ref for r in records for ref in _references(r)]
     if kind == 'import-report':
         refs += document['manifest']['references']
         inv = document['inventory']
@@ -197,12 +232,30 @@ def validate(document, *, targets=()):
         for ref in manifest['references']:
             if ref['status'] == 'resolved' and (ref['repository'], ref['source_revision']) not in pins:
                 errors.append('resolved reference is not pinned by manifest repositories')
+    from .science import native_errors, confirmation_errors, native_reference_errors
+    for r in records:
+        if r.get('schema_version') == 2:
+            errors.extend(native_errors(r))
+    if _structural:
+        return errors
+    for target in targets:
+        if isinstance(target, dict) and not _schema_errors(target, 'record'):
+            refs += list(_references(target))
+    from .artifacts import resolved_artifact
+    verified_artifacts = set()
+    for key, target in known.items():
+        try:
+            if resolved_artifact(target, artifact_resolver, verification_cache):
+                verified_artifacts.add(key)
+        except (ValueError, OSError) as exc:
+            errors.append('external artifact verification: ' + str(exc))
     for ref in refs:
         if ref['id'].split(':')[2] != ref['repository']:
             errors.append('reference identity does not match repository')
         if ref['status'] == 'resolved':
-            target = known.get((ref['id'], ref['revision_id']))
-            if not target or target['provenance']['repository'] != ref['repository'] or not ref['source_revision'] or target['provenance']['git_revision'] != ref['source_revision'] or target['provenance']['working_tree']:
+            target = known.get((ref['id'], ref['revision_id'], ref['source_revision']))
+            verified = (ref['id'], ref['revision_id'], ref['source_revision']) in verified_artifacts
+            if not target or target['provenance']['repository'] != ref['repository'] or (not verified and (not ref['source_revision'] or target['provenance']['git_revision'] != ref['source_revision'] or target['provenance']['working_tree'])):
                 errors.append(f'{ref["id"]}: resolved reference lacks exact validated target/source pin')
             elif target['kind'] == 'experiment' and target['payload']['controls'] == 'failed':
                 for r in records:
@@ -213,29 +266,41 @@ def validate(document, *, targets=()):
             continue
         p = r['payload']
         claim_ref = p['claim']
-        claim = known.get((claim_ref['id'], claim_ref['revision_id']))
+        claim = known.get((claim_ref['id'], claim_ref['revision_id'], claim_ref['source_revision']))
         if claim and claim['kind'] != 'claim':
             errors.append('assessment must target a claim')
         if claim and claim['kind'] == 'claim' and claim['payload']['domain'] == 'nature':
             if r['scope'] in {'derivation', 'simulation-under-assumptions', 'synthetic-calibration'}:
                 errors.append('model or synthetic scope cannot confirm a claim about nature')
             for ref in p['evidence']:
-                evidence = known.get((ref['id'], ref['revision_id']))
+                evidence = known.get((ref['id'], ref['revision_id'], ref['source_revision']))
                 if evidence and evidence['scope'] in {'derivation', 'simulation-under-assumptions', 'synthetic-calibration'}:
                     errors.append('model or synthetic evidence cannot confirm a claim about nature')
+    # Validate the entire supplied evidence closure, without recursively rebuilding it.
+    for r in records + list(targets):
+        if not isinstance(r, dict) or _schema_errors(r, 'record'):
+            continue
+        if r.get('schema_version') == 2:
+            errors.extend(native_reference_errors(r, known))
+        if r.get('kind') == 'assessment' and r['payload']['inference'] == 'confirmatory-primary':
+            errors.extend(confirmation_errors(r, known, verified_artifacts=verified_artifacts))
     return errors
 
 
-def reconcile(manifest, records):
+def reconcile(manifest, records, *, artifact_resolver=None):
     """Return a copy with only exact, independently valid pins resolved; no file/network lookup."""
     errors = _schema_errors(manifest, 'manifest')
     if errors:
         raise ValueError('; '.join(errors))
     result = deepcopy(manifest)
+    records = list(records)
     valid = {}
     duplicates = set()
-    for record in records:
-        if validate(record):
+    verification_cache = {}
+    from .artifacts import resolved_artifact
+    for i, record in enumerate(records):
+        if validate(record, targets=records[:i] + records[i+1:], artifact_resolver=artifact_resolver,
+                    _verification_cache=verification_cache):
             continue
         key = (record['provenance']['repository'], record['id'], record['revision_id'],
                record['provenance']['git_revision'])
@@ -245,7 +310,8 @@ def reconcile(manifest, records):
     pins = {(p['id'], p['git_revision']) for p in manifest['repositories']}
     for ref in result['references']:
         key = (ref['repository'], ref['id'], ref['revision_id'], ref['source_revision'])
-        ref['status'] = 'resolved' if (key in valid and key not in duplicates and ref['source_revision']
-                                      and not valid[key]['provenance']['working_tree']
+        verified = key in valid and resolved_artifact(valid[key], artifact_resolver, verification_cache)
+        ref['status'] = 'resolved' if (key in valid and key not in duplicates and
+                                      (verified or (ref['source_revision'] and not valid[key]['provenance']['working_tree']))
                                       and (ref['repository'], ref['source_revision']) in pins) else 'pending'
     return result

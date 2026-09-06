@@ -4,7 +4,9 @@ Owning scientific repositories retain canonical records. This package validates 
 proposes historical imports. Reports are candidates for owner reconciliation, not an
 alternative authority. No task completion, successful process or delivery changes a
 scientific verdict. No scheduling, database projection, service or native authoring is
-implemented in this milestone.
+implemented in the v1 foundation. Package 0.2 adds explicit v2 native authoring;
+see [Native workflow](native-workflow.md). The v1 historical schema and digest rules below
+remain compatible.
 
 ## Records and independent dimensions
 
@@ -110,6 +112,9 @@ the importer does not fetch or silently select today's target.
 
 `reconcile(manifest, records)` returns a copy. It resolves only a unique, valid supplied
 record with the exact repository/ID/revision/source pin and clean pinned source bytes.
+Package 0.2 additionally accepts an explicit typed `artifact_resolver` for independently
+rechecked non-Git dataset bytes; see the owner-verifier seam in
+[Native workflow](native-workflow.md). The default remains conservative and unchanged.
 Missing, dirty, duplicate and wrong-revision targets remain pending. It does not mutate
 records or contact a repository. `validate(manifest, targets=records)` checks a reconciled
 manifest; the CLI accepts repeated `--target` files for the same purpose. A pending link
@@ -123,5 +128,5 @@ A later index may ingest validated owner manifests keyed by `(id, revision_id)` 
 provenance and separate reference-resolution state. Its SQLite tables are disposable
 projections, rebuilt from owner records; they may not become a second task or scientific
 store. A local browser can consume exported JSON through static serving. This milestone
-adds no service, scheduler, speculative plugin API or sibling cutover. Native authoring,
-preregister/record-run/assess commands, owner pilots and cutovers require later tasks.
+adds no service, scheduler, speculative plugin API or sibling cutover. Package 0.2 now supplies native authoring and preregister/record-run/assess commands
+through explicit schema v2. Existing owner pilots keep v1; cutovers require owner tasks.

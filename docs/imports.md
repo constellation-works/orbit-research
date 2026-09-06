@@ -17,7 +17,7 @@ private content; do not commit live reports. The committed example is synthetic.
 | Adapter | Default discovery | Mapping and explicit limits |
 | --- | --- | --- |
 | principia | `theory/**/claims.json`, `theory/**/*.md`, `gates/*.json`, `studies/*preregistration*.md`, `ledger.md` | Program/theory, exact claims, historical assessments, unverified gate protocols; prose/state/frontmatter/ledgers preserved as source artifacts |
-| parallax | `docs/*.md`, SQLite `.db/.sqlite/.sqlite3` under `data/` and `artifacts/` | Exact standalone H table rows become empirical hypotheses; R/E rows and declaration headings explicitly excepted; full prose retained |
+| parallax | `docs/*.md`, `docs/research/**/*.md`, SQLite `.db/.sqlite/.sqlite3` under `data/` and `artifacts/` | Exact standalone H table rows and namespaced R/H/E frontmatter/Claim sections map conservatively; full prose and historical protocol/outcome qualifications retained |
 | orrery | `lab/sims/**/*.json` | `sim.json` slug becomes a program/activity; result and run JSON remain immutable source/result artifacts pending owner mapping |
 | astrolabe | `data/processed/**/*.json` | Explicit sidecar kind+name becomes dataset artifact; same-stem Parquet bytes are hashed by streaming; lineage remains pending |
 
@@ -41,9 +41,13 @@ alias. Collision candidates are withheld and their raw entries remain inventorie
 
 ## SQLite specifics
 
-The inspected Linux API is `TradeJournal`, with `trade_intents` and `trade_outcomes`, not
-an assumed Mac ResearchJournal schema. Explicit `research_intents`/`research_outcomes`
-tables with the same row shapes are also accepted. Other tables and shape variants are
+The delivered Linux APIs retain separate `TradeJournal` and `ResearchJournal` schemas.
+Trade outcomes use `trade_id`; research outcomes use `experiment_id`. Research intents
+retain question, hypothesis, baseline, method, metric, invalidation and data cutoff in an
+unverified historical protocol. `reject`, `revise` and `advance` remain raw operational
+decisions, never inferred scientific verdicts. Distinct journal identity prefixes prevent
+collisions across these APIs. Temporary real-schema WAL fixtures exercise this mapping;
+no actual ResearchJournal bytes existed in the inspected Linux checkout. Other shapes are
 fully inventoried with exceptions. Every user-table definition and row is read; BLOBs are
 losslessly represented as `{"sqlite_blob_hex": "..."}`. A row containing a nonfinite SQL
 number is excepted with an encoded value rather than producing invalid JSON.

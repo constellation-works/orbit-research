@@ -2,11 +2,11 @@
 
 Scientific claims, protocols, evidence and assessments, with reproducible workflows powered by Orbit.
 
-This installable Python CLI/library provides the first scientific record contract and
-read-only legacy import milestone. Principia, Parallax, Orrery and Astrolabe retain their
+This installable Python CLI/library provides immutable native scientific authoring and
+conservative read-only legacy imports. Principia, Parallax, Orrery and Astrolabe retain their
 own records and artifacts. Orbit remains authoritative for operational tasks, crews, runs
 and delivery. The approved starting contract is Constellation task ORB-11353; this milestone
-is ORB-11367.
+is ORB-11367; native authoring is ORB-11391 (package 0.2, native record schema v2).
 
 ## Install and validate
 
@@ -56,6 +56,8 @@ roots; full live reports retain private source content and should stay outside G
 
 ## Contract and evidence
 
+- [Native workflow](docs/native-workflow.md): fresh CLI examples, atomic appends,
+  registration chronology, assessments, exact trace/export and versioned Orbit instructions.
 - [Scientific contract](docs/contract.md): six record kinds, semantic protocol identity,
   independent activity/execution/verdict, exact provenance and pending reconciliation.
 - [Import boundaries](docs/imports.md): discovery, preservation/exception accounting,
@@ -64,8 +66,8 @@ roots; full live reports retain private source content and should stay outside G
   validation results and next owner-specific migration work.
 - [Version 1 schemas](src/orbit_research/schemas/v1/record.schema.json): shipped as package data.
 
-Library entry points are `make_record`, `protocol_digest`, `validate`, `reconcile` and
-`import_source`. `validate` returns errors rather than modifying data; `reconcile` returns
+Library entry points include `Owner`, `make_record`, `protocol_digest`, `validate`, `reconcile`
+and `import_source`. `validate` returns errors rather than modifying data; `reconcile` returns
 a copy with exact supplied pins resolved. No import command writes scientific records.
-Native authoring, the rebuildable SQLite projection, static browser and sibling cutovers
-remain later milestones.
+`Owner` provides native appends, exact reference resolution, trace and validated export.
+The rebuildable SQLite projection, static browser and sibling cutovers remain later milestones.
