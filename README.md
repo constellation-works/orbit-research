@@ -58,6 +58,9 @@ roots; full live reports retain private source content and should stay outside G
 
 ## Contract and evidence
 
+- [Rust port design](docs/design/rust-port/1_overview.md): crate graph, Python-compatible
+  digests, and the drop-in CLI gate. Python remains the running implementation
+  until that gate is green.
 - [Local evidence browser](docs/browser.md): explicit checkout/manifest mapping, atomic
   rebuild, portable export, exact reconciliation, safe media and rendered acceptance checks.
 - [Native workflow](docs/native-workflow.md): fresh CLI examples, atomic appends,
