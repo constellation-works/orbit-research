@@ -1,0 +1,22 @@
+[package]
+name = "orbit-research-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "orbit-research"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+orbit-research-contract = { path = "../orbit-research-contract" }
+orbit-research-import = { path = "../orbit-research-import" }
+orbit-research-index = { path = "../orbit-research-index" }
+orbit-research-owner = { path = "../orbit-research-owner" }
+serde_json.workspace = true
+
+[lints]
+workspace = true
+

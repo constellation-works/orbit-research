@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/orbit-research-contract",
+    "crates/orbit-research-owner",
+    "crates/orbit-research-import",
+    "crates/orbit-research-index",
+    "crates/orbit-research-cli",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+
+[workspace.dependencies]
+clap = { version = "4.5", features = ["derive"] }
+jsonschema = { version = "0.18", default-features = false, features = ["draft202012"] }
+ryu = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["arbitrary_precision"] }
+sha2 = "0.10"
+thiserror = "2.0"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+print_stdout = "warn"
+unwrap_used = "warn"

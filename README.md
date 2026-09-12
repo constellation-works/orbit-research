@@ -25,6 +25,15 @@ A standard virtual environment with `python -m pip install .` also works. On a r
 a read-only default uv cache, set `UV_CACHE_DIR` to a writable directory outside the checkout.
 No scientific owning package, source datasets or database service is required.
 
+The accepted Rust port is being built alongside the published Python package. The current
+workspace provides the digest-stable contract plus JSON-compatible `validate` and `reconcile`
+commands; Python remains the running implementation until the full drop-in gate is green:
+
+```bash
+cargo test -p orbit-research-contract
+cargo run -p orbit-research-cli --bin orbit-research -- validate examples/migration-report.json
+```
+
 ## Reproduce the four portable dry runs
 
 The fixture generator creates synthetic source trees and a small journal SQLite database.

@@ -1,0 +1,13 @@
+[package]
+name = "orbit-research-owner"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+orbit-research-contract = { path = "../orbit-research-contract" }
+
+[lints]
+workspace = true
+
