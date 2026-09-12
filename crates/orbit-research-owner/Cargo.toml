@@ -6,7 +6,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+libc.workspace = true
 orbit-research-contract = { path = "../orbit-research-contract" }
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

@@ -3,6 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::{self, Write as _};
 use std::str::FromStr;
+use std::sync::OnceLock;
 
 use jsonschema::{Draft, JSONSchema};
 use serde::de::{self, DeserializeSeed, MapAccess, SeqAccess, Visitor};
@@ -571,12 +572,41 @@ pub fn validate(document: &Value, targets: &[Value]) -> Vec<String> {
     errors
 }
 
-fn validate_structural(record: &Value) -> Vec<String> {
+/// Schema and per-record invariants only: no reference resolution against a closure.
+/// The owner crate uses this to check one canonical append it has just read from disk.
+pub fn validate_structural(record: &Value) -> Vec<String> {
     let mut errors = schema_errors(record);
     if errors.is_empty() {
         validate_record(record, &mut errors, &mut HashMap::new());
     }
     errors
+}
+
+/// The embedded schemas, parsed and compiled once. Validation runs on every record of
+/// every closure, so recompiling this registry per call would dominate an owner append.
+fn registry() -> &'static Result<HashMap<&'static str, JSONSchema>, String> {
+    static REGISTRY: OnceLock<Result<HashMap<&'static str, JSONSchema>, String>> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut parsed = HashMap::new();
+        for (schema_id, source) in SCHEMAS {
+            let schema = serde_json::from_str::<Value>(source)
+                .map_err(|error| format!("embedded schema is invalid: {error}"))?;
+            parsed.insert(*schema_id, schema);
+        }
+        let mut compiled = HashMap::new();
+        for (schema_id, schema) in &parsed {
+            let mut options = JSONSchema::options();
+            options.with_draft(Draft::Draft202012);
+            for (other, document) in &parsed {
+                options.with_document((*other).to_owned(), document.clone());
+            }
+            let validator = options
+                .compile(schema)
+                .map_err(|error| format!("embedded schema is invalid: {error}"))?;
+            compiled.insert(*schema_id, validator);
+        }
+        Ok(compiled)
+    })
 }
 
 fn schema_errors(document: &Value) -> Vec<String> {
@@ -601,26 +631,12 @@ fn schema_errors(document: &Value) -> Vec<String> {
         "record"
     };
     let id = format!("urn:orbit-research:schema:v{version}:{name}");
-    let mut parsed = HashMap::new();
-    for (schema_id, source) in SCHEMAS {
-        match serde_json::from_str::<Value>(source) {
-            Ok(schema) => {
-                parsed.insert(*schema_id, schema);
-            }
-            Err(error) => return vec![format!("embedded schema is invalid: {error}")],
-        }
-    }
-    let Some(schema) = parsed.get(id.as_str()).cloned() else {
-        return vec!["unsupported schema version or document kind".to_owned()];
+    let compiled = match registry() {
+        Ok(compiled) => compiled,
+        Err(message) => return vec![message.clone()],
     };
-    let mut options = JSONSchema::options();
-    options.with_draft(Draft::Draft202012);
-    for (schema_id, value) in parsed {
-        options.with_document(schema_id.to_owned(), value);
-    }
-    let validator = match options.compile(&schema) {
-        Ok(validator) => validator,
-        Err(error) => return vec![format!("embedded schema is invalid: {error}")],
+    let Some(validator) = compiled.get(id.as_str()) else {
+        return vec!["unsupported schema version or document kind".to_owned()];
     };
     match validator.validate(document) {
         Ok(()) => Vec::new(),
@@ -1041,7 +1057,8 @@ fn validate_reference(
     }
 }
 
-fn record_references(record: &Value) -> Vec<&Value> {
+/// Every typed scientific edge a record carries, including native `supersedes` links.
+pub fn record_references(record: &Value) -> Vec<&Value> {
     let mut refs: Vec<&Value> = array(record, "references").into_iter().flatten().collect();
     if let Some(authorship) = record.get("authorship") {
         refs.extend(array(authorship, "supersedes").into_iter().flatten());

@@ -3,9 +3,10 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use orbit_research_contract::{parse_json, reconcile, validate};
 use orbit_research_import::{ADAPTERS, import_source, write_report};
+use orbit_research_owner::{Owner, OwnerConfig, reference, write_json_new};
 use serde_json::{Value, json};
 
 #[derive(Debug, Parser)]
@@ -51,6 +52,101 @@ enum Command {
         #[arg(long, help = "new output file outside source root; default stdout")]
         output: Option<PathBuf>,
     },
+    Program(Authoring),
+    Claim(Authoring),
+    Artifact(Authoring),
+    Preregister(Authoring),
+    BeginRun(Authoring),
+    RecordRun(Authoring),
+    Assess(Authoring),
+    Retire(Authoring),
+    Heads {
+        #[command(flatten)]
+        owner: OwnerArgs,
+        /// Full canonical URN; identities are never inferred from a short name.
+        #[arg(long)]
+        id: String,
+    },
+    Ref {
+        #[command(flatten)]
+        owner: OwnerArgs,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        revision: String,
+        #[arg(long = "source-revision")]
+        source_revision: String,
+    },
+    Trace {
+        #[command(flatten)]
+        owner: OwnerArgs,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        revision: String,
+    },
+    Export {
+        #[command(flatten)]
+        owner: OwnerArgs,
+        #[arg(long = "source-revision")]
+        source_revision: String,
+        /// New destination outside the canonical records directory.
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
+
+/// Explicit owner routing shared by every owner subcommand.
+#[derive(Args, Debug)]
+struct OwnerArgs {
+    #[arg(long = "owner-root")]
+    owner_root: PathBuf,
+    #[arg(long)]
+    repository: String,
+    #[arg(long, default_value = "research/records")]
+    records: String,
+    /// Routed source checkout as `REPOSITORY=ROOT`; repeatable.
+    #[arg(long = "source", value_name = "REPOSITORY=ROOT")]
+    sources: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+struct Authoring {
+    #[command(flatten)]
+    owner: OwnerArgs,
+    /// Request document for this operation.
+    #[arg(long)]
+    request: PathBuf,
+}
+
+impl OwnerArgs {
+    fn open(&self) -> Result<Owner, String> {
+        let mut sources = std::collections::BTreeMap::new();
+        for value in &self.sources {
+            let (name, root) = value
+                .split_once('=')
+                .filter(|(name, root)| !name.is_empty() && !root.is_empty())
+                .ok_or_else(|| {
+                    "source routing requires unique REPOSITORY=ROOT mappings".to_owned()
+                })?;
+            if sources
+                .insert(name.to_owned(), PathBuf::from(root))
+                .is_some()
+            {
+                return Err("source routing requires unique REPOSITORY=ROOT mappings".to_owned());
+            }
+        }
+        Owner::open(
+            &self.owner_root,
+            &self.repository,
+            OwnerConfig {
+                records: self.records.clone(),
+                sources,
+                ..OwnerConfig::default()
+            },
+        )
+        .map_err(|error| error.to_string())
+    }
 }
 
 fn main() -> ExitCode {
@@ -78,6 +174,70 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
             let errors = validate(&document, &targets);
             let code = if errors.is_empty() { 0 } else { 1 };
             Ok((json!({"valid": errors.is_empty(), "errors": errors}), code))
+        }
+        Command::Program(args) => author("program", &args),
+        Command::Claim(args) => author("claim", &args),
+        Command::Artifact(args) => author("artifact", &args),
+        Command::Preregister(args) => author("preregister", &args),
+        Command::BeginRun(args) => author("begin-run", &args),
+        Command::RecordRun(args) => author("record-run", &args),
+        Command::Assess(args) => author("assess", &args),
+        Command::Retire(args) => author("retire", &args),
+        Command::Heads { owner, id } => {
+            let owner = owner.open()?;
+            let heads = owner.heads(&id).map_err(|error| error.to_string())?;
+            Ok((json!({"heads": heads}), 0))
+        }
+        Command::Ref {
+            owner,
+            id,
+            revision,
+            source_revision,
+        } => {
+            let owner = owner.open()?;
+            let pinned = owner
+                .pin(&id, &revision, &source_revision)
+                .map_err(|error| error.to_string())?;
+            Ok((reference(&pinned, "resolved"), 0))
+        }
+        Command::Trace {
+            owner,
+            id,
+            revision,
+        } => {
+            let owner = owner.open()?;
+            let trace = owner
+                .trace(&id, &revision)
+                .map_err(|error| error.to_string())?;
+            Ok((trace, 0))
+        }
+        Command::Export {
+            owner,
+            source_revision,
+            output,
+        } => {
+            let owner = owner.open()?;
+            let destination = resolved_destination(&output)?;
+            if destination.starts_with(
+                owner
+                    .directory()
+                    .canonicalize()
+                    .unwrap_or_else(|_| owner.directory().to_path_buf()),
+            ) {
+                return Err("export cannot write inside canonical records".to_owned());
+            }
+            let bundle = owner
+                .export(&source_revision)
+                .map_err(|error| error.to_string())?;
+            write_json_new(&bundle, &output).map_err(|error| error.to_string())?;
+            Ok((
+                json!({
+                    "output": output.to_string_lossy(),
+                    "records": bundle.get("records").and_then(Value::as_array).map_or(0, Vec::len),
+                    "manifests": bundle.get("manifests").and_then(Value::as_array).map_or(0, Vec::len),
+                }),
+                0,
+            ))
         }
         Command::Reconcile {
             input,
@@ -140,6 +300,33 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
             }
         }
     }
+}
+
+/// Append one immutable record through the owner crate and return it verbatim.
+fn author(operation: &str, args: &Authoring) -> Result<(Value, u8), String> {
+    let owner = args.owner.open()?;
+    let request = read_json(&args.request)?;
+    let record = owner
+        .apply(operation, &request)
+        .map_err(|error| error.to_string())?;
+    Ok((record, 0))
+}
+
+/// Resolve a not-yet-existing destination through its parent directory.
+fn resolved_destination(output: &Path) -> Result<PathBuf, String> {
+    let parent = output
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    let directory = match parent {
+        Some(parent) => parent
+            .canonicalize()
+            .map_err(|error| format!("{}: {error}", parent.display()))?,
+        None => std::env::current_dir().map_err(|error| error.to_string())?,
+    };
+    Ok(match output.file_name() {
+        Some(name) => directory.join(name),
+        None => directory,
+    })
 }
 
 fn read_targets(paths: &[PathBuf]) -> Result<Vec<Value>, String> {

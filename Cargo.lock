@@ -759,7 +759,11 @@ dependencies = [
 name = "orbit-research-owner"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "orbit-research-contract",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
