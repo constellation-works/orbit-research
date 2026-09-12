@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use orbit_research_contract::{parse_json, reconcile, validate};
+use orbit_research_import::{ADAPTERS, import_source, write_report};
 use serde_json::{Value, json};
 
 #[derive(Debug, Parser)]
@@ -31,6 +32,24 @@ enum Command {
         targets: Vec<PathBuf>,
         #[arg(long)]
         output: PathBuf,
+    },
+    /// Inventory sources and emit read-only migration candidates. Always a
+    /// dry run: `--dry-run` is accepted for documentation and never changes
+    /// behavior, since there is no non-dry-run mode.
+    Import {
+        adapter: String,
+        #[arg(long = "source-root")]
+        source_root: PathBuf,
+        #[arg(long, help = "stable owner namespace, independent of filesystem path")]
+        repository: String,
+        #[arg(long = "expect-revision", help = "exact Git HEAD required before reading")]
+        expect_revision: Option<String>,
+        #[arg(long = "select", help = "relative input file; repeat to override default discovery")]
+        select: Vec<String>,
+        #[arg(long = "dry-run", help = "default and only supported mode")]
+        dry_run: bool,
+        #[arg(long, help = "new output file outside source root; default stdout")]
+        output: Option<PathBuf>,
     },
 }
 
@@ -74,6 +93,51 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
             }
             write_new(&output, &result)?;
             Ok((json!({"output": output.to_string_lossy()}), 0))
+        }
+        Command::Import {
+            adapter,
+            source_root,
+            repository,
+            expect_revision,
+            select,
+            dry_run: _,
+            output,
+        } => {
+            if !ADAPTERS.contains(&adapter.as_str()) {
+                return Err(format!(
+                    "adapter must be one of: {}",
+                    ADAPTERS.join(", ")
+                ));
+            }
+            let selected = if select.is_empty() { None } else { Some(select.as_slice()) };
+            let report = import_source(
+                &source_root,
+                &adapter,
+                &repository,
+                selected,
+                expect_revision.as_deref(),
+            )
+            .map_err(|error| error.to_string())?;
+            let errors = validate(&report, &[]);
+            if !errors.is_empty() {
+                return Err(format!(
+                    "candidate validation failed: {}",
+                    errors.iter().take(20).cloned().collect::<Vec<_>>().join("; ")
+                ));
+            }
+            if let Some(output) = output {
+                write_report(&report, &output, &[source_root]).map_err(|error| error.to_string())?;
+                Ok((
+                    json!({
+                        "output": output.to_string_lossy(),
+                        "counts": report["counts"],
+                        "source_unchanged": true,
+                    }),
+                    0,
+                ))
+            } else {
+                Ok((report, 0))
+            }
         }
     }
 }
