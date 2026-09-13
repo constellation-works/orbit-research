@@ -1,11 +1,9 @@
 # orbit-research — agent guide
 
-Independent repository on agent-main. The running implementation is Python; the
-accepted target architecture is the Rust workspace in
-[docs/design/rust-port/](docs/design/rust-port/1_overview.md). Build the
-scientific registry and its Orbit integration; do not build a second task
-engine or scheduler. Do not delete Python until the drop-in gate in that
-design is green.
+Independent repository on agent-main. The running implementation is the Rust
+workspace specified in [docs/design/rust-port/](docs/design/rust-port/1_overview.md).
+Build the scientific registry and its Orbit integration; do not build a second
+task engine or scheduler. Do not revive the retired Python package.
 
 - Canonical scientific records remain owned by their scientific repositories. The cross-project index is rebuildable, never a second authority.
 - Keep claim revisions, frozen protocols, result artifacts and assessments distinct. Execution success is not scientific support. Retirement preserves verdicts and history.

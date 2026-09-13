@@ -73,5 +73,5 @@ the CLI path is `orbit tool run orbit.task.update --root ... --input-file ...` w
 `id`, `workspace`, `model`, and `execution_summary`. Do not equate task delivery with a
 scientific verdict. Follow the owner's validation and approval policy.
 
-The package's `docs/native-workflow.md` and `examples/native_workflow.py` provide executable
+`docs/native-workflow.md` and `examples/native_workflow.py` provide executable
 physics-control and nonphysics fixtures. They are acceptance fixtures, not experiments.

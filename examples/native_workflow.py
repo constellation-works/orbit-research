@@ -3,6 +3,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -32,7 +33,7 @@ class Workflow:
         self.scope = 'synthetic-calibration'
 
     def cli(self, command, *args):
-        argv=[sys.executable,'-m','orbit_research',command]
+        argv=[os.environ.get('ORBIT_RESEARCH_BINARY', 'orbit-research'), command]
         if command not in {'validate','reconcile'}:
             argv += ['--owner-root', str(self.root), '--repository', self.namespace]
         p=subprocess.run(argv+list(args),capture_output=True,text=True)

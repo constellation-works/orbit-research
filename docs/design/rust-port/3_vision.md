@@ -1,8 +1,8 @@
 ---
 title: Rust Port — Vision
 owner: grok
-last_updated: 2026-09-12
-last_validated: 2026-09-12
+last_updated: 2026-09-13
+last_validated: 2026-09-13
 status: Accepted
 feature: rust-port
 doc_role: vision
@@ -22,10 +22,10 @@ is labelled.
 
 ## 1. Open Questions
 
-1. **When to delete the Python tree.** After the drop-in gate in
-   [2_design.md §7](./2_design.md) and a research-view pin cutover, the
-   Python package is dead weight. Deletion is a separate owner-visible
-   change because constellation still pins two Git revisions of this repo.
+1. **Research-view pin cutover.** The Python tree was deleted in [ORB-12414]
+   after the drop-in gate. Constellation still documents two historical Git
+   pins of the Python package; updating `operations/research` is
+   constellation-owned ([ORB-12415]).
 2. **Schema v3 / RFC 8785.** A clean canonicalization would remove the
    CPython byte-matching module. It would also rewrite every `revision_id`.
    Not in this port. If it happens, v1/v2 stay read-only historical encodings.

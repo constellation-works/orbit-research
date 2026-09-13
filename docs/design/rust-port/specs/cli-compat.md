@@ -18,7 +18,7 @@ subcommand would break that pin independently of digest correctness.
 
 ## Commands
 
-Required subcommands, matching `src/orbit_research/cli.py`:
+Required subcommands, matching the retired Python 0.3 CLI:
 
 - `index --config PATH --database PATH`
 - `browse-export --config PATH --database PATH --output PATH`
@@ -59,10 +59,9 @@ if `json` remains the default for existing subcommands.
 
 ## Migration
 
-While Python remains, both CLIs must accept the same argv for the commands
-the research-view launcher uses (`index`, `browse-export`). After cutover,
-the Python console script is removed in the same change that updates the
-pins.
+The Rust binary accepts the same argv the research-view launcher uses
+(`index`, `browse-export`). The Python console script is gone. Updating the
+constellation pins is a separate owner task.
 
 ## Agent Signature
 

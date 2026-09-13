@@ -7,13 +7,14 @@ No server application, runtime plugin, cloud publication or operational task sto
 
 ## Build a portable example
 
-After installing the package as described in the root README, use fresh external paths:
+Build the CLI, then point it at an operator-authored config of explicit owner checkouts.
+Use fresh external paths for the database and export:
 
 ```sh
-/tmp/research-env/bin/python examples/browser_fixture.py /tmp/research-browser-fixtures
-/tmp/research-env/bin/orbit-research index --config /tmp/research-browser-fixtures/index-config.json --database /tmp/research-browser-fixtures/index.sqlite
-/tmp/research-env/bin/orbit-research browse-export --config /tmp/research-browser-fixtures/index-config.json --database /tmp/research-browser-fixtures/index.sqlite --output /tmp/research-browser-fixtures/site
-/tmp/research-env/bin/python -m http.server 8000 --bind 127.0.0.1 --directory /tmp/research-browser-fixtures
+cargo build -p orbit-research-cli --bin orbit-research
+./target/debug/orbit-research index --config /tmp/research-browser/index-config.json --database /tmp/research-browser/index.sqlite
+./target/debug/orbit-research browse-export --config /tmp/research-browser/index-config.json --database /tmp/research-browser/index.sqlite --output /tmp/research-browser/site
+python3 -m http.server 8000 --bind 127.0.0.1 --directory /tmp/research-browser
 ```
 
 Open `http://127.0.0.1:8000/site/`. This is ordinary static serving, including the explicitly
@@ -22,9 +23,10 @@ when copied to another machine or opened directly as `index.html`. Bundled raste
 travels with it. Checkout navigation requires the documented local URL mapping on that
 machine. JSON is available from the header without running the interface.
 
-The fixture creates four **new disposable Git repositories**, synthetic historical control
-records and Parallax R01/H08/E01 Markdown source documents through the existing adapter.
-It does not touch live owners, rerun a simulation or represent synthetic numbers as new science.
+The constellation four-owner launcher is `operations/scripts/research-view.sh`. CLI tests
+under `crates/orbit-research-cli/tests/index_cli.rs` cover index rebuild and browse-export
+on disposable Git fixtures. Do not touch live owners, rerun a simulation or represent
+synthetic numbers as new science.
 
 ## Explicit owner routing
 
@@ -179,10 +181,7 @@ to navigate to its owning page; no imported simulation script runs inside the at
 ## Validation
 
 ```sh
-/tmp/research-env/bin/python -m unittest discover -s tests -v
-uv pip install --python /tmp/research-env/bin/python '.[browser-tests]'
-/tmp/research-env/bin/python -m playwright install chromium
-PYTHONPATH=. /tmp/research-env/bin/python tests/browser_workflow.py /tmp/research-browser-evidence
+cargo test --workspace --locked
 ```
 
 Chromium also needs its platform shared libraries (the Playwright `install-deps chromium`

@@ -3,9 +3,9 @@ codebase: orbit-research
 owner: daniel
 summary: Scientific claims, protocols, evidence and assessments with reproducible workflows powered by Orbit.
 status: active
-stack: Python
+stack: Rust
 gate: direct
 agents: "—"
 ---
 
-Shared scientific registry and workflow package for Principia, Parallax, Orrery and Astrolabe.
+Shared scientific registry and Rust CLI for Principia, Parallax, Orrery and Astrolabe.

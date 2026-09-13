@@ -25,47 +25,47 @@ const RECORD_KINDS: &[&str] = &[
 const SCHEMAS: &[(&str, &str)] = &[
     (
         "urn:orbit-research:schema:v1:record",
-        include_str!("../../../src/orbit_research/schemas/v1/record.schema.json"),
+        include_str!("../../../schemas/v1/record.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:manifest",
-        include_str!("../../../src/orbit_research/schemas/v1/manifest.schema.json"),
+        include_str!("../../../schemas/v1/manifest.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:import-report",
-        include_str!("../../../src/orbit_research/schemas/v1/import-report.schema.json"),
+        include_str!("../../../schemas/v1/import-report.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:program",
-        include_str!("../../../src/orbit_research/schemas/v1/program.schema.json"),
+        include_str!("../../../schemas/v1/program.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:claim",
-        include_str!("../../../src/orbit_research/schemas/v1/claim.schema.json"),
+        include_str!("../../../schemas/v1/claim.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:protocol",
-        include_str!("../../../src/orbit_research/schemas/v1/protocol.schema.json"),
+        include_str!("../../../schemas/v1/protocol.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:experiment",
-        include_str!("../../../src/orbit_research/schemas/v1/experiment.schema.json"),
+        include_str!("../../../schemas/v1/experiment.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:artifact",
-        include_str!("../../../src/orbit_research/schemas/v1/artifact.schema.json"),
+        include_str!("../../../schemas/v1/artifact.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:assessment",
-        include_str!("../../../src/orbit_research/schemas/v1/assessment.schema.json"),
+        include_str!("../../../schemas/v1/assessment.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v2:record",
-        include_str!("../../../src/orbit_research/schemas/v2/record.schema.json"),
+        include_str!("../../../schemas/v2/record.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v2:export",
-        include_str!("../../../src/orbit_research/schemas/v2/export.schema.json"),
+        include_str!("../../../schemas/v2/export.schema.json"),
     ),
 ];
 

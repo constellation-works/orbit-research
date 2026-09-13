@@ -68,8 +68,9 @@ Minimum oracle:
 3. a fixture containing non-ASCII, nested `legacy` objects, and large
    integers
 
-The Python package is the oracle until the drop-in gate. Dual-run: hash in
-both languages, compare hex.
+Golden fixtures (`examples/migration-report.json` and native-workflow
+exports) are the oracle. Dual-run against a live Python install is no longer
+required.
 
 ## Agent Signature
 

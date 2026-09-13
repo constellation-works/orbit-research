@@ -13,9 +13,9 @@ use crate::config::{guard_output, load_config};
 use crate::read::read_index;
 use crate::{IndexError, Result, require, text};
 
-const WEB_INDEX_HTML: &[u8] = include_bytes!("../../../src/orbit_research/web/index.html");
-const WEB_APP_JS: &[u8] = include_bytes!("../../../src/orbit_research/web/app.js");
-const WEB_STYLE_CSS: &[u8] = include_bytes!("../../../src/orbit_research/web/style.css");
+const WEB_INDEX_HTML: &[u8] = include_bytes!("../../../web/index.html");
+const WEB_APP_JS: &[u8] = include_bytes!("../../../web/app.js");
+const WEB_STYLE_CSS: &[u8] = include_bytes!("../../../web/style.css");
 
 #[derive(Debug)]
 pub struct ExportOutcome {

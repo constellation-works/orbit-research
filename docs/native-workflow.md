@@ -7,16 +7,14 @@ The static export is ordinary JSON usable by a later browser with static serving
 
 ## Fresh checkout acceptance workflow
 
-Python 3.11+ on a local POSIX filesystem, Git and the package dependencies are required.
-Use a new environment and a new output directory outside the repository:
+Rust 1.89+ and Git are required. Use a new output directory outside the repository:
 
 ```sh
-UV_CACHE_DIR=/tmp/research-cache uv venv /tmp/research-native-env
-UV_CACHE_DIR=/tmp/research-cache uv pip install --python /tmp/research-native-env/bin/python .
-PYTHONDONTWRITEBYTECODE=1 /tmp/research-native-env/bin/python -m unittest discover -s tests -v
-PYTHONDONTWRITEBYTECODE=1 /tmp/research-native-env/bin/python examples/native_workflow.py /tmp/research-native-demo
-/tmp/research-native-env/bin/orbit-research validate /tmp/research-native-demo/physics-fixture/export.json
-/tmp/research-native-env/bin/orbit-research validate /tmp/research-native-demo/parallax-fixture/export.json
+cargo test --workspace --locked
+cargo build -p orbit-research-cli --bin orbit-research
+ORBIT_RESEARCH_BINARY="$PWD/target/debug/orbit-research" python3 examples/native_workflow.py /tmp/research-native-demo
+./target/debug/orbit-research validate /tmp/research-native-demo/physics-fixture/export.json
+./target/debug/orbit-research validate /tmp/research-native-demo/parallax-fixture/export.json
 ```
 
 The example runs every authoring operation through the installed CLI, retaining request
@@ -29,9 +27,9 @@ example concerns a model estimator; the Parallax R04/H01/E01 example concerns a 
 assistant evaluator. These are generated acceptance fixtures, not new scientific results
 or experiments. Their explicit fixture Orbit links do not identify real tasks.
 
-A standard `python -m venv` and `python -m pip install .` also works. No sibling package,
-private dataset or live journal is needed. Keep environments, package caches and generated
-fixture checkouts outside the worktree.
+No sibling package, private dataset or live journal is needed. Keep generated
+fixture checkouts outside the worktree. `examples/native_workflow.py` is a host
+script that drives the Rust CLI; it does not import a Python package.
 
 ## Requests and exact revisions
 
@@ -185,13 +183,8 @@ the installed resource to a new personal skill directory using the documented ma
 layout (choose the intended user's skill root):
 
 ```sh
-/tmp/research-native-env/bin/python - <<'PY'
-from importlib.resources import files
-from pathlib import Path
-root = Path.home() / '.codex' / 'skills' / 'orbit-research-native'
-root.mkdir(parents=True, exist_ok=False)
-(root / 'SKILL.md').write_text(files('orbit_research').joinpath('resources/v1/SKILL.md').read_text())
-PY
+mkdir -p "$HOME/.codex/skills/orbit-research-native"
+cp crates/orbit-research-cli/resources/v1/SKILL.md "$HOME/.codex/skills/orbit-research-native/SKILL.md"
 ```
 
 Do this only as an operator on the intended host. There is no invented `orbit resource
@@ -220,22 +213,23 @@ no live ResearchJournal database was available and none is fabricated.
 Astrolabe ORB-11380 (`1642b4ba…`) retains immutable Parquet/sidecar pairs outside Git.
 The default v1 resolver still treats its working-tree/null-source records as pending.
 Owners can now explicitly supply an `ArtifactResolver` to `validate`, `reconcile` and
-`Owner(..., artifact_resolver=...)` without changing those v1 records or inventing Git pins.
+`Owner { artifact_resolver, ... }` without changing those v1 records or inventing Git pins.
 This is a library seam for the owner adapter; the generic CLI does not dynamically load
-Python plugins or silently trust a serialized verification flag.
+plugins or silently trust a serialized verification flag.
 
 The resolver receives an exact reference and returns `None` or a `VerifiedArtifact`:
 
-```python
-from orbit_research import verify_artifact
+```rust
+use orbit_research_owner::verify_artifact;
 
-proof = verify_artifact(
-    record,
-    root=snapshot_directory,
-    descriptor=record["legacy"]["snapshot"],
-    byte_fields={"parquet_sha256": "dataset.parquet", "sidecar_sha256": "metadata.json"},
-    semantic_check=owner_schema_and_sidecar_check,
-)
+let proof = verify_artifact(
+    &record,
+    snapshot_directory,
+    &record["legacy"]["snapshot"],
+    &byte_fields, // parquet_sha256 -> dataset.parquet, sidecar_sha256 -> metadata.json
+    owner_schema_and_sidecar_check,
+    record_path,
+)?;
 ```
 
 The owner callback implements the typed `SchemaCheck` protocol, receiving explicit root,

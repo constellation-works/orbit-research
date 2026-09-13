@@ -1,10 +1,7 @@
-//! Executable Python 0.3/Rust drop-in evidence.
+//! CLI acceptance after the Python package was retired.
 //!
-//! The Python fixtures are the oracle. This suite covers the full synthetic import,
-//! native-workflow, and browser examples plus their validate/reconcile paths. The only
-//! Python unittest areas outside this cross-process subset are negative unit-level
-//! mutations and owner-specific artifact-resolver/Parallax edge cases; those invariants
-//! are ported as focused tests in the contract, owner, import, and index crates.
+//! Fixture generators under `examples/` are host Python scripts that do not import
+//! `orbit_research`. They either write synthetic source trees or drive this binary.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -24,15 +21,6 @@ fn repo_root() -> PathBuf {
 
 fn python() -> String {
     std::env::var("ORBIT_RESEARCH_PYTHON").unwrap_or_else(|_| "python3".to_owned())
-}
-
-fn python_command() -> Command {
-    let root = repo_root();
-    let mut command = Command::new(python());
-    command
-        .current_dir(&root)
-        .env("PYTHONPATH", root.join("src"));
-    command
 }
 
 fn run(mut command: Command) -> Output {
@@ -55,44 +43,26 @@ fn rust(args: &[&str]) -> Value {
     serde_json::from_slice(&run(command).stdout).expect("Rust stdout JSON")
 }
 
-fn python_cli(args: &[&str]) -> Value {
-    let mut command = python_command();
-    command.args(["-m", "orbit_research"]).args(args);
-    serde_json::from_slice(&run(command).stdout).expect("Python stdout JSON")
-}
-
 fn json(path: impl AsRef<Path>) -> Value {
     serde_json::from_slice(&fs::read(path).expect("read JSON")).expect("parse JSON")
 }
 
-fn record_identity(records: &Value) -> Vec<(String, String, u64)> {
-    let mut identity = records
+fn record_structure(records: &Value) -> Vec<(String, u64)> {
+    let mut structure = records
         .as_array()
         .expect("records array")
         .iter()
         .map(|record| {
+            let revision = record["revision_id"].as_str().expect("record revision");
+            assert!(
+                revision.starts_with("sha256:") && revision.len() == "sha256:".len() + 64,
+                "{revision}"
+            );
             (
                 record["id"].as_str().expect("record id").to_owned(),
-                record["revision_id"]
-                    .as_str()
-                    .expect("record revision")
-                    .to_owned(),
                 record["authorship"]["sequence"].as_u64().unwrap_or(0),
             )
         })
-        .collect::<Vec<_>>();
-    identity.sort();
-    identity
-}
-
-fn record_structure(records: &Value) -> Vec<(String, u64)> {
-    let identity = record_identity(records);
-    assert!(identity.iter().all(|(_, revision, _)| {
-        revision.starts_with("sha256:") && revision.len() == "sha256:".len() + 64
-    }));
-    let mut structure = identity
-        .into_iter()
-        .map(|(id, _, sequence)| (id, sequence))
         .collect::<Vec<_>>();
     structure.sort();
     structure
@@ -112,32 +82,8 @@ fn owner_record_structure(root: &Path) -> Vec<(String, u64)> {
     record_structure(&Value::Array(records))
 }
 
-fn projection_identity(records: &Value) -> Vec<(String, String, String)> {
-    records
-        .as_array()
-        .expect("projected records")
-        .iter()
-        .map(|projected| {
-            (
-                projected["key"]
-                    .as_str()
-                    .expect("projection key")
-                    .to_owned(),
-                projected["record"]["id"]
-                    .as_str()
-                    .expect("record id")
-                    .to_owned(),
-                projected["record"]["revision_id"]
-                    .as_str()
-                    .expect("record revision")
-                    .to_owned(),
-            )
-        })
-        .collect()
-}
-
 #[test]
-fn resource_and_explicit_task_context_match_python_protocol() {
+fn resource_and_explicit_task_context_match_protocol() {
     let resource = rust(&["resource", "--version", "1"]);
     assert_eq!(resource["version"], 1);
     assert!(
@@ -192,18 +138,19 @@ print(json.dumps({'id':request['id'],'workspace':{'id':request['workspace']},'st
 }
 
 #[test]
-fn synthetic_four_owner_imports_match_python_counts_and_candidate_ids() {
+fn synthetic_four_owner_imports_preserve_counts_and_candidate_ids() {
     let tmp = tempfile::tempdir().expect("tempdir");
     let sources = tmp.path().join("sources");
-    let mut fixture = python_command();
+    let mut fixture = Command::new(python());
     fixture
+        .current_dir(repo_root())
         .arg("examples/make_fixture_sources.py")
         .arg(&sources);
     run(fixture);
 
     for adapter in ["principia", "parallax", "orrery", "astrolabe"] {
         let source = sources.join(adapter);
-        let args = [
+        let actual = rust(&[
             "import",
             adapter,
             "--source-root",
@@ -211,129 +158,67 @@ fn synthetic_four_owner_imports_match_python_counts_and_candidate_ids() {
             "--repository",
             adapter,
             "--dry-run",
-        ];
-        let expected = python_cli(&args);
-        let actual = rust(&args);
-        assert_eq!(actual["counts"], expected["counts"], "{adapter} counts");
-        let ids = |report: &Value| {
-            report["candidates"]
-                .as_array()
-                .expect("candidates")
-                .iter()
-                .map(|candidate| candidate["id"].as_str().expect("candidate id").to_owned())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(ids(&actual), ids(&expected), "{adapter} candidate ids");
+        ]);
+        let discovered = actual["counts"]["discovered"].as_u64().expect("discovered");
+        let mapped = actual["counts"]["mapped"].as_u64().expect("mapped");
+        let exceptions = actual["counts"]["exceptions"].as_u64().expect("exceptions");
+        assert!(discovered > 0, "{adapter} discovered nothing");
+        assert_eq!(discovered, mapped + exceptions, "{adapter} counts");
+        let ids = actual["candidates"]
+            .as_array()
+            .expect("candidates")
+            .iter()
+            .map(|candidate| candidate["id"].as_str().expect("candidate id").to_owned())
+            .collect::<Vec<_>>();
+        assert!(!ids.is_empty(), "{adapter} candidate ids");
+        if adapter == "principia" {
+            let mut sorted = ids;
+            sorted.sort();
+            assert_eq!(
+                sorted,
+                vec![
+                    "urn:research:principia:assessment:control-null%3Alegacy-verdict",
+                    "urn:research:principia:claim:control-null",
+                    "urn:research:principia:program:calibration",
+                    "urn:research:principia:protocol:control",
+                ]
+            );
+        }
     }
 }
 
 #[test]
-fn native_workflow_matches_python_record_revision_and_sequence_identity() {
+fn native_workflow_produces_digest_stable_appends_traces_and_exports() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    let python_root = tmp.path().join("python");
-    let rust_root = tmp.path().join("rust");
-
-    let mut expected = python_command();
-    expected
+    let root = tmp.path().join("owners");
+    let mut command = Command::new(python());
+    command
+        .current_dir(repo_root())
         .arg("examples/native_workflow.py")
-        .arg(&python_root);
-    run(expected);
-
-    let source = fs::read_to_string(repo_root().join("examples/native_workflow.py"))
-        .expect("native workflow source");
-    let adapted = source
-        .replacen("import argparse", "import argparse\nimport os", 1)
-        .replace(
-            "argv=[sys.executable,'-m','orbit_research',command]",
-            "argv=[os.environ['ORBIT_RESEARCH_BINARY'],command]",
-        );
-    assert_ne!(adapted, source, "Rust fixture adapter replacement");
-    let script = tmp.path().join("native_workflow_rust.py");
-    fs::write(&script, adapted).expect("write adapted workflow");
-    let mut actual = python_command();
-    actual
-        .arg(&script)
-        .arg(&rust_root)
+        .arg(&root)
         .env("ORBIT_RESEARCH_BINARY", BINARY);
-    run(actual);
+    run(command);
 
-    assert_eq!(
-        owner_record_structure(&rust_root),
-        owner_record_structure(&python_root)
-    );
+    let structure = owner_record_structure(&root);
+    assert!(!structure.is_empty(), "native workflow wrote no records");
     for namespace in ["physics-fixture", "parallax-fixture"] {
-        let expected_export = json(python_root.join(namespace).join("export.json"));
-        let actual_export = json(rust_root.join(namespace).join("export.json"));
-        assert_eq!(
-            record_structure(&actual_export["records"]),
-            record_structure(&expected_export["records"]),
+        let export = json(root.join(namespace).join("export.json"));
+        assert!(
+            !record_structure(&export["records"]).is_empty(),
             "{namespace} export"
         );
-        let expected_trace = json(python_root.join(namespace).join("trace.json"));
-        let actual_trace = json(rust_root.join(namespace).join("trace.json"));
-        assert_eq!(
-            record_structure(&actual_trace["records"]),
-            record_structure(&expected_trace["records"]),
+        let trace = json(root.join(namespace).join("trace.json"));
+        assert!(
+            !record_structure(&trace["records"]).is_empty(),
             "{namespace} trace"
         );
+        let validated = rust(&[
+            "validate",
+            root.join(namespace)
+                .join("export.json")
+                .to_str()
+                .expect("UTF-8 export"),
+        ]);
+        assert_eq!(validated["valid"], true, "{namespace} validate");
     }
-}
-
-#[test]
-fn browser_projection_records_and_media_match_python_logically() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let fixture_root = tmp.path().join("fixture");
-    let mut fixture = python_command();
-    fixture
-        .arg("examples/browser_fixture.py")
-        .arg(&fixture_root);
-    let config_output = run(fixture);
-    let config = String::from_utf8(config_output.stdout)
-        .expect("config path")
-        .trim()
-        .to_owned();
-    let python_db = tmp.path().join("python.db");
-    let rust_db = tmp.path().join("rust.db");
-    let python_db_text = python_db.to_str().expect("UTF-8 database");
-    let rust_db_text = rust_db.to_str().expect("UTF-8 database");
-    let expected_index = python_cli(&["index", "--config", &config, "--database", python_db_text]);
-    let actual_index = rust(&["index", "--config", &config, "--database", rust_db_text]);
-    assert_eq!(actual_index["records"], expected_index["records"]);
-    assert_eq!(actual_index["pending"], expected_index["pending"]);
-
-    let python_export = tmp.path().join("python-browser");
-    let rust_export = tmp.path().join("rust-browser");
-    python_cli(&[
-        "browse-export",
-        "--config",
-        &config,
-        "--database",
-        python_db_text,
-        "--output",
-        python_export.to_str().expect("UTF-8 export"),
-    ]);
-    rust(&[
-        "browse-export",
-        "--config",
-        &config,
-        "--database",
-        rust_db_text,
-        "--output",
-        rust_export.to_str().expect("UTF-8 export"),
-    ]);
-    let expected = json(python_export.join("index.json"));
-    let actual = json(rust_export.join("index.json"));
-    assert_eq!(
-        projection_identity(&actual["records"]),
-        projection_identity(&expected["records"])
-    );
-    assert_eq!(actual["media"], expected["media"]);
-    assert_eq!(
-        fs::read_dir(rust_export.join("media"))
-            .expect("Rust media")
-            .count(),
-        fs::read_dir(python_export.join("media"))
-            .expect("Python media")
-            .count()
-    );
 }

@@ -1,13 +1,13 @@
 ---
 title: Rust Port — Design
 owner: grok
-last_updated: 2026-09-12
-last_validated: 2026-09-12
+last_updated: 2026-09-13
+last_validated: 2026-09-13
 status: Accepted
 feature: rust-port
 doc_role: design
 type: design
-summary: Four library crates plus one CLI binary; Python stays until the Rust binary matches v1/v2 digests and the existing JSON CLI.
+summary: Four library crates plus one CLI binary; the Rust binary matches v1/v2 digests and the existing JSON CLI.
 tags: [rust-port, crates, canonical-json]
 paths: ["crates/**", "schemas/**", "resources/**", "web/**"]
 related_features: [rust-port]
@@ -16,8 +16,8 @@ related_artifacts: [ORB-12384, ORB-11353, ORB-11367, ORB-11391, ORB-11392]
 
 # Rust Port — Design
 
-This document specifies the Rust workspace that will replace the Python
-package. Python remains the running implementation until the drop-in gate in
+This document specifies the Rust workspace that replaced the Python
+package. Python remained the running implementation until the drop-in gate in
 §7. Forward-looking deletions, schema v3, and owner-crate adoption live in
 [3_vision.md](./3_vision.md). Standing rules that govern later tradeoffs live
 in [4_decisions.md](./4_decisions.md).
@@ -131,8 +131,8 @@ valid missingness and is never current confirmatory evidence.
 hashes the record excluding `revision_id`, `presentation`, and `provenance`.
 The byte encoding must match CPython for every existing v1/v2 record. That
 module is specified in [specs/canonical-json.md](./specs/canonical-json.md).
-Until golden tests against `examples/migration-report.json` and live owner
-exports pass, the Rust CLI is not a substitute for the Python 0.3 pin.
+Golden tests against `examples/migration-report.json` and the native-workflow
+export are the digest oracle. Research-view pin cutover is constellation-owned.
 
 ## 3. Owner crate
 
@@ -193,8 +193,8 @@ eligible assessments do not silently adjudicate one another.
 
 ## 6. CLI crate
 
-Thin `clap` binary, JSON-only stdout and stderr, same subcommands as
-`src/orbit_research/cli.py`:
+Thin `clap` binary, JSON-only stdout and stderr, same subcommands as the
+retired Python 0.3 CLI:
 
 `index`, `browse-export`, `index-trace`, `resource`, `task-context`,
 `validate`, `import`, owner operations (`program`, `claim`, `artifact`,
@@ -212,21 +212,23 @@ from cwd and never links an Orbit library. See
 
 Prescriptive CLI contract: [specs/cli-compat.md](./specs/cli-compat.md).
 
-## 7. Drop-in gate and Python retention
+## 7. Drop-in gate and Python deletion
 
-`operations/research-view.sh` pins two Git revisions of this package: native
-authoring at 0.2.0 and the browser at 0.3.0. The Rust binary is a substitute
-only when:
+`operations/research-view.sh` historically pinned two Git revisions of the
+Python package: native authoring at 0.2.0 and the browser at 0.3.0. The Rust
+binary became a substitute when:
 
 1. `revision_id` / `protocol_digest` golden tests match existing fixtures and at least one live owner export
-2. `orbit-research validate` / `reconcile` round-trip the Python test corpus
-3. native fixture (`examples/native_workflow.py` equivalent) produces structurally equal appends, traces and exports
+2. `orbit-research validate` / `reconcile` round-trip the former Python test corpus
+3. native fixture (`examples/native_workflow.py`) produces structurally equal appends, traces and exports
 4. import dry-runs on the synthetic four-owner fixtures match counts, exception classes, and candidate IDs
 5. `index` + `browse-export` on the browser fixture match the Python projection digest for records and media
 
-Python stays in-tree until that gate is green and the research-view pins are
-cut over by a separate owner task. This repository does not edit sibling
-owners or the constellation launcher from a framework task.
+That gate landed in [ORB-12389]. The Python package was then deleted in
+[ORB-12414]. Schemas live at `schemas/` and static browser assets at `web/`.
+Research-view pin cutover remains a constellation-owned task. This repository
+does not edit sibling owners or the constellation launcher from a framework
+task.
 
 ## 8. Implementation slices
 
@@ -257,9 +259,8 @@ touches. Do not wait for a final "port the test suite" task.
 - Git subprocess behavior on dirty trees, missing blobs, and SHA-1 vs SHA-256
   repos is part of the scientific pin. Tests need real git fixtures, not mocks
   of happy-path `git show`.
-- Dual-running Python and Rust in one repo will confuse installers until the
-  drop-in gate. Keep `pyproject.toml` as the published 0.3 interface until
-  cutover; do not ship a mixed-language package.
+- The published interface is the Rust CLI. Do not revive `pyproject.toml` or
+  a mixed-language package.
 - This design does not migrate sibling owners, does not add a hosted browser,
   and does not make the index authoritative. Those remain out of scope even if
   they would make a demo easier.

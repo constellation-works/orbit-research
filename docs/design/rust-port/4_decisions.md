@@ -1,8 +1,8 @@
 ---
 title: Rust Port — Decisions
 owner: grok
-last_updated: 2026-09-12
-last_validated: 2026-09-12
+last_updated: 2026-09-13
+last_validated: 2026-09-13
 status: Accepted
 feature: rust-port
 doc_role: decisions
@@ -101,9 +101,36 @@ and missing-path behavior. Hide the wrapper behind a `Git` trait. A later
 
 ### Consequences
 
-- Pin semantics stay comparable to the Python package during dual-run.
+- Pin semantics stay comparable to the retired Python package.
 - Cost: process spawn per `git show`, and no in-process object database,
   until someone pays for a proven `git2` impl.
+
+## Python package deleted after the drop-in gate
+
+**Recorded:** 2026-09 · [ORB-12414]
+
+### Context
+
+The rust-port design kept `pyproject.toml` as the published 0.3 interface
+until the drop-in gate was green, because constellation pinned two Git
+revisions of this repository as a pip-installable package. After
+[ORB-12389] the Rust CLI matched that argv and digest contract. Dual-running
+Python and Rust in one tree still confused installers.
+
+### Decision
+
+Delete the Python package, its unit tests, and `pyproject.toml`. Keep JSON
+schemas at `schemas/` and static browser assets at `web/`, embedded by the
+Rust crates. Host Python scripts that generate fixtures or drive the CLI
+may remain only if they do not import `orbit_research`.
+
+### Consequences
+
+- `cargo test` and `make test` no longer install a Python package.
+- Historical research-view pins (0.2.0 / 0.3.0 commits) still contain Python;
+  cutting `operations/research` over to the Rust binary is constellation-owned.
+- Cost: fixture generators such as `examples/make_fixture_sources.py` still
+  need a host `python3`, and live Python 0.3 is no longer an in-tree oracle.
 
 ## Do not link Orbit crates
 

@@ -1,8 +1,8 @@
 ---
 title: Rust Port — Overview
 owner: grok
-last_updated: 2026-09-12
-last_validated: 2026-09-12
+last_updated: 2026-09-13
+last_validated: 2026-09-13
 status: Accepted
 feature: rust-port
 doc_role: overview
@@ -11,7 +11,7 @@ summary: Replace the Python orbit-research package with a Rust workspace whose c
 tags: [rust-port, crates, scientific-contract]
 paths: ["crates/orbit-research-contract/**", "crates/orbit-research-owner/**", "crates/orbit-research-import/**", "crates/orbit-research-index/**", "crates/orbit-research-cli/**"]
 related_features: [rust-port]
-related_artifacts: [ORB-12384, ORB-11353, ORB-11367, ORB-11391, ORB-11392]
+related_artifacts: [ORB-12384, ORB-11353, ORB-11367, ORB-11391, ORB-11392, ORB-12389, ORB-12414]
 ---
 
 # Rust Port — Overview
@@ -19,9 +19,9 @@ related_artifacts: [ORB-12384, ORB-11353, ORB-11367, ORB-11391, ORB-11392]
 `orbit-research` is the shared scientific registry for Principia, Parallax,
 Orrery and Astrolabe: immutable native authoring, conservative read-only
 imports, a disposable SQLite projection, and a local static evidence browser.
-The running implementation is Python 0.3. This feature ports that package to
-Rust without changing the scientific contract, the JSON CLI, or the rule that
-owning repositories remain the authority for records.
+The running implementation is the Rust workspace. This feature ported the
+Python 0.3 package without changing the scientific contract, the JSON CLI, or
+the rule that owning repositories remain the authority for records.
 
 ## 1. Motivation
 
@@ -72,7 +72,7 @@ and an index cannot become a second store.
 | Scientific crate graph as authority boundary | [Scientific crate graph is an authority boundary](./4_decisions.md#scientific-crate-graph-is-an-authority-boundary) | — |
 | No Orbit crate linkage | [Do not link Orbit crates](./4_decisions.md#do-not-link-orbit-crates) | — |
 | Git as subprocess | [Git as a subprocess until pin semantics are proven](./4_decisions.md#git-as-a-subprocess-until-pin-semantics-are-proven) | — |
-| Python remains until the drop-in gate | [2_design.md §7](./2_design.md) | — |
+| Python deleted after the drop-in gate | [2_design.md §7](./2_design.md) | [ORB-12414] |
 
 ## Task References
 
@@ -81,5 +81,7 @@ and an index cannot become a second store.
 - [ORB-11367] — landed the first installable Python milestone
 - [ORB-11391] — added native authoring and record schema v2
 - [ORB-11392] — added the disposable index and static browser (package 0.3)
+- [ORB-12389] — proved the Rust CLI is a drop-in for Python 0.3
+- [ORB-12414] — deleted the Python package after the drop-in gate
 
 > Resolve any task above with `orbit task show <ID>` or `git log --grep=<ID>`.
