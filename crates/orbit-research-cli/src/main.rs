@@ -9,6 +9,34 @@ use orbit_research_import::{ADAPTERS, import_source, write_report};
 use orbit_research_owner::{Owner, OwnerConfig, reference, write_json_new};
 use serde_json::{Value, json};
 
+/// A refused request. Carries the fail-closed `problems` an invalid `index` rebuild
+/// reports alongside its message, per `specs/cli-compat.md`.
+struct Invalid {
+    message: String,
+    problems: Option<Vec<Value>>,
+}
+
+impl From<String> for Invalid {
+    fn from(message: String) -> Self {
+        Invalid {
+            message,
+            problems: None,
+        }
+    }
+}
+
+impl From<orbit_research_index::IndexError> for Invalid {
+    fn from(error: orbit_research_index::IndexError) -> Self {
+        let problems = error
+            .problems()
+            .map(|problems| problems.iter().map(orbit_research_index::Problem::to_value).collect());
+        Invalid {
+            message: error.to_string(),
+            problems,
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(
     name = "orbit-research",
@@ -31,6 +59,29 @@ enum Command {
         input: PathBuf,
         #[arg(long = "target")]
         targets: Vec<PathBuf>,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Atomic disposable rebuild of the cross-owner SQLite projection.
+    Index {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        database: PathBuf,
+    },
+    /// The exact indexed snapshot, its assessments and their transitive dependencies.
+    IndexTrace {
+        #[arg(long)]
+        database: PathBuf,
+        #[arg(long)]
+        key: String,
+    },
+    /// Portable static export of the published projection; the destination must be new.
+    BrowseExport {
+        #[arg(long)]
+        config: PathBuf,
+        #[arg(long)]
+        database: PathBuf,
         #[arg(long)]
         output: PathBuf,
     },
@@ -152,7 +203,7 @@ impl OwnerArgs {
 fn main() -> ExitCode {
     match Cli::try_parse() {
         Ok(cli) => run(cli),
-        Err(error) => invalid(error.to_string()),
+        Err(error) => invalid(error.to_string().into()),
     }
 }
 
@@ -162,11 +213,11 @@ fn run(cli: Cli) -> ExitCode {
             emit(io::stdout().lock(), &output);
             ExitCode::from(code)
         }
-        Err(message) => invalid(message),
+        Err(error) => invalid(error),
     }
 }
 
-fn execute(cli: Cli) -> Result<(Value, u8), String> {
+fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
     match cli.command {
         Command::Validate { input, targets } => {
             let document = read_json(&input)?;
@@ -175,14 +226,14 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
             let code = if errors.is_empty() { 0 } else { 1 };
             Ok((json!({"valid": errors.is_empty(), "errors": errors}), code))
         }
-        Command::Program(args) => author("program", &args),
-        Command::Claim(args) => author("claim", &args),
-        Command::Artifact(args) => author("artifact", &args),
-        Command::Preregister(args) => author("preregister", &args),
-        Command::BeginRun(args) => author("begin-run", &args),
-        Command::RecordRun(args) => author("record-run", &args),
-        Command::Assess(args) => author("assess", &args),
-        Command::Retire(args) => author("retire", &args),
+        Command::Program(args) => Ok(author("program", &args)?),
+        Command::Claim(args) => Ok(author("claim", &args)?),
+        Command::Artifact(args) => Ok(author("artifact", &args)?),
+        Command::Preregister(args) => Ok(author("preregister", &args)?),
+        Command::BeginRun(args) => Ok(author("begin-run", &args)?),
+        Command::RecordRun(args) => Ok(author("record-run", &args)?),
+        Command::Assess(args) => Ok(author("assess", &args)?),
+        Command::Retire(args) => Ok(author("retire", &args)?),
         Command::Heads { owner, id } => {
             let owner = owner.open()?;
             let heads = owner.heads(&id).map_err(|error| error.to_string())?;
@@ -224,7 +275,7 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
                     .canonicalize()
                     .unwrap_or_else(|_| owner.directory().to_path_buf()),
             ) {
-                return Err("export cannot write inside canonical records".to_owned());
+                return Err("export cannot write inside canonical records".to_owned().into());
             }
             let bundle = owner
                 .export(&source_revision)
@@ -249,10 +300,41 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
             let result = reconcile(&manifest, &targets).map_err(|error| error.to_string())?;
             let errors = validate(&result, &targets);
             if !errors.is_empty() {
-                return Err(errors.join("; "));
+                return Err(errors.join("; ").into());
             }
             write_new(&output, &result)?;
             Ok((json!({"output": output.to_string_lossy()}), 0))
+        }
+        Command::Index { config, database } => {
+            let outcome = orbit_research_index::rebuild(&config, &database)?;
+            Ok((
+                json!({
+                    "database": outcome.database.to_string_lossy(),
+                    "records": outcome.records,
+                    "content_digest": outcome.content_digest,
+                    "pending": outcome.pending,
+                }),
+                0,
+            ))
+        }
+        Command::IndexTrace { database, key } => {
+            let trace = orbit_research_index::trace(&database, &key)?;
+            Ok((trace, 0))
+        }
+        Command::BrowseExport {
+            config,
+            database,
+            output,
+        } => {
+            let outcome = orbit_research_index::export_browser(&database, &output, &config)?;
+            Ok((
+                json!({
+                    "output": outcome.output.to_string_lossy(),
+                    "records": outcome.records,
+                    "content_digest": outcome.content_digest,
+                }),
+                0,
+            ))
         }
         Command::Import {
             adapter,
@@ -267,7 +349,8 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
                 return Err(format!(
                     "adapter must be one of: {}",
                     ADAPTERS.join(", ")
-                ));
+                )
+                .into());
             }
             let selected = if select.is_empty() { None } else { Some(select.as_slice()) };
             let report = import_source(
@@ -283,7 +366,8 @@ fn execute(cli: Cli) -> Result<(Value, u8), String> {
                 return Err(format!(
                     "candidate validation failed: {}",
                     errors.iter().take(20).cloned().collect::<Vec<_>>().join("; ")
-                ));
+                )
+                .into());
             }
             if let Some(output) = output {
                 write_report(&report, &output, &[source_root]).map_err(|error| error.to_string())?;
@@ -348,11 +432,12 @@ fn write_new(path: &Path, value: &Value) -> Result<(), String> {
     file.write_all(b"\n").map_err(|error| error.to_string())
 }
 
-fn invalid(message: String) -> ExitCode {
-    emit(
-        io::stderr().lock(),
-        &json!({"error":{"code":"invalid-input","message":message}}),
-    );
+fn invalid(error: Invalid) -> ExitCode {
+    let mut payload = json!({"error":{"code":"invalid-input","message":error.message}});
+    if let Some(problems) = error.problems {
+        payload["error"]["problems"] = json!(problems);
+    }
+    emit(io::stderr().lock(), &payload);
     ExitCode::from(2)
 }
 

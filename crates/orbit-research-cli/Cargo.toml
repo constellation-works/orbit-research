@@ -18,6 +18,7 @@ orbit-research-owner = { path = "../orbit-research-owner" }
 serde_json.workspace = true
 
 [dev-dependencies]
+sha2.workspace = true
 tempfile.workspace = true
 
 [lints]

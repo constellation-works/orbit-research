@@ -719,6 +719,7 @@ dependencies = [
  "orbit-research-index",
  "orbit-research-owner",
  "serde_json",
+ "sha2",
  "tempfile",
 ]
 
@@ -751,8 +752,14 @@ dependencies = [
 name = "orbit-research-index"
 version = "0.1.0"
 dependencies = [
+ "libc",
  "orbit-research-contract",
  "orbit-research-owner",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]
