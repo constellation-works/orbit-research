@@ -1,7 +1,7 @@
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::process::{Command as ProcessCommand, ExitCode};
 
 use clap::{Args, Parser, Subcommand};
 use orbit_research_contract::{parse_json, reconcile, validate};
@@ -27,9 +27,12 @@ impl From<String> for Invalid {
 
 impl From<orbit_research_index::IndexError> for Invalid {
     fn from(error: orbit_research_index::IndexError) -> Self {
-        let problems = error
-            .problems()
-            .map(|problems| problems.iter().map(orbit_research_index::Problem::to_value).collect());
+        let problems = error.problems().map(|problems| {
+            problems
+                .iter()
+                .map(orbit_research_index::Problem::to_value)
+                .collect()
+        });
         Invalid {
             message: error.to_string(),
             problems,
@@ -50,6 +53,26 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Print the packaged native workflow instructions.
+    Resource {
+        #[arg(long, default_value = "1", value_parser = ["1"])]
+        version: String,
+    },
+    /// Read one explicitly routed assigned Orbit task through the registered CLI.
+    TaskContext {
+        #[arg(long = "orbit-root")]
+        orbit_root: PathBuf,
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        workspace: String,
+        #[arg(long)]
+        task: String,
+        #[arg(long)]
+        run: String,
+        #[arg(long = "orbit-executable", default_value = "orbit")]
+        orbit_executable: PathBuf,
+    },
     Validate {
         input: PathBuf,
         #[arg(long = "target")]
@@ -94,9 +117,15 @@ enum Command {
         source_root: PathBuf,
         #[arg(long, help = "stable owner namespace, independent of filesystem path")]
         repository: String,
-        #[arg(long = "expect-revision", help = "exact Git HEAD required before reading")]
+        #[arg(
+            long = "expect-revision",
+            help = "exact Git HEAD required before reading"
+        )]
         expect_revision: Option<String>,
-        #[arg(long = "select", help = "relative input file; repeat to override default discovery")]
+        #[arg(
+            long = "select",
+            help = "relative input file; repeat to override default discovery"
+        )]
         select: Vec<String>,
         #[arg(long = "dry-run", help = "default and only supported mode")]
         dry_run: bool,
@@ -219,6 +248,28 @@ fn run(cli: Cli) -> ExitCode {
 
 fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
     match cli.command {
+        Command::Resource { version: _ } => Ok((
+            json!({
+                "version": 1,
+                "skill": include_str!("../resources/v1/SKILL.md"),
+            }),
+            0,
+        )),
+        Command::TaskContext {
+            orbit_root,
+            host,
+            workspace,
+            task,
+            run,
+            orbit_executable,
+        } => task_context(
+            &orbit_root,
+            &host,
+            &workspace,
+            &task,
+            &run,
+            &orbit_executable,
+        ),
         Command::Validate { input, targets } => {
             let document = read_json(&input)?;
             let targets = read_targets(&targets)?;
@@ -275,7 +326,9 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
                     .canonicalize()
                     .unwrap_or_else(|_| owner.directory().to_path_buf()),
             ) {
-                return Err("export cannot write inside canonical records".to_owned().into());
+                return Err("export cannot write inside canonical records"
+                    .to_owned()
+                    .into());
             }
             let bundle = owner
                 .export(&source_revision)
@@ -346,13 +399,13 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             output,
         } => {
             if !ADAPTERS.contains(&adapter.as_str()) {
-                return Err(format!(
-                    "adapter must be one of: {}",
-                    ADAPTERS.join(", ")
-                )
-                .into());
+                return Err(format!("adapter must be one of: {}", ADAPTERS.join(", ")).into());
             }
-            let selected = if select.is_empty() { None } else { Some(select.as_slice()) };
+            let selected = if select.is_empty() {
+                None
+            } else {
+                Some(select.as_slice())
+            };
             let report = import_source(
                 &source_root,
                 &adapter,
@@ -365,12 +418,18 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             if !errors.is_empty() {
                 return Err(format!(
                     "candidate validation failed: {}",
-                    errors.iter().take(20).cloned().collect::<Vec<_>>().join("; ")
+                    errors
+                        .iter()
+                        .take(20)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("; ")
                 )
                 .into());
             }
             if let Some(output) = output {
-                write_report(&report, &output, &[source_root]).map_err(|error| error.to_string())?;
+                write_report(&report, &output, &[source_root])
+                    .map_err(|error| error.to_string())?;
                 Ok((
                     json!({
                         "output": output.to_string_lossy(),
@@ -384,6 +443,88 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             }
         }
     }
+}
+
+/// Use Orbit only through its registered CLI protocol. Keeping this adapter in the binary
+/// avoids coupling any library crate to Orbit's task engine or store.
+fn task_context(
+    orbit_root: &Path,
+    host: &str,
+    workspace: &str,
+    task: &str,
+    run: &str,
+    orbit_executable: &Path,
+) -> Result<(Value, u8), Invalid> {
+    if !orbit_root.is_absolute() {
+        return Err("explicit absolute Orbit authority root required"
+            .to_owned()
+            .into());
+    }
+    if [host, workspace, task, run]
+        .iter()
+        .any(|value| value.trim().is_empty())
+    {
+        return Err("explicit host/workspace/task/run required"
+            .to_owned()
+            .into());
+    }
+    let request = json!({"id": task, "workspace": workspace, "model": "codex"});
+    let output = ProcessCommand::new(orbit_executable)
+        .args(["tool", "run", "orbit.task.show", "--root"])
+        .arg(orbit_root)
+        .arg("--input")
+        .arg(request.to_string())
+        .output()
+        .map_err(|error| format!("{}: {error}", orbit_executable.display()))?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        return Err(if detail.is_empty() {
+            format!("Orbit task lookup exited with {}", output.status)
+        } else {
+            detail
+        }
+        .into());
+    }
+    let mut value =
+        parse_json(&output.stdout).map_err(|error| format!("invalid Orbit response: {error}"))?;
+    if let Some(result) = value.get("result").filter(|item| item.is_object()) {
+        value = result.clone();
+    }
+    if value.get("id").and_then(Value::as_str) != Some(task) {
+        return Err("Orbit response does not identify assigned task"
+            .to_owned()
+            .into());
+    }
+    if value
+        .get("workspace")
+        .and_then(|owner| owner.get("id"))
+        .and_then(Value::as_str)
+        != Some(workspace)
+    {
+        return Err("Orbit response workspace differs from explicit authority"
+            .to_owned()
+            .into());
+    }
+    let terminal = value.get("terminal").and_then(Value::as_bool) == Some(true)
+        || matches!(
+            value.get("status").and_then(Value::as_str),
+            Some("done" | "rejected")
+        );
+    if terminal {
+        return Err("assigned task is terminal".to_owned().into());
+    }
+    Ok((
+        json!({
+            "task": value,
+            "orbit_link": {
+                "host": host,
+                "workspace": workspace,
+                "task": task,
+                "run": run,
+            },
+        }),
+        0,
+    ))
 }
 
 /// Append one immutable record through the owner crate and return it verbatim.
