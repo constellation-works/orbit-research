@@ -320,6 +320,9 @@ pre {
   margin-bottom: 20px;
 }
 @media (max-width: 760px) {
+  body {
+    flex-direction: column;
+  }
   aside {
     width: 100%;
     height: auto;
