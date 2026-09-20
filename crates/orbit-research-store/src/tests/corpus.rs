@@ -52,6 +52,59 @@ fn finish_fixture(temp: &TempDir) {
     command(root, &["commit", "-q", "-m", "fixture"]);
 }
 
+fn init_repository(root: &Path) {
+    command(root, &["init", "-q"]);
+}
+
+#[test]
+fn reports_unborn_head_with_corpus_path_and_workspace_guidance() {
+    let temp = start_fixture();
+    init_repository(temp.path());
+
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("Corpus has no commits"), "{message}");
+    assert!(
+        message.contains(&temp.path().display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("rerunning workspace init"), "{message}");
+    assert!(!message.contains("ambiguous argument 'HEAD'"), "{message}");
+}
+
+#[test]
+fn reports_missing_corpus_contract_with_path() {
+    let temp = tempfile::tempdir().unwrap();
+    let error = match Corpus::open(temp.path()) {
+        Ok(_) => panic!("missing schema must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains(&temp.path().display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("missing the corpus contract"), "{message}");
+    assert!(message.contains("_scripts/schema.json"), "{message}");
+    assert!(!message.contains("No such file or directory"), "{message}");
+}
+
+#[test]
+fn reports_non_git_corpus_with_path() {
+    let temp = start_fixture();
+    let error = match Corpus::open(temp.path()) {
+        Ok(_) => panic!("non-Git corpus must be rejected"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains(&temp.path().display().to_string()),
+        "{message}"
+    );
+    assert!(message.contains("not a Git repository"), "{message}");
+    assert!(!message.contains("not a git repository"), "{message}");
+}
+
 fn canonical_fixture() -> TempDir {
     let temp = start_fixture();
     let root = temp.path();

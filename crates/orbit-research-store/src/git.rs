@@ -14,6 +14,22 @@ fn command_error(operation: &str, output: &Output) -> Error {
 }
 
 impl Corpus {
+    pub(crate) fn ensure_repository(&self) -> Result<()> {
+        let output = Command::new("git")
+            .arg("--literal-pathspecs")
+            .arg("-C")
+            .arg(self.root())
+            .args(["rev-parse", "--git-dir"])
+            .output()?;
+        if output.status.success() {
+            return Ok(());
+        }
+        Err(Error::Invalid(format!(
+            "Corpus at {} is not a Git repository; initialize or select a Git repository for the corpus",
+            self.root().display()
+        )))
+    }
+
     pub fn published(&self, revision: &str, reference: &str) -> Result<bool> {
         let output = Command::new("git")
             .arg("--literal-pathspecs")
@@ -65,6 +81,17 @@ impl Corpus {
             .args(args)
             .output()?;
         if !result.status.success() {
+            if args == ["rev-parse", "HEAD"] || args == ["rev-parse", "--verify", "HEAD^{commit}"] {
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                if stderr.contains("ambiguous argument 'HEAD'")
+                    || stderr.contains("Needed a single revision")
+                {
+                    return Err(Error::Invalid(format!(
+                        "Corpus has no commits; inspect and preserve its files, then either commit them explicitly or move them aside before rerunning workspace init at {}",
+                        self.root().display()
+                    )));
+                }
+            }
             return Err(command_error(
                 args.first().copied().unwrap_or("command"),
                 &result,

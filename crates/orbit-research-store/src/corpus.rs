@@ -20,12 +20,41 @@ pub struct Corpus {
 
 impl Corpus {
     pub fn open(root: &Path) -> Result<Self> {
-        let root = root.canonicalize()?;
-        let schema: Value = serde_json::from_slice(&fs::read(root.join("_scripts/schema.json"))?)?;
-        Ok(Self {
+        let requested_root = root.to_owned();
+        let root = root.canonicalize().map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Error::Invalid(format!(
+                    "Corpus path does not exist: {}",
+                    requested_root.display()
+                ))
+            } else {
+                Error::Invalid(format!(
+                    "Unable to access corpus path {}: {error}",
+                    requested_root.display()
+                ))
+            }
+        })?;
+        let schema_path = root.join("_scripts/schema.json");
+        let schema_bytes = fs::read(&schema_path).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                Error::Invalid(format!(
+                    "Corpus at {} is missing the corpus contract: {}",
+                    root.display(),
+                    schema_path.display()
+                ))
+            } else {
+                Error::Invalid(format!(
+                    "Unable to read the corpus contract at {}: {error}",
+                    schema_path.display()
+                ))
+            }
+        })?;
+        let corpus = Self {
             root,
-            contract: Contract::compile(schema)?,
-        })
+            contract: Contract::compile(serde_json::from_slice(&schema_bytes)?)?,
+        };
+        corpus.ensure_repository()?;
+        Ok(corpus)
     }
 
     pub fn schema(&self) -> &Value {
