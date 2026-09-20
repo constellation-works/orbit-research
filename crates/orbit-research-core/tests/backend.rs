@@ -163,7 +163,10 @@ fn truncated_task_reconciliation_refuses_retry() {
         .correlated_tasks("research-request:r1")
         .unwrap_err()
         .to_string();
-    assert!(error.contains("truncated"));
+    assert!(
+        error.contains("truncated"),
+        "unexpected reconciliation error: {error}"
+    );
 }
 
 #[test]
