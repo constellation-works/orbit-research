@@ -229,6 +229,7 @@ async function runWork(action) {
   $("work-error").textContent = "";
   const values = workValues();
   const researchId = selected?.id;
+  const stillSelected = () => selected?.id === researchId;
   try {
     if (!researchId) return;
     if (action === "plan") {
@@ -237,6 +238,7 @@ async function runWork(action) {
         objective: values.objective,
       });
       plans.set(researchId, { objective: values.objective, plan });
+      if (!stillSelected()) return;
       $("work-state").textContent =
         "Plan ready. Linking remains an explicit action.";
       return;
@@ -254,6 +256,7 @@ async function runWork(action) {
       links = links
         .filter((item) => item.research_id !== researchId)
         .concat(link);
+      if (!stillSelected()) return;
       $("work-state").textContent =
         "Task link recorded. Promote or dispatch explicitly.";
     }
@@ -263,6 +266,7 @@ async function runWork(action) {
       const status = await operation("research.work_status", {
         request_key: values.requestKey,
       });
+      if (!stillSelected()) return;
       $("work-state").textContent =
         `Execution state: ${status.run?.state || status.task?.status || "linked; no run observed"}. Scientific assessment remains separate.`;
     }
@@ -270,6 +274,7 @@ async function runWork(action) {
       await operation("research.promote", {
         request_key: values.requestKey,
       });
+      if (!stillSelected()) return;
       $("work-state").textContent =
         "Task promoted. Dispatch is still a separate operator action.";
     }
@@ -279,6 +284,7 @@ async function runWork(action) {
         request_key: values.requestKey,
         base: values.base,
       });
+      if (!stillSelected()) return;
       $("work-state").textContent =
         "Dispatch submitted; await a receipt before calling the result accepted.";
     }
@@ -286,6 +292,7 @@ async function runWork(action) {
       await operation("research.cancel", {
         request_key: values.requestKey,
       });
+      if (!stillSelected()) return;
       $("work-state").textContent = "Run cancellation requested.";
     }
     if (action === "validate") {
@@ -294,11 +301,13 @@ async function runWork(action) {
         request_key: values.requestKey,
         receipt_path: values.receiptPath,
       });
+      if (!stillSelected()) return;
       $("work-state").textContent =
         "Published result accepted by the receipt gate; this does not create a scientific assessment.";
     }
     await refresh();
   } catch (error) {
+    if (!stillSelected()) return;
     $("work-error").textContent = error.message;
   }
 }
