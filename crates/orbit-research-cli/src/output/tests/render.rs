@@ -1,4 +1,18 @@
-use super::super::render::{OutputMode, render_with_terminal};
+use super::super::{OutputMode, OutputSink, render};
+
+fn render_with_terminal(
+    out: &mut impl std::io::Write,
+    value: &serde_json::Value,
+    mode: OutputMode,
+    tty: bool,
+) -> std::io::Result<()> {
+    render(
+        out,
+        &mut Vec::new(),
+        value,
+        &OutputSink::resolve(mode, tty, 0, false),
+    )
+}
 use serde_json::Value;
 
 #[test]
@@ -55,11 +69,8 @@ fn snapshot_records_render_as_compact_table_in_human_modes() {
         render_with_terminal(&mut output, &value, mode, true)
             .expect("renderer fixture should succeed");
         let output = String::from_utf8(output).expect("renderer fixture should succeed");
-        assert!(output.contains("ID\tKIND\tSTATUS\tTITLE\tTAGS\tPATH"));
-        assert!(
-            output
-                .contains("R001\tR\topen\tA useful question\trust,orbit\tresearch/R001-example.md")
-        );
+        assert!(output.contains("ID") && output.contains("TITLE"));
+        assert!(output.contains("R001") && output.contains("A useful question"));
         assert!(!output.contains("long body"));
     }
 }
@@ -80,7 +91,7 @@ fn auto_pipe_output_is_plain_and_untruncated() {
     let output = String::from_utf8(output).expect("renderer fixture should succeed");
     assert_eq!(
         output,
-        "ID\tKIND\tSTATUS\tTITLE\tTAGS\tPATH\nR001\tR\topen\tA useful question\t\tresearch/R001-example.md\n"
+        "R001\tR\topen\tA useful question\t\tresearch/R001-example.md\n"
     );
     assert!(!output.contains('\u{1b}'));
 }

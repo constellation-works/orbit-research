@@ -34,3 +34,19 @@ a command wrapper accepting `-- COMMAND ...`; its default (`env`) runs Cargo dir
 The supported workflow uses canonical Observatory Markdown records. Use the CLI,
 MCP server, or loopback dashboard against an explicitly selected corpus; connect
 an Orbit backend only when linking or executing planned work.
+
+## Terminal use
+
+Run `orbit-research` or `orbit-research --help` for readable help and examples.
+Output defaults to human tables on a terminal and headerless TSV lists in pipes.
+Scripts that previously relied on default JSON must select `--format json` or set
+`ORBIT_RESEARCH_FORMAT=json`; explicit JSON retains the canonical result shape.
+
+```sh
+orbit-research research list --corpus ./observatory
+orbit-research research show --corpus ./observatory --id Q001
+orbit-research --format json research list --corpus ./observatory
+```
+
+See the [terminal design](docs/design/terminal-interface/2_design.md) for output,
+error and compatibility contracts.

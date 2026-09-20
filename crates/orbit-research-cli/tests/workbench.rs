@@ -7,6 +7,7 @@ const BINARY: &str = env!("CARGO_BIN_EXE_orbit-research");
 
 fn output(args: &[&str]) -> std::process::Output {
     Command::new(BINARY)
+        .args(["--format", "json"])
         .args(args)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")

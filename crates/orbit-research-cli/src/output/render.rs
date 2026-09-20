@@ -1,7 +1,9 @@
-use serde_json::Value;
+//! Shared projections of application values; commands never choose presentation.
+use super::sink::{Mode, OutputSink};
+use super::table::render_records;
+use serde_json::{Value, json};
 use std::io::{self, Write};
 
-/// Structured CLI failure rendered only on stderr.
 pub(crate) struct Invalid {
     pub(crate) message: String,
     pub(crate) problems: Option<Vec<Value>>,
@@ -16,149 +18,129 @@ impl From<String> for Invalid {
     }
 }
 
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
-pub enum OutputMode {
-    Auto,
-    Table,
-    Json,
-    Ndjson,
-}
-
-#[derive(Clone, Copy)]
-enum ResolvedOutputMode {
-    Table,
-    Plain,
-    Json,
-    Ndjson,
-}
-
-pub fn render_with_terminal(
-    mut writer: &mut impl Write,
+pub(crate) fn render(
+    out: &mut impl Write,
+    diagnostics: &mut impl Write,
     value: &Value,
-    mode: OutputMode,
-    interactive: bool,
+    sink: &OutputSink,
 ) -> io::Result<()> {
-    let mode = match mode {
-        OutputMode::Auto if interactive => ResolvedOutputMode::Table,
-        OutputMode::Auto => ResolvedOutputMode::Plain,
-        OutputMode::Table => ResolvedOutputMode::Table,
-        OutputMode::Json => ResolvedOutputMode::Json,
-        OutputMode::Ndjson => ResolvedOutputMode::Ndjson,
-    };
-    match mode {
-        ResolvedOutputMode::Json => serde_json::to_writer(&mut writer, value)?,
-        ResolvedOutputMode::Ndjson => match value {
-            Value::Object(map) if map.get("records").is_some_and(Value::is_array) => {
-                if let Some(records) = map.get("records").and_then(Value::as_array) {
-                    for item in records {
-                        serde_json::to_writer(&mut writer, item)?;
-                        writer.write_all(b"\n")?;
-                    }
-                }
-                return Ok(());
+    match sink.mode {
+        Mode::Json => {
+            if sink.interactive {
+                serde_json::to_writer_pretty(&mut *out, value)?;
+            } else {
+                serde_json::to_writer(&mut *out, value)?;
             }
-            Value::Array(values) => {
-                for item in values {
-                    serde_json::to_writer(&mut writer, item)?;
-                    writer.write_all(b"\n")?;
+            writeln!(out)
+        }
+        Mode::Ndjson => {
+            if let Some(records) = records(value).or_else(|| value.as_array()) {
+                for record in records {
+                    json_line(out, record)?;
                 }
-                return Ok(());
-            }
-            value => serde_json::to_writer(&mut writer, value)?,
-        },
-        ResolvedOutputMode::Table | ResolvedOutputMode::Plain => render_table(&mut writer, value)?,
-    }
-    if matches!(mode, ResolvedOutputMode::Table | ResolvedOutputMode::Plain) {
-        return Ok(());
-    }
-    writer.write_all(b"\n")
-}
-
-fn render_table(writer: &mut impl Write, value: &Value) -> io::Result<()> {
-    match value {
-        Value::Object(map) if map.get("records").is_some_and(Value::is_array) => {
-            if let Some(records) = map.get("records").and_then(Value::as_array) {
-                render_records(writer, records)?;
+                Ok(())
+            } else {
+                json_line(out, value)
             }
         }
-        Value::Array(values) if values.iter().all(is_record) => render_records(writer, values)?,
+        Mode::Table | Mode::Plain => {
+            if let Some(records) = records(value) {
+                render_records(out, diagnostics, records, sink)
+            } else if let Some(skill) = value.get("skill").and_then(Value::as_str) {
+                writeln!(out, "{}", safe_text(skill))
+            } else {
+                detail(out, value, "")
+            }
+        }
+    }
+}
+
+fn records(value: &Value) -> Option<&Vec<Value>> {
+    value.get("records").and_then(Value::as_array).or_else(|| {
+        value.as_array().filter(|rows| {
+            rows.iter()
+                .all(|row| row.get("id").is_some() && row.get("kind").is_some())
+        })
+    })
+}
+
+fn json_line(out: &mut impl Write, value: &Value) -> io::Result<()> {
+    serde_json::to_writer(&mut *out, value)?;
+    writeln!(out)?;
+    out.flush()
+}
+
+fn detail(out: &mut impl Write, value: &Value, prefix: &str) -> io::Result<()> {
+    match value {
         Value::Object(map) => {
             for (key, value) in map {
-                if value.is_array() || value.is_object() {
-                    writeln!(writer, "{key}: {}", value)?;
+                let label = if prefix.is_empty() {
+                    safe_text(key)
                 } else {
-                    writeln!(writer, "{key}\t{}", scalar(value))?;
-                }
+                    format!("{prefix}.{}", safe_text(key))
+                };
+                detail(out, value, &label)?;
             }
+            Ok(())
         }
         Value::Array(values) => {
+            if values.is_empty() {
+                writeln!(out, "{prefix}: -")?;
+            }
             for value in values {
-                writeln!(writer, "{}", value)?;
+                detail(out, value, prefix)?;
+            }
+            Ok(())
+        }
+        value => {
+            let text = match value {
+                Value::String(s) => safe_text(s),
+                Value::Null => "-".into(),
+                _ => value.to_string(),
+            };
+            if prefix.is_empty() {
+                writeln!(out, "{text}")
+            } else {
+                writeln!(out, "{prefix}: {text}")
             }
         }
-        value => writeln!(writer, "{}", scalar(value))?,
-    }
-    Ok(())
-}
-
-fn is_record(value: &Value) -> bool {
-    value.get("id").is_some() && value.get("kind").is_some()
-}
-
-fn render_records(writer: &mut impl Write, records: &[Value]) -> io::Result<()> {
-    writeln!(writer, "ID\tKIND\tSTATUS\tTITLE\tTAGS\tPATH")?;
-    for record in records {
-        let metadata = record.get("metadata").and_then(Value::as_object);
-        let tags = metadata
-            .and_then(|metadata| metadata.get("tags"))
-            .and_then(Value::as_array)
-            .map(|tags| {
-                tags.iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(",")
-            })
-            .unwrap_or_default();
-        let title = metadata
-            .and_then(|metadata| metadata.get("title"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let status = metadata
-            .and_then(|metadata| metadata.get("status"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        writeln!(
-            writer,
-            "{}\t{}\t{}\t{}\t{}\t{}",
-            record.get("id").map(scalar).unwrap_or_default(),
-            record.get("kind").map(scalar).unwrap_or_default(),
-            status,
-            title,
-            tags,
-            record.get("path").map(scalar).unwrap_or_default(),
-        )?;
-    }
-    Ok(())
-}
-
-fn scalar(value: &Value) -> String {
-    match value {
-        Value::String(value) => value.clone(),
-        Value::Null => "null".into(),
-        value => value.to_string(),
     }
 }
 
-pub(crate) fn invalid(error: Invalid, code: u8) -> std::process::ExitCode {
-    let mut payload = serde_json::json!({"error":{"code":"invalid-input","message":error.message}});
-    if let Some(problems) = error.problems {
-        payload["error"]["problems"] = serde_json::json!(problems);
-    }
-    emit(io::stderr().lock(), &payload);
-    std::process::ExitCode::from(code)
+fn safe_text(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            if c.is_control() && c != '\n' && c != '\t' {
+                c.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
 }
 
-pub(crate) fn emit(mut stream: impl io::Write, value: &Value) {
-    let _ = serde_json::to_writer(&mut stream, value);
-    let _ = stream.write_all(b"\n");
+pub(crate) fn render_error(
+    out: &mut impl Write,
+    error: &Invalid,
+    sink: &OutputSink,
+) -> io::Result<()> {
+    if sink.machine() {
+        let mut payload = json!({"error":{"code":"invalid-input","message":error.message}});
+        if let Some(problems) = &error.problems {
+            payload["error"]["problems"] = json!(problems);
+        }
+        json_line(out, &payload)
+    } else {
+        if error.message.starts_with("error:") {
+            writeln!(out, "{}", safe_text(&error.message))?;
+        } else {
+            writeln!(out, "error: {}", safe_text(&error.message))?;
+        }
+        if let Some(problems) = &error.problems {
+            for problem in problems {
+                detail(out, problem, "")?;
+            }
+        }
+        Ok(())
+    }
 }

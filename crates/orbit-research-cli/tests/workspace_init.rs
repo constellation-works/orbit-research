@@ -227,7 +227,7 @@ mod workspace {
 
     pub fn init_without_identity(root: &Path) -> std::process::Output {
         Command::new(env!("CARGO_BIN_EXE_orbit-research"))
-            .args(["workspace", "init"])
+            .args(["--format", "json", "workspace", "init"])
             .arg(root)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
@@ -242,7 +242,7 @@ mod workspace {
 
     pub fn init(root: &Path) -> Result<Value, String> {
         let output = Command::new(env!("CARGO_BIN_EXE_orbit-research"))
-            .args(["workspace", "init"])
+            .args(["--format", "json", "workspace", "init"])
             .arg(root)
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
