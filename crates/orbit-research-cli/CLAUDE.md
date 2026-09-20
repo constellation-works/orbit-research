@@ -6,7 +6,7 @@ surfaces under `src/command/`. Core owns corpus validation and backend authority
 the CLI must not add alternate stores or tool arguments. Stdout is protocol data
 and stderr is diagnostics.
 
-Unit/renderer/parser tests live under `src/tests/`; golden output fixtures live
+Parser tests live under `src/tests/`, renderer tests under `src/output/tests/`; golden output fixtures live
 under `src/snapshots/`. Composed subprocess tests stay under crate-root `tests/`.
 CLI-specific tool templates belong under `assets/tool_templates/`; shared research
 skills are packaged by Core under `assets/skills/` and exposed by CLI.

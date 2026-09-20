@@ -1,4 +1,4 @@
-use crate::output::{OutputMode, render_with_terminal};
+use super::super::render::{OutputMode, render_with_terminal};
 use serde_json::Value;
 
 #[test]
@@ -16,7 +16,7 @@ fn json_and_ndjson_are_machine_stable() {
         .expect("fixture output should encode and decode");
     assert_eq!(
         String::from_utf8(ndjson).expect("fixture output should encode and decode"),
-        include_str!("../snapshots/research-list.ndjson")
+        include_str!("../../snapshots/research-list.ndjson")
     );
 }
 

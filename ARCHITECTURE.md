@@ -93,7 +93,7 @@ handwritten JSON schema and several string switches.
 
 `orbit-research-web/assets/dashboard/` owns the embedded HTML, CSS and JavaScript.
 `src/lib.rs` binds the loopback listener and assembles its application/session state.
-`src/api/` uses a flat method/path match and a shared request wrapper for session
+`src/api/router.rs` uses a flat method/path match and a shared request wrapper for session
 guards, bounded JSON decoding and response headers; handlers delegate to Core;
 `src/parse.rs` owns HTTP input shapes and extraction; `src/log_format.rs` formats
 local server diagnostics. These modules use research types and do not import Orbit
@@ -109,6 +109,10 @@ questions and conclusions use separate R items and `derived_from` lineage.
 Orbit owns tasks, worktrees, file reservations, run state and delivery history.
 
 ## Standards and validation
+
+Keep `mod.rs` focused on module declarations and exports; implementation belongs
+in named sibling files (for example `adapter/orbit/backend.rs`, `api/router.rs`
+and CLI `output/render.rs`).
 
 Use workspace dependencies, typed errors and narrow public APIs. Keep
 persistence in Store, decisions in Core and protocol concerns in adapters.
