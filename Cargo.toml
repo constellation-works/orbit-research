@@ -5,7 +5,6 @@ members = [
     "crates/orbit-research-store",
     "crates/orbit-research-core",
     "crates/orbit-research-web",
-    "crates/orbit-research-mcp",
     "crates/orbit-research-cli",
 ]
 

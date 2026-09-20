@@ -11,7 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub use orbit_research_common::config::BackendConfig;
+pub use crate::config::BackendConfig;
 
 /// Entries are certified by a release's adapter integration tests, not a version guess.
 #[derive(Clone, Debug, Deserialize, Serialize)]

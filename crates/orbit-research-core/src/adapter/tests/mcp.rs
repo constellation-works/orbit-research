@@ -1,10 +1,10 @@
-use super::super::{serve_mcp, serve_mcp_application};
-use orbit_research_core::Application;
+use super::super::mcp::{serve_mcp, serve_mcp_application};
+use crate::Application;
 use serde_json::Value;
 use std::{fs, io::Cursor, path::Path, process::Command};
 use tempfile::TempDir;
 
-const SCHEMA: &[u8] = include_bytes!("../../../orbit-research-core/tests/fixtures/schema.json");
+const SCHEMA: &[u8] = include_bytes!("../../../tests/fixtures/schema.json");
 
 fn corpus() -> TempDir {
     let temp = tempfile::tempdir().unwrap();
@@ -150,7 +150,7 @@ fn notification_tool_call_is_ignored_before_core_dispatch() {
             .exists()
     );
     assert!(
-        orbit_research_core::Research::open(temp.path())
+        crate::Research::open(temp.path())
             .unwrap()
             .snapshot()
             .unwrap()

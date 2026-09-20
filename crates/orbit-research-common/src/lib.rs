@@ -1,6 +1,5 @@
 //! Leaf contracts shared by persistence, application and presentation layers.
 //! No filesystem operations, Git invocation, runtime, or workspace-crate dependencies.
-pub mod config;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

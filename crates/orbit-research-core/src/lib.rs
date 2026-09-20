@@ -2,10 +2,11 @@
 pub mod adapter;
 pub mod application;
 pub mod bootstrap;
+pub mod config;
 pub mod runtime;
 
 pub use bootstrap::init_workspace;
-pub use orbit_research_common::config::{BackendConfig, BackendSettings};
+pub use config::{BackendConfig, BackendSettings};
 pub use orbit_research_common::{Error, Record, Reservation, Result, Snapshot};
 pub use runtime::{Application, Research};
 // Preserve existing callers while internal ownership follows the module layers.

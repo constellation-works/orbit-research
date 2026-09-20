@@ -33,7 +33,7 @@ fn run(cli: Cli) -> ExitCode {
             Ok(application) => application,
             Err(error) => return invalid(error, 1),
         };
-        return match orbit_research_mcp::serve_mcp_application(
+        return match orbit_research_core::adapter::mcp::serve_mcp_application(
             &application,
             io::stdin().lock(),
             io::stdout().lock(),

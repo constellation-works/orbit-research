@@ -1,4 +1,4 @@
-//! Passive operator configuration; loading and validation belong in Core.
+//! Operator configuration; bootstrap loads it and the Orbit adapter validates it.
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

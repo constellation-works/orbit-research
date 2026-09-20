@@ -1,5 +1,5 @@
 //! MCP transport. All research operations delegate to Core.
-use orbit_research_core::{
+use crate::{
     Error, Result,
     api::{Application, tools},
 };
@@ -232,6 +232,3 @@ pub fn serve_mcp_application(
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests;

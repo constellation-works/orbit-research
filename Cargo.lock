@@ -695,7 +695,6 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "orbit-research-core",
- "orbit-research-mcp",
  "orbit-research-web",
  "serde_json",
  "tempfile",
@@ -723,15 +722,6 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
- "tempfile",
-]
-
-[[package]]
-name = "orbit-research-mcp"
-version = "0.1.0"
-dependencies = [
- "orbit-research-core",
- "serde_json",
  "tempfile",
 ]
 

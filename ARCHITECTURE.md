@@ -6,7 +6,6 @@ Orbit implementation crate, runtime, scheduler, or internal database.
 
 ```text
 orbit-research-cli ──┬── orbit-research-web ──┐
-                    ├── orbit-research-mcp ──┤
                     └───────────────────────┴── orbit-research-core
                                                         │
                                                 orbit-research-store
@@ -18,15 +17,15 @@ Core also depends directly on Common for its public operation types. Common is a
 workspace leaf; no workspace crate dependency is permitted.
 
 - **Common** owns passive Record, Snapshot and Reservation values and shared typed
-  errors, plus passive settings under `src/config/`. No I/O, application policy,
-  configuration loading or generic utility bucket.
+  errors. No I/O, application policy, configuration loading or generic utility bucket.
 - **CLI** owns argument parsing, process composition and output. It composes the
-  core, loopback HTTP adapter and stdio MCP adapter. `orbit-research` remains the
+  core, loopback HTTP adapter and Core’s stdio MCP adapter. `orbit-research` remains the
   installed binary; there is no second workbench binary.
 - **Core** owns shared application operations, contribution/synthesis planning,
   backend compatibility and explicit authority checks, task/run coordination,
-  and research receipt acceptance. It receives an explicit corpus root. It
-  invokes Orbit through argv and structured responses, preserving caller
+  research receipt acceptance, backend configuration and the stdio MCP adapter.
+  It receives an explicit corpus root and invokes Orbit through argv and structured
+  responses, preserving caller
   restrictions. It never starts another execution engine.
 - **Store** owns canonical Markdown/frontmatter reads and guarded writes, Git
   content identities, serialized committed ID reservations, atomic request
@@ -35,11 +34,11 @@ workspace leaf; no workspace crate dependency is permitted.
   Unknown outcomes are reconciled; a timeout is not permission to submit twice.
 - **Web** owns the loopback HTTP protocol, browser session protections and the
   dashboard. It delegates operations to Core and has no direct store dependency.
-- **MCP** owns stdio JSON-RPC transport and delegates tool contracts/operations
-  to Core. Its corpus scope is fixed at startup; tool arguments cannot switch
+- **Core’s MCP adapter** owns stdio JSON-RPC transport and delegates tool contracts/operations
+  to the application layer. Its corpus scope is fixed at startup; tool arguments cannot switch
   it to a different filesystem root.
 
-The workspace contains exactly six crates: Common, Store, Core, CLI, Web and MCP.
+The workspace contains exactly five crates: Common, Store, Core, CLI and Web.
 The former contract/owner/import/index packages and their legacy JSON command
 surfaces are removed. Scientific authority remains the selected Markdown owner
 corpus; project membership is a tag, and H/T assessments remain explicit.
@@ -55,16 +54,22 @@ orbit-research-core/
 └── src/
     ├── application/           # use cases, work planning, receipts and API routing
     ├── bootstrap/             # local/configured assembly and workspace initialization
+    ├── config/                # operator-selected backend settings
     ├── runtime/               # process-scoped Application and Research handles
-    └── adapter/orbit/         # external CLI invocation, identity and compatibility
+    └── adapter/
+        ├── mcp.rs             # bounded stdio transport
+        ├── tests/mcp.rs       # transport tests through its public surface
+        └── orbit/            # external CLI invocation, identity and compatibility
 ```
 
 Transports invoke application use cases. Bootstrap fixes corpus and backend scope
 at startup; runtime contains their state. The Orbit adapter owns subprocesses and
 external protocol checks, while application operations own research policy and
 request reconciliation. Store remains responsible for filesystem and Git writes.
-Passive `BackendSettings` and `BackendConfig` live in Common. Core bootstrap loads
-them and the Orbit adapter validates them; Common never imports Core or reads files.
+`BackendSettings` and `BackendConfig` live in Core’s `config/`: only application
+composition and backend execution need them. Bootstrap loads them and the Orbit
+adapter validates them. Common retains scientific values and errors shared by Store
+and Core; it never imports Core or reads files.
 
 Core owns bundled skills; CLI exposes them through its resource command. Future
 research routines, auto-tasks, activities and jobs can live under Core assets and

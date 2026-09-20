@@ -19,7 +19,7 @@ make test
 
 ## Design and structure
 
-- [Architecture](ARCHITECTURE.md): the six crates and module ownership.
+- [Architecture](ARCHITECTURE.md): the five crates and module ownership.
 - [Workbench design](docs/design/research-workbench/1_overview.md): product scope.
 - [Research contracts](docs/design/research-workbench/specs/contracts.md): canonical
   records, owner boundaries and execution integration.

@@ -12,7 +12,7 @@ tags: [research-workbench]
 
 ```text
 CLI (composition) -> Web -> Core -> Store
-                 -> MCP -> Core
+                 -> Core MCP adapter
                  --------> Core
 Core -> Common <- Store (workspace leaf)
 Core -> external Orbit CLI -> Orbit tasks/runs/artifacts
@@ -23,10 +23,9 @@ Store -> owner Markdown/Git + local request log
 |---|---|---|
 | orbit-research-common | passive shared record/reservation types and typed errors | I/O, configuration loading, application decisions, workspace dependencies |
 | orbit-research-store | schema validation, Git identity, canonical files, writer lock, reservation intents and request correlations | agent execution, task policy, HTTP/JSON-RPC |
-| orbit-research-core | application use cases, work scope, backend admission, execution correlation, receipt acceptance | browser rendering, CLI formatting, duplicate scientific storage |
+| orbit-research-core | application use cases, work scope, backend admission, execution correlation, receipt acceptance, backend config and stdio MCP transport | browser rendering, CLI formatting, duplicate scientific storage |
 | orbit-research-cli | args, configuration composition, central output renderer, process lifetime | direct scientific file mutations |
 | orbit-research-web | loopback HTTP, session protection, dashboard | Orbit subprocesses, scientific acceptance rules |
-| orbit-research-mcp | bounded stdio JSON-RPC, discovery and tool routing | arbitrary root switching, independent write logic |
 
 Core is the common operation boundary. Typed request/response contracts belong here;
 transport adapters deserialize, call and render. Store contains durable atomicity and
@@ -35,13 +34,17 @@ dependencies workspace-managed and tests at the owning boundary. Do not introduc
 crate for each module or import any Orbit implementation crate. Dependency checks are
 executable in scripts/check-dependency-direction.sh; ARCHITECTURE.md is the root map.
 
+Core owns the bounded stdio MCP adapter; its startup corpus scope cannot be changed
+by tool arguments. BackendConfig and BackendSettings live in Core config, while
+Common remains the Store/Core leaf for scientific types and errors.
+
 Core modules: corpus use cases, work planning, backend compatibility/CLI adapter,
 operations/correlation, receipt validation, and shared API contracts. Store modules:
 corpus reader, guarded writer, request log and workspace scaffold. Preserve these boundaries
 if individual modules grow into directories.
 
 There are no separate contract/owner/import/index crates or retained legacy JSON
-command paths. Common holds passive research records and configuration; Store
+command paths. Common holds passive research records and errors; Core owns backend configuration; Store
 persists Markdown and operational request logs; Core owns application policy.
 
 ## Concurrency
