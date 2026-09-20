@@ -1,19 +1,25 @@
 # orbit-research — agent guide
 
-Independent repository on agent-main. The running implementation is the Rust
-workspace specified in [docs/design/rust-port/](docs/design/rust-port/1_overview.md).
-The approved workbench extension follows [its design](docs/design/research-workbench/1_overview.md)
-and [crate architecture](ARCHITECTURE.md). Read the owning feature contract before
-implementation; protocol adapters share Core use cases and never bypass Store guards.
-Build the scientific registry and its Orbit integration; do not build a second
-task engine or scheduler. Do not revive the retired Python package.
+Loaded as both `AGENTS.md` and `CLAUDE.md`.
 
-- Canonical scientific records remain owned by their scientific repositories. The cross-project index is rebuildable, never a second authority.
-- Keep claim revisions, frozen protocols, result artifacts and assessments distinct. Execution success is not scientific support. Retirement preserves verdicts and history.
-- Importers default to read-only dry runs. Preserve legacy IDs, source revisions, limitations and missingness. Never invent preregistration or strengthen a verdict during migration.
-- Do not edit sibling repositories from a framework implementation task. Changes there need owning-workspace tasks.
-- Follow Daniel's current crew selection: Astra for architecture/design/visual work, Sol for appropriate hard numerical or implementation work, Terra for medium, Luna for low.
-- Follow the root Constellation git and approval rules. Prepare validated candidates; do not merge or complete without Daniel's approval. Do not schedule agent review unless requested.
-- Use current code, requirements and measured evidence. Historical ADRs and retired agent personas are not authority.
-- Add focused behavioral tests for scientific invariants and migration preservation. The approved workbench is a separate loopback app using Observatory Markdown and an external Orbit CLI adapter. Preserve the existing static export path.
-- Never commit secrets, private source datasets or environment files. Reference large artifacts through immutable manifests and digests.
+## Rules
+
+- Work only on authorized scope. In a managed activity, leave commits and delivery transitions to the pipeline. Neither implementation nor a PR request authorizes merging.
+- Don't invent task IDs — get them from `orbit.task.add`. Don't edit task files directly — use `orbit.task.update`.
+- Don't add cross-crate dependencies without updating [`ARCHITECTURE.md`](ARCHITECTURE.md).
+- Don't touch `CHANGELOG.md` during tasks; it is compiled at release time ([`RELEASING.md`](RELEASING.md)).
+- Update affected docs in the same PR as the code. Stale docs are a review blocker.
+
+## Code
+
+- Layering and scoping: [`ARCHITECTURE.md`](ARCHITECTURE.md). Reusable patterns: [`docs/design-patterns/`](docs/design-patterns/).
+- Lints are enforced via `[workspace.lints]`: no `unwrap`/`expect` at crate boundaries (propagate `OrbitError`), no `print!` (use `tracing`), no lock guards across `.await`.
+- Default to `pub(crate)`; workspace deps via `.workspace = true`; bounded channels; typed `thiserror` variants.
+- Unit tests live in a sibling `tests/` dir mirroring source filenames ([`test_layout.md`](docs/design-patterns/test_layout.md)); crate-root `tests/` is integration only.
+- Never expose internal task/friction IDs in user-facing output, CLI help (Clap renders `///`), or MCP text.
+- Prefer the fewest moving parts: delete dead code and stale docs together, keep compatibility only for an external contract or persisted format, ~800 lines per file is a split signal.
+- Report commands and outcomes at handoff — passed, failed, not run — never "tested".
+
+## Orbit Workflow
+
+For any Orbit lifecycle work, invoke the `orbit` skill; its `SKILL.md` routes to the matching reference.
