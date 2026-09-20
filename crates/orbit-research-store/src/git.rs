@@ -6,7 +6,7 @@ use std::{
 };
 
 fn command_error(operation: &str, output: &Output) -> Error {
-    Error::Invalid(format!(
+    Error::Internal(format!(
         "git {operation} failed ({}): {}",
         output.status,
         String::from_utf8_lossy(&output.stderr).trim()
@@ -86,7 +86,7 @@ impl Corpus {
         let write_result = child
             .stdin
             .take()
-            .ok_or_else(|| Error::Invalid("Missing Git stdin".into()))?
+            .ok_or_else(|| Error::Internal("Missing Git stdin".into()))?
             .write_all(bytes);
         let output = child.wait_with_output()?;
         if !output.status.success() {

@@ -57,7 +57,7 @@ macro_rules! operations {
             fn from_str(name: &str) -> Result<Self> {
                 match name {
                     $($name => Ok(Self::$variant)),+,
-                    _ => Err(Error::Invalid(format!("Unknown research operation: {name}"))),
+                    _ => Err(Error::InvalidInput(format!("Unknown research operation: {name}"))),
                 }
             }
         }
@@ -161,7 +161,8 @@ fn decode<T: DeserializeOwned + JsonSchema>(
     input: Value,
     validator: &OnceLock<std::result::Result<jsonschema::JSONSchema, String>>,
 ) -> Result<T> {
-    let request = serde_json::from_value(input.clone())?;
+    let request = serde_json::from_value(input.clone())
+        .map_err(|error| Error::InvalidInput(error.to_string()))?;
     let validator = validator.get_or_init(|| {
         let schema =
             serde_json::to_value(schemars::schema_for!(T)).map_err(|error| error.to_string())?;
@@ -169,13 +170,13 @@ fn decode<T: DeserializeOwned + JsonSchema>(
     });
     let validator = validator
         .as_ref()
-        .map_err(|error| Error::Invalid(format!("Invalid built-in request schema: {error}")))?;
+        .map_err(|error| Error::Internal(format!("Invalid built-in request schema: {error}")))?;
     if let Err(mut errors) = validator.validate(&input) {
         let message = errors
             .next()
             .map(|error| error.to_string())
             .unwrap_or_else(|| "Invalid operation arguments".into());
-        return Err(Error::Invalid(message));
+        return Err(Error::InvalidInput(message));
     }
     Ok(request)
 }

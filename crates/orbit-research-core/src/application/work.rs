@@ -68,7 +68,7 @@ impl Corpus {
             .find(|r| r.id == plan.research_id && r.kind == "R")
             .ok_or_else(|| Error::Invalid("Planned research record disappeared".into()))?;
         if snapshot.revision != plan.corpus_revision || record.git_blob != plan.research_blob {
-            return Err(Error::Invalid(
+            return Err(Error::Conflict(
                 "Research plan is stale; refresh it before creating work".into(),
             ));
         }
