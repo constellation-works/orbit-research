@@ -58,6 +58,7 @@ impl Corpus {
             return Err(Error::Invalid("Record kind must be Q, H, T or R".into()));
         }
         let title = checked_title(title)?;
+        self.git(&["rev-parse", "HEAD"])?;
         let writer = Writer::open(self)?;
         let key = digest(request_key.as_bytes());
         let request_digest = digest(&serde_json::to_vec(&json!([

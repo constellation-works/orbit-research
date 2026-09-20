@@ -176,3 +176,37 @@ fn tool_call_delegates_and_wraps_core_errors() {
             .contains("Unknown research operation")
     );
 }
+
+#[test]
+fn corpus_diagnostics_are_wrapped_as_mcp_errors_without_raw_git_stderr() {
+    let temp = corpus();
+    let git = temp.path().join(".git");
+    fs::remove_dir_all(git).expect("remove fixture repository");
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(temp.path())
+        .args(["init", "-q"])
+        .output()
+        .expect("initialize unborn fixture repository");
+    assert!(output.status.success());
+
+    let values = exchange(
+        temp.path(),
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"research.check","arguments":{}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"research.list","arguments":{}}}
+"#,
+    );
+    for value in &values[1..] {
+        assert_eq!(value["result"]["isError"], true);
+        let message = value["result"]["content"][0]["text"]
+            .as_str()
+            .expect("MCP diagnostic text");
+        assert!(message.contains("Corpus has no commits"), "{message}");
+        assert!(
+            message.contains(&temp.path().display().to_string()),
+            "{message}"
+        );
+        assert!(!message.contains("ambiguous argument 'HEAD'"), "{message}");
+    }
+}

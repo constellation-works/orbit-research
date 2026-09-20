@@ -40,6 +40,24 @@ fn initialize(corpus: &Path) {
     assert_success(&output);
 }
 
+fn unborn_corpus() -> tempfile::TempDir {
+    let temp = tempfile::tempdir().expect("temporary corpus");
+    initialize(&temp.path().join("corpus"));
+    let corpus = temp.path().join("corpus");
+    std::fs::remove_dir_all(corpus.join(".git")).expect("remove fixture repository");
+    let output = Command::new("git")
+        .args([
+            "-C",
+            corpus.to_str().expect("UTF-8 fixture path"),
+            "init",
+            "-q",
+        ])
+        .output()
+        .expect("initialize unborn fixture repository");
+    assert_success(&output);
+    temp
+}
+
 fn create_question(corpus: &Path) {
     let output = run(&[
         "--format",
@@ -198,6 +216,83 @@ fn operational_errors_follow_the_selected_output_contract() {
     assert_structured_error(
         &run(&["--format", "json", "research", "list", "--corpus", corpus]),
         1,
+    );
+}
+
+#[test]
+fn corpus_diagnostics_are_actionable_for_unborn_missing_and_non_git_paths() {
+    let temp = unborn_corpus();
+    let corpus = temp.path().join("corpus");
+    let corpus_text = corpus.to_str().expect("UTF-8 fixture path");
+
+    for args in [
+        vec!["research", "check", "--corpus", corpus_text],
+        vec!["research", "list", "--corpus", corpus_text],
+        vec![
+            "research",
+            "create",
+            "--corpus",
+            corpus_text,
+            "--kind",
+            "Q",
+            "--title",
+            "Unborn",
+            "--body",
+            "body",
+            "--request-key",
+            "unborn",
+        ],
+    ] {
+        let mut command_args = vec!["--format", "json"];
+        command_args.extend(args);
+        let output = run(&command_args);
+        assert_structured_error(&output, 1);
+        let error = parse_json(&output.stderr);
+        let message = error["error"]["message"].as_str().expect("error message");
+        assert!(message.contains("Corpus has no commits"), "{message}");
+        assert!(message.contains(corpus_text), "{message}");
+        assert!(!message.contains("ambiguous argument 'HEAD'"), "{message}");
+    }
+
+    let missing_schema = temp.path().join("missing-schema");
+    std::fs::create_dir(&missing_schema).expect("missing-schema fixture");
+    let output = run(&[
+        "--format",
+        "json",
+        "research",
+        "list",
+        "--corpus",
+        missing_schema.to_str().expect("UTF-8 fixture path"),
+    ]);
+    assert_structured_error(&output, 1);
+    let error = parse_json(&output.stderr);
+    let message = error["error"]["message"].as_str().expect("error message");
+    assert!(message.contains("missing the corpus contract"), "{message}");
+    assert!(message.contains("_scripts/schema.json"), "{message}");
+
+    let non_git = temp.path().join("non-git");
+    std::fs::create_dir(&non_git).expect("non-git fixture");
+    std::fs::create_dir(non_git.join("_scripts")).expect("non-git schema directory");
+    std::fs::copy(
+        corpus.join("_scripts/schema.json"),
+        non_git.join("_scripts/schema.json"),
+    )
+    .expect("non-git schema");
+    let output = run(&[
+        "--format",
+        "json",
+        "research",
+        "list",
+        "--corpus",
+        non_git.to_str().expect("UTF-8 fixture path"),
+    ]);
+    assert_structured_error(&output, 1);
+    let error = parse_json(&output.stderr);
+    let message = error["error"]["message"].as_str().expect("error message");
+    assert!(message.contains("not a Git repository"), "{message}");
+    assert!(
+        message.contains(non_git.to_str().expect("UTF-8 fixture path")),
+        "{message}"
     );
 }
 
