@@ -128,9 +128,9 @@ fn single_investigation_owns_exactly_one_reserved_item() {
 
 #[test]
 fn forged_write_scope_is_rejected_before_backend_invocation() {
-    use orbit_research_core::backend::{Backend, BackendConfig};
+    use orbit_research_core::backend::{BackendConfig, OrbitBackend};
     let (temp, corpus) = corpus();
-    let backend = Backend::new(
+    let backend = OrbitBackend::new(
         BackendConfig {
             executable: temp.path().join("must-not-run"),
             workspace: "ws_fixture".into(),

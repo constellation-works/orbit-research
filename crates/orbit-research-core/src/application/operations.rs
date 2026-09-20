@@ -1,6 +1,6 @@
 //! Operational request reconciliation; scientific records remain entirely in the corpus.
 //! Rebuildable links point to Orbit, which owns task/run/receipt authority.
-use crate::{Error, Research as Corpus, Result, backend::Backend, work::WorkPlan};
+use crate::{Error, Research as Corpus, Result, backend::OrbitBackend, work::WorkPlan};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -21,7 +21,7 @@ pub struct Link {
 impl Corpus {
     pub fn link_work(
         &self,
-        backend: &Backend,
+        backend: &OrbitBackend,
         request_key: &str,
         title: &str,
         crew: &str,
@@ -114,7 +114,12 @@ impl Corpus {
     }
 
     /// A retry observes the existing durable run. It never silently dispatches twice.
-    pub fn dispatch_work(&self, backend: &Backend, request_key: &str, base: &str) -> Result<Value> {
+    pub fn dispatch_work(
+        &self,
+        backend: &OrbitBackend,
+        request_key: &str,
+        base: &str,
+    ) -> Result<Value> {
         let request_log = self.store.request_log()?;
         let key = hash(request_key.as_bytes());
         let mut link = request_log
@@ -164,7 +169,7 @@ impl Corpus {
     }
 
     /// Read fresh task/run evidence for a previously linked request.
-    pub fn work_status(&self, backend: &Backend, request_key: &str) -> Result<Value> {
+    pub fn work_status(&self, backend: &OrbitBackend, request_key: &str) -> Result<Value> {
         let link = self.link_for_backend(backend, request_key)?;
         let task_id = link
             .task_id
@@ -178,7 +183,7 @@ impl Corpus {
                 .map_err(|e| Error::Invalid(e.to_string()))?.as_millis()}))
     }
 
-    pub fn promote_work(&self, backend: &Backend, request_key: &str) -> Result<Value> {
+    pub fn promote_work(&self, backend: &OrbitBackend, request_key: &str) -> Result<Value> {
         let link = self.link_for_backend(backend, request_key)?;
         let id = link
             .task_id
@@ -189,7 +194,7 @@ impl Corpus {
 
     /// Cancel only the run currently bound to this linked task. Never accept an
     /// arbitrary run ID supplied by a transport client.
-    pub fn cancel_work(&self, backend: &Backend, request_key: &str) -> Result<Value> {
+    pub fn cancel_work(&self, backend: &OrbitBackend, request_key: &str) -> Result<Value> {
         let link = self.link_for_backend(backend, request_key)?;
         let task_id = link
             .task_id
@@ -205,7 +210,7 @@ impl Corpus {
     /// This validates existing delivery evidence without manufacturing an assessment.
     pub fn validate_work_result(
         &self,
-        backend: &Backend,
+        backend: &OrbitBackend,
         request_key: &str,
         receipt_path: &str,
         publication_ref: &str,
@@ -242,7 +247,7 @@ impl Corpus {
         )
     }
 
-    fn link_for_backend(&self, backend: &Backend, request_key: &str) -> Result<Link> {
+    fn link_for_backend(&self, backend: &OrbitBackend, request_key: &str) -> Result<Link> {
         let link: Link = self
             .store
             .request_log()?

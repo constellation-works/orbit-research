@@ -1,6 +1,6 @@
 use orbit_research_core::{
     Research,
-    backend::{Backend, BackendConfig, Compatibility},
+    backend::{BackendConfig, Compatibility, OrbitBackend},
 };
 use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
@@ -86,7 +86,7 @@ esac
         owner_machine_id: "hm_fixture".into(),
     };
     let make_backend = |allow_ship| {
-        Backend::new(
+        OrbitBackend::new(
             config.clone(),
             vec![Compatibility {
                 binary_sha256: digest.clone(),

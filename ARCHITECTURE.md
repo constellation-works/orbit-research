@@ -26,7 +26,8 @@ workspace leaf; no workspace crate dependency is permitted.
   research receipt acceptance, backend configuration and the stdio MCP adapter.
   It receives an explicit corpus root and invokes Orbit through argv and structured
   responses, preserving caller
-  restrictions. It never starts another execution engine.
+  restrictions. It never starts another execution engine. `OrbitBackend` is the sole execution
+  adapter; `Application::orbit` is optional so local research needs no Orbit setup.
 - **Store** owns canonical Markdown/frontmatter reads and guarded writes, Git
   content identities, serialized committed ID reservations, atomic request
   logs, and corpus scaffolding. The request log contains request

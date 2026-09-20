@@ -23,13 +23,13 @@ pub struct Compatibility {
     pub operations: Vec<String>,
 }
 
-pub struct Backend {
+pub struct OrbitBackend {
     config: BackendConfig,
     compatibility: Vec<Compatibility>,
     timeout: Duration,
 }
 
-impl Backend {
+impl OrbitBackend {
     pub fn new(config: BackendConfig, compatibility: Vec<Compatibility>) -> Result<Self> {
         if !config.executable.is_absolute()
             || !config.checkout.is_absolute()
@@ -337,7 +337,7 @@ impl Backend {
 
 /// Only a successful preflight can construct this submission capability.
 pub(crate) struct PreparedDispatch<'a> {
-    backend: &'a Backend,
+    backend: &'a OrbitBackend,
     task: String,
     base: String,
 }

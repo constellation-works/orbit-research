@@ -2,4 +2,4 @@
 mod backend;
 
 pub use crate::config::BackendConfig;
-pub use backend::{Backend, Compatibility};
+pub use backend::{Compatibility, OrbitBackend};

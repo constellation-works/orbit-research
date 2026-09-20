@@ -1,13 +1,13 @@
 //! Assemble application state without starting an execution engine.
 use crate::{
     BackendSettings, Error, Research, Result,
-    adapter::orbit::{Backend, Compatibility},
+    adapter::orbit::{Compatibility, OrbitBackend},
     runtime::Application,
 };
 use std::path::Path;
 
 impl Application {
-    pub fn new(root: &Path, backend: Option<Backend>, publication_ref: String) -> Result<Self> {
+    pub fn new(root: &Path, orbit: Option<OrbitBackend>, publication_ref: String) -> Result<Self> {
         if !publication_ref.starts_with("refs/remotes/") {
             return Err(Error::Invalid(
                 "Publication target must be an explicit remote-tracking ref".into(),
@@ -15,7 +15,7 @@ impl Application {
         }
         Ok(Self {
             corpus: Research::open(root)?,
-            backend,
+            orbit,
             publication_ref,
         })
     }
@@ -23,9 +23,9 @@ impl Application {
     pub fn configured(root: &Path, settings: BackendSettings) -> Result<Self> {
         let compatibility: Vec<Compatibility> =
             serde_json::from_str(include_str!("../resources/orbit-compatibility.json"))?;
-        let backend = Backend::new(settings.backend, compatibility)?;
+        let orbit = OrbitBackend::new(settings.backend, compatibility)?;
         // Do not probe here: a backend outage must not prevent local capture/read.
-        Self::new(root, Some(backend), settings.publication_ref)
+        Self::new(root, Some(orbit), settings.publication_ref)
     }
 
     pub fn local(root: &Path) -> Result<Self> {

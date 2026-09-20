@@ -1,6 +1,6 @@
 //! Shared application entry points. Protocol strings are parsed only at the edge.
 use super::{Operation, request::*};
-use crate::{Error, Result, adapter::orbit::Backend};
+use crate::{Error, Result, adapter::orbit::OrbitBackend};
 use serde_json::Value;
 use std::path::Path;
 
@@ -34,8 +34,8 @@ pub fn tools() -> Value {
     )
 }
 
-fn configured_backend(app: &Application) -> Result<&Backend> {
-    app.backend.as_ref().ok_or_else(|| {
+fn configured_backend(app: &Application) -> Result<&OrbitBackend> {
+    app.orbit.as_ref().ok_or_else(|| {
         Error::Invalid(
             "Orbit backend is not configured; local research operations remain available".into(),
         )

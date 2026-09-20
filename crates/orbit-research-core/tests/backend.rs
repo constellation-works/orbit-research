@@ -1,4 +1,4 @@
-use orbit_research_core::backend::{Backend, BackendConfig, Compatibility};
+use orbit_research_core::backend::{BackendConfig, Compatibility, OrbitBackend};
 use sha2::{Digest, Sha256};
 use std::{fs, os::unix::fs::PermissionsExt, path::Path};
 use tempfile::TempDir;
@@ -11,7 +11,7 @@ fn json_path(path: &Path) -> String {
     serde_json::to_string(&path.display().to_string()).unwrap()
 }
 
-fn fixture(mode: &str) -> (TempDir, Backend, std::path::PathBuf) {
+fn fixture(mode: &str) -> (TempDir, OrbitBackend, std::path::PathBuf) {
     let temp = tempfile::tempdir().unwrap();
     let checkout = temp.path().join("checkout");
     fs::create_dir(&checkout).unwrap();
@@ -61,7 +61,7 @@ esac
     fs::write(&script, body).unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     let hash = format!("{:x}", Sha256::digest(fs::read(&script).unwrap()));
-    let backend = Backend::new(
+    let backend = OrbitBackend::new(
         BackendConfig {
             executable: script.clone(),
             workspace: "ws_test".into(),
@@ -97,7 +97,7 @@ fn unknown_hash_refuses_before_invocation() {
     )
     .unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
-    let backend = Backend::new(
+    let backend = OrbitBackend::new(
         BackendConfig {
             executable: script,
             workspace: "ws_test".into(),

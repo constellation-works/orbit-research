@@ -1,6 +1,6 @@
 //! Opt-in read-only verification against an explicitly selected installed backend.
 //! This probe does not certify mutation operations or inject operator authority.
-use orbit_research_core::backend::{Backend, BackendConfig, Compatibility};
+use orbit_research_core::backend::{BackendConfig, Compatibility, OrbitBackend};
 use sha2::{Digest, Sha256};
 use std::{env, fs, path::PathBuf};
 
@@ -24,7 +24,7 @@ fn installed_backend_observation_contract() {
     );
     let workspace = required("ORBIT_RESEARCH_TEST_WORKSPACE");
     let owner = required("ORBIT_RESEARCH_TEST_OWNER");
-    let backend = Backend::new(
+    let backend = OrbitBackend::new(
         BackendConfig {
             executable,
             checkout: PathBuf::from(required("ORBIT_RESEARCH_TEST_CHECKOUT")),
