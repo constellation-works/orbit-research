@@ -1,6 +1,2 @@
-//! Transport and external service boundaries; no embedded Orbit runtime.
-pub mod mcp;
+//! External service boundaries; no embedded Orbit runtime.
 pub mod orbit;
-
-#[cfg(test)]
-mod tests;

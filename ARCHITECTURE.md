@@ -19,11 +19,11 @@ workspace leaf; no workspace crate dependency is permitted.
 - **Common** owns passive Record, Snapshot and Reservation values and shared typed
   errors. No I/O, application policy, configuration loading or generic utility bucket.
 - **CLI** owns argument parsing, process composition and output. It composes the
-  core, loopback HTTP adapter and Core’s stdio MCP adapter. `orbit-research` remains the
+  core, loopback HTTP adapter and its stdio MCP adapter. `orbit-research` remains the
   installed binary; there is no second workbench binary.
 - **Core** owns shared application operations, contribution/synthesis planning,
   backend compatibility and explicit authority checks, task/run coordination,
-  research receipt acceptance, backend configuration and the stdio MCP adapter.
+  research receipt acceptance and backend configuration.
   It receives an explicit corpus root and invokes Orbit through argv and structured
   responses, preserving caller
   restrictions. It never starts another execution engine. `OrbitBackend` is the sole execution
@@ -35,7 +35,7 @@ workspace leaf; no workspace crate dependency is permitted.
   Unknown outcomes are reconciled; a timeout is not permission to submit twice.
 - **Web** owns the loopback HTTP protocol, browser session protections and the
   dashboard. It delegates operations to Core and has no direct store dependency.
-- **Core’s MCP adapter** owns stdio JSON-RPC transport and delegates tool contracts/operations
+- **CLI’s MCP transport** owns stdio JSON-RPC transport and delegates tool contracts/operations
   to the application layer. Its corpus scope is fixed at startup; tool arguments cannot switch
   it to a different filesystem root.
 
@@ -58,8 +58,6 @@ orbit-research-core/
     ├── config.rs                # operator-selected backend settings
     ├── runtime.rs               # process-scoped Application and Research handles
     └── adapter/
-        ├── mcp.rs             # bounded stdio transport
-        ├── tests/mcp.rs       # transport tests through its public surface
         └── orbit/            # external CLI invocation, identity and compatibility
 ```
 
@@ -75,6 +73,10 @@ and Core; it never imports Core or reads files.
 Core owns bundled skills; CLI exposes them through its resource command. Future
 research routines, auto-tasks, activities and jobs can live under Core assets and
 be scaffolded into `.orbit/`. They are not implemented or enabled by this layout.
+
+CLI `src/mcp.rs` owns stdio protocol framing and session handling, with sibling
+tests in `src/tests/mcp.rs`. Core owns the shared operation registry, schemas and
+application dispatch; it does not own the MCP transport.
 
 ## Operation contracts
 

@@ -11,6 +11,7 @@ use crate::output::{Invalid, invalid};
 use crate::parse::{Cli, Command, WorkspaceOperation};
 
 mod command;
+mod mcp;
 mod output;
 mod parse;
 #[cfg(test)]
@@ -33,7 +34,7 @@ fn run(cli: Cli) -> ExitCode {
             Ok(application) => application,
             Err(error) => return invalid(error, 1),
         };
-        return match orbit_research_core::adapter::mcp::serve_mcp_application(
+        return match mcp::serve_mcp_application(
             &application,
             io::stdin().lock(),
             io::stdout().lock(),

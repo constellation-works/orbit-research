@@ -1,18 +1,18 @@
-use super::super::mcp::{serve_mcp, serve_mcp_application};
-use crate::Application;
+use super::super::mcp::serve_mcp_application;
+use orbit_research_core::Application;
 use serde_json::Value;
 use std::{fs, io::Cursor, path::Path, process::Command};
 use tempfile::TempDir;
 
-const SCHEMA: &[u8] = include_bytes!("../../../tests/fixtures/schema.json");
+const SCHEMA: &[u8] = include_bytes!("../../../orbit-research-core/tests/fixtures/schema.json");
 
 fn corpus() -> TempDir {
-    let temp = tempfile::tempdir().unwrap();
+    let temp = tempfile::tempdir().expect("temporary corpus");
     let root = temp.path();
-    fs::create_dir(root.join("_scripts")).unwrap();
-    fs::write(root.join("_scripts/schema.json"), SCHEMA).unwrap();
+    fs::create_dir(root.join("_scripts")).expect("schema directory");
+    fs::write(root.join("_scripts/schema.json"), SCHEMA).expect("fixture schema");
     for dir in ["questions", "hypotheses", "theories", "research"] {
-        fs::create_dir(root.join(dir)).unwrap();
+        fs::create_dir(root.join(dir)).expect("record directory");
     }
     let run = |args: &[&str]| {
         let output = Command::new("git")
@@ -20,7 +20,7 @@ fn corpus() -> TempDir {
             .arg(root)
             .args(args)
             .output()
-            .unwrap();
+            .expect("run fixture Git");
         assert!(
             output.status.success(),
             "git {:?}: {}",
@@ -38,22 +38,16 @@ fn corpus() -> TempDir {
 
 fn exchange(root: &Path, input: &str) -> Vec<Value> {
     let mut output = Vec::new();
-    serve_mcp(root, Cursor::new(input.as_bytes()), &mut output).unwrap();
+    serve_mcp_application(
+        &Application::local(root).expect("local application"),
+        Cursor::new(input.as_bytes()),
+        &mut output,
+    )
+    .expect("serve fixture MCP requests");
     String::from_utf8(output)
-        .unwrap()
+        .expect("UTF-8 response")
         .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
-}
-
-fn exchange_application(root: &Path, input: &str) -> Vec<Value> {
-    let application = Application::local(root).unwrap();
-    let mut output = Vec::new();
-    serve_mcp_application(&application, Cursor::new(input.as_bytes()), &mut output).unwrap();
-    String::from_utf8(output)
-        .unwrap()
-        .lines()
-        .map(|line| serde_json::from_str(line).unwrap())
+        .map(|line| serde_json::from_str(line).expect("JSON-RPC response"))
         .collect()
 }
 
@@ -72,7 +66,7 @@ fn handshake_discovery_and_stdout_are_protocol_pure() {
     assert!(
         values[1]["result"]["tools"]
             .as_array()
-            .unwrap()
+            .expect("tools array")
             .iter()
             .any(|tool| tool["name"] == "research.create")
     );
@@ -93,9 +87,13 @@ fn invalid_framing_and_handshake_errors_are_bounded() {
         "x".repeat(128 * 1024)
     );
     let mut out = Vec::new();
-    let error = serve_mcp(temp.path(), Cursor::new(oversized.into_bytes()), &mut out)
-        .unwrap_err()
-        .to_string();
+    let error = serve_mcp_application(
+        &Application::local(temp.path()).expect("local application"),
+        Cursor::new(oversized.into_bytes()),
+        &mut out,
+    )
+    .expect_err("oversized request must fail")
+    .to_string();
     assert!(error.contains("exceeds"));
     assert!(out.is_empty());
 }
@@ -136,7 +134,7 @@ fn notification_initialize_does_not_advance_handshake() {
 #[test]
 fn notification_tool_call_is_ignored_before_core_dispatch() {
     let temp = corpus();
-    let values = exchange_application(
+    let values = exchange(
         temp.path(),
         r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}
 {"jsonrpc":"2.0","method":"tools/call","params":{"name":"research.create","arguments":{"request_key":"notification-create","kind":"Q","title":"Must not exist"}}}
@@ -150,10 +148,10 @@ fn notification_tool_call_is_ignored_before_core_dispatch() {
             .exists()
     );
     assert!(
-        crate::Research::open(temp.path())
-            .unwrap()
+        orbit_research_core::Research::open(temp.path())
+            .expect("open corpus")
             .snapshot()
-            .unwrap()
+            .expect("read corpus snapshot")
             .records
             .is_empty()
     );
@@ -174,7 +172,7 @@ fn tool_call_delegates_and_wraps_core_errors() {
     assert!(
         values[2]["result"]["content"][0]["text"]
             .as_str()
-            .unwrap()
+            .expect("text error content")
             .contains("Unknown research operation")
     );
 }

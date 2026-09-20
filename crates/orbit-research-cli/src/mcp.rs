@@ -1,11 +1,10 @@
 //! MCP transport. All research operations delegate to Core.
-use crate::{
+use orbit_research_core::{
     Error, Result,
     api::{Application, tools},
 };
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
-use std::path::Path;
 
 const MAX_REQUEST_BYTES: usize = 128 * 1024;
 
@@ -70,16 +69,9 @@ fn write_response<W: Write>(writer: &mut W, value: Value) -> Result<()> {
     Ok(())
 }
 
-/// MCP stdio JSON-RPC, pinned to the 2024-11-05 tools protocol.
-/// Corpus scope is chosen at process startup, never supplied by tool arguments.
-pub fn serve_mcp(root: &Path, mut reader: impl BufRead, mut writer: impl Write) -> Result<()> {
-    let application = Application::local(root)?;
-    serve_mcp_application(&application, &mut reader, &mut writer)
-}
-
 /// Serve MCP against one process-scoped Core application. The application owns
 /// the fixed corpus and optional backend; request arguments cannot replace it.
-pub fn serve_mcp_application(
+pub(crate) fn serve_mcp_application(
     application: &Application,
     mut reader: impl BufRead,
     mut writer: impl Write,

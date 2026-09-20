@@ -12,7 +12,7 @@ tags: [research-workbench]
 
 ```text
 CLI (composition) -> Web -> Core -> Store
-                 -> Core MCP adapter
+                 -> CLI MCP transport -> Core
                  --------> Core
 Core -> Common <- Store (workspace leaf)
 Core -> external Orbit CLI -> Orbit tasks/runs/artifacts
@@ -23,8 +23,8 @@ Store -> owner Markdown/Git + local request log
 |---|---|---|
 | orbit-research-common | passive shared record/reservation types and typed errors | I/O, configuration loading, application decisions, workspace dependencies |
 | orbit-research-store | schema validation, Git identity, canonical files, writer lock, reservation intents and request correlations | agent execution, task policy, HTTP/JSON-RPC |
-| orbit-research-core | application use cases, work scope, backend admission, execution correlation, receipt acceptance, backend config and stdio MCP transport | browser rendering, CLI formatting, duplicate scientific storage |
-| orbit-research-cli | args, configuration composition, central output renderer, process lifetime | direct scientific file mutations |
+| orbit-research-core | application use cases, work scope, backend admission, execution correlation, receipt acceptance, backend config | browser rendering, CLI formatting, duplicate scientific storage |
+| orbit-research-cli | args, configuration composition, central output renderer, stdio MCP transport, process lifetime | direct scientific file mutations |
 | orbit-research-web | loopback HTTP, session protection, dashboard | Orbit subprocesses, scientific acceptance rules |
 
 Core is the common operation boundary. Typed request/response contracts belong here;
@@ -34,7 +34,7 @@ dependencies workspace-managed and tests at the owning boundary. Do not introduc
 crate for each module or import any Orbit implementation crate. Dependency checks are
 executable in scripts/check-dependency-direction.sh; ARCHITECTURE.md is the root map.
 
-Core owns the bounded stdio MCP adapter; its startup corpus scope cannot be changed
+CLI owns the bounded stdio MCP transport; its startup corpus scope cannot be changed
 by tool arguments. BackendConfig and BackendSettings live in Core config, while
 Common remains the Store/Core leaf for scientific types and errors.
 
