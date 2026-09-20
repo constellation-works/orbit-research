@@ -51,7 +51,7 @@ It does not import Orbit libraries.
 
 ```text
 orbit-research-core/
-├── assets/skills/             # packaged research guidance
+├── assets/                   # compatibility data and skills/ research guidance
 └── src/
     ├── application/           # use cases, work planning, receipts and API routing
     ├── bootstrap.rs             # local/configured assembly and workspace initialization
@@ -69,6 +69,10 @@ request reconciliation. Store remains responsible for filesystem and Git writes.
 composition and backend execution need them. Bootstrap loads them and the Orbit
 adapter validates them. Common retains scientific values and errors shared by Store
 and Core; it never imports Core or reads files.
+
+Packaged files live under each owning crate’s `assets/` directory: Core owns
+`orbit-compatibility.json` and `skills/`, Store owns `schema.json`, and Web owns
+`dashboard/`. Do not introduce a parallel `resources/` directory.
 
 Core owns bundled skills; CLI exposes them through its resource command. Future
 research routines, auto-tasks, activities and jobs can live under Core assets and

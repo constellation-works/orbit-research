@@ -42,7 +42,7 @@ pub fn init(path: &Path) -> Result<Value> {
     }
     fs::write(
         path.join("_scripts/schema.json"),
-        include_bytes!("../resources/schema.json"),
+        include_bytes!("../assets/schema.json"),
     )?;
     for directory in ["questions", "hypotheses", "theories", "research"] {
         fs::write(path.join(directory).join(".gitkeep"), "")?;

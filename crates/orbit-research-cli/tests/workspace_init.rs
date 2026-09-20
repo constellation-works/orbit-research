@@ -104,7 +104,7 @@ fn invalid_existing_corpus_is_rejected_without_scaffolding() {
     fs::create_dir_all(root.join("_scripts")).expect("workspace fixture operation");
     fs::write(
         root.join("_scripts/schema.json"),
-        include_bytes!("../../orbit-research-store/resources/schema.json"),
+        include_bytes!("../../orbit-research-store/assets/schema.json"),
     )
     .expect("workspace fixture operation");
     for directory in ["questions", "hypotheses", "theories", "research"] {

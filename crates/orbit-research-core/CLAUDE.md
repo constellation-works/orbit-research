@@ -9,7 +9,8 @@ Core owns research application policy and composition. Follow the repository
 - `config.rs` owns backend settings; bootstrap loads them and the Orbit adapter validates them.
   Tool arguments cannot replace authority.
 - `adapter/orbit/`: external Orbit CLI protocol, compatibility and identity checks.
-- `assets/skills/`: bundled research guidance. Future workflow assets are deferred.
+- `assets/`: bundled data, including `orbit-compatibility.json` and research guidance
+  under `skills/`. Future workflow assets are deferred.
 
 Use local research types. Do not import Orbit utilities, types or implementation
 crates. Persistence belongs in Store, passive shared values in Common, transport
