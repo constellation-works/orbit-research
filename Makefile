@@ -36,10 +36,10 @@ crate-test:
 	$(CARGO) test --workspace --locked --target-dir "$(CARGO_TARGET_DIR)"
 
 fmt:
-	rustfmt --edition 2024 crates/orbit-research-cli/src/main.rs crates/orbit-research-cli/tests/drop_in.rs
+	$(CARGO) fmt --all
 
 fmt-check:
-	rustfmt --edition 2024 --check crates/orbit-research-cli/src/main.rs crates/orbit-research-cli/tests/drop_in.rs
+	$(CARGO) fmt --all -- --check
 
 clippy:
 	$(CARGO) clippy -p orbit-research-cli --all-targets --locked --no-deps --target-dir "$(CARGO_TARGET_DIR)" -- -D warnings

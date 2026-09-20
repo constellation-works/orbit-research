@@ -14,6 +14,11 @@ related_features: [rust-port]
 related_artifacts: [ORB-12384, ORB-11353, ORB-11367, ORB-11391, ORB-11392, ORB-12389, ORB-12414]
 ---
 
+> Architecture update: the workbench consolidation supersedes this document's
+> original crate partition. The current six-crate graph is defined in
+> [ARCHITECTURE.md](../../../ARCHITECTURE.md); existing command compatibility is
+> retained in modules rather than separate contract/owner/import/index packages.
+
 # Rust Port — Overview
 
 `orbit-research` is the shared scientific registry for Principia, Parallax,

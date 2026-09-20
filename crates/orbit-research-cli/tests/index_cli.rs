@@ -21,8 +21,12 @@ impl Scratch {
             .duration_since(UNIX_EPOCH)
             .map(|elapsed| elapsed.as_nanos())
             .unwrap_or_default();
-        let path = std::env::temp_dir().join(format!("orbit-research-index-cli-{}-{nanos}", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "orbit-research-index-cli-{}-{nanos}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&path).expect("scratch directory");
+        let path = path.canonicalize().expect("canonical scratch directory");
         Self { path }
     }
 
@@ -38,8 +42,17 @@ impl Drop for Scratch {
 }
 
 fn git(root: &Path, args: &[&str]) -> String {
-    let output = Command::new("git").arg("-C").arg(root).args(args).output().expect("git runs");
-    assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .output()
+        .expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
@@ -58,7 +71,12 @@ fn json_stdout(output: &Output) -> Value {
 }
 
 fn json_stderr(output: &Output) -> Value {
-    assert_eq!(Some(2), output.status.code(), "stdout: {}", String::from_utf8_lossy(&output.stdout));
+    assert_eq!(
+        Some(2),
+        output.status.code(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
     serde_json::from_slice(&output.stderr).expect("stderr is one JSON document")
 }
 
@@ -73,7 +91,11 @@ fn build_fixture(scratch: &Scratch) -> (PathBuf, PathBuf) {
     let checkout = scratch.join("owner");
     std::fs::create_dir_all(&checkout).expect("checkout root");
     git(&checkout, &["init", "-q"]);
-    std::fs::write(checkout.join(".keep"), b"Fixture checkout; no scientific record.\n").expect("seed file");
+    std::fs::write(
+        checkout.join(".keep"),
+        b"Fixture checkout; no scientific record.\n",
+    )
+    .expect("seed file");
     git(&checkout, &["add", "."]);
     git(
         &checkout,
@@ -113,12 +135,16 @@ fn build_fixture(scratch: &Scratch) -> (PathBuf, PathBuf) {
         "presentation": {},
         "payload": {"role": "program", "title": "CLI fixture"},
     });
-    record.as_object_mut().expect("object").remove("revision_id");
-    let digest = orbit_research_contract::revision_digest(&record).expect("digest");
+    record
+        .as_object_mut()
+        .expect("object")
+        .remove("revision_id");
+    let digest = orbit_research_core::legacy_contract::revision_digest(&record).expect("digest");
     record["revision_id"] = json!(digest);
 
     let relative = "research/records/P1.json";
-    let bytes = orbit_research_contract::canonical_json(&record).expect("canonical json");
+    let bytes =
+        orbit_research_core::legacy_contract::canonical_json(&record).expect("canonical json");
     let full = checkout.join(relative);
     std::fs::create_dir_all(full.parent().expect("parent")).expect("record directory");
     std::fs::write(&full, &bytes).expect("write record");
@@ -192,20 +218,44 @@ fn index_and_index_trace_match_cli_compat_flags_and_json() {
     let body = json_stdout(&output);
     assert_eq!(1, body["records"], "{body}");
     assert_eq!(0, body["pending"], "{body}");
-    assert!(body["content_digest"].as_str().is_some_and(|digest| digest.starts_with("sha256:")), "{body}");
-    assert_eq!(database.to_string_lossy(), body["database"].as_str().unwrap_or_default());
+    assert!(
+        body["content_digest"]
+            .as_str()
+            .is_some_and(|digest| digest.starts_with("sha256:")),
+        "{body}"
+    );
+    assert_eq!(
+        database.to_string_lossy(),
+        body["database"].as_str().unwrap_or_default()
+    );
 
-    let projection = orbit_research_index::read_index(&database).expect("read index directly");
-    let key = projection["records"][0]["key"].as_str().expect("key").to_owned();
+    let projection =
+        orbit_research_core::legacy_index::read_index(&database).expect("read index directly");
+    let key = projection["records"][0]["key"]
+        .as_str()
+        .expect("key")
+        .to_owned();
 
-    let trace_output = run(&["index-trace", "--database", database.to_str().expect("utf8 path"), "--key", &key]);
+    let trace_output = run(&[
+        "index-trace",
+        "--database",
+        database.to_str().expect("utf8 path"),
+        "--key",
+        &key,
+    ]);
     let trace = json_stdout(&trace_output);
     assert_eq!(key, trace["root"]);
     assert_eq!(1, trace["records"].as_array().expect("records").len());
 
     // An exact but absent key is a refused request, not a crash or an empty success.
     let missing_key = "0".repeat(64);
-    let missing = run(&["index-trace", "--database", database.to_str().expect("utf8 path"), "--key", &missing_key]);
+    let missing = run(&[
+        "index-trace",
+        "--database",
+        database.to_str().expect("utf8 path"),
+        "--key",
+        &missing_key,
+    ]);
     let error = json_stderr(&missing);
     assert_eq!("invalid-input", error["error"]["code"]);
 }
@@ -228,10 +278,15 @@ fn index_refuses_an_invalid_document_with_problems_on_stderr() {
     let error = json_stderr(&output);
     assert_eq!("invalid-input", error["error"]["code"]);
     assert!(
-        error["error"]["problems"].as_array().is_some_and(|problems| !problems.is_empty()),
+        error["error"]["problems"]
+            .as_array()
+            .is_some_and(|problems| !problems.is_empty()),
         "{error}"
     );
-    assert!(!database.exists(), "an invalid first rebuild must not create a database");
+    assert!(
+        !database.exists(),
+        "an invalid first rebuild must not create a database"
+    );
 }
 
 #[test]
@@ -282,7 +337,10 @@ fn browse_export_refuses_an_existing_destination_and_a_destination_inside_an_own
     ]);
     let error = json_stderr(&second);
     assert_eq!("invalid-input", error["error"]["code"]);
-    assert!(site.join("index.html").is_file(), "the previous export must survive the refusal");
+    assert!(
+        site.join("index.html").is_file(),
+        "the previous export must survive the refusal"
+    );
 
     // Writing inside a mapped owner checkout is forbidden, even for a brand-new path.
     let inside = checkout.join("site");

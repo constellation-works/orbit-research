@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://observatory/schema/research-record.json",
+  "title": "Observatory research record",
+  "description": "Frontmatter contract for the four record kinds of research layout v2 (docs/design/research-layout-v2/1_spec.md). The markdown files under questions/, hypotheses/, theories/ and research/<R###-slug>/README.md are canonical; any writer - a person, _scripts/new.sh or orbit-research - must produce a record this schema accepts. _scripts/check.py reads this file, so the gate and any external validator cannot drift.",
+  "oneOf": [
+    { "$ref": "#/$defs/question" },
+    { "$ref": "#/$defs/hypothesis" },
+    { "$ref": "#/$defs/research" },
+    { "$ref": "#/$defs/theory" }
+  ],
+  "x-observatory": {
+    "kinds": {
+      "Q": { "name": "question", "directory": "questions", "layout": "file", "def": "question" },
+      "H": { "name": "hypothesis", "directory": "hypotheses", "layout": "file", "def": "hypothesis" },
+      "T": { "name": "theory", "directory": "theories", "layout": "file", "def": "theory" },
+      "R": { "name": "research", "directory": "research", "layout": "directory", "def": "research" }
+    },
+    "id_pattern": "^[QHTR][0-9]{3}$",
+    "slug_pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+    "readme_sections": ["Question", "Method", "Result", "Limitations", "Next"],
+    "reference_fields": {
+      "derived_from": ["Q", "H", "T", "R"],
+      "answered_by": ["H", "R"],
+      "tests": ["H"],
+      "claims": ["H"],
+      "supersedes": ["T"]
+    },
+    "verdict_status": { "supports": "supported", "refutes": "refuted", "inconclusive": "inconclusive" },
+    "stale_running_days": 30,
+    "notes": [
+      "The slug is frozen at creation and the file is never renamed. `slug` is optional: when absent the checker requires the filename slug to be the kebab-case of `title`, so a later title change records the frozen slug explicitly instead of renaming the file.",
+      "Ids are three digits, zero-padded, monotonic and gapless per kind; `_scripts/new.sh` allocates the next one."
+    ]
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[QHTR][0-9]{3}$" },
+    "id_list": { "type": "array", "items": { "$ref": "#/$defs/id" } },
+    "date": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "common": {
+      "id": { "$ref": "#/$defs/id" },
+      "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "title": { "type": "string", "minLength": 1 },
+      "tags": { "$ref": "#/$defs/tags" },
+      "derived_from": { "$ref": "#/$defs/id_list" },
+      "created": { "$ref": "#/$defs/date" },
+      "updated": { "$ref": "#/$defs/date" }
+    },
+    "assessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "research", "revision", "verdict", "strength"],
+      "properties": {
+        "date": { "$ref": "#/$defs/date" },
+        "research": { "$ref": "#/$defs/id" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "verdict": { "type": "string", "enum": ["supports", "refutes", "inconclusive"] },
+        "strength": { "type": "string", "enum": ["anecdote", "suggestive", "strong"] },
+        "note": { "type": "string" }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "tags", "derived_from", "created", "updated", "answered_by"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "slug": { "$ref": "#/$defs/common/slug" },
+        "title": { "$ref": "#/$defs/common/title" },
+        "status": { "type": "string", "enum": ["open", "answered", "dropped"] },
+        "tags": { "$ref": "#/$defs/tags" },
+        "derived_from": { "$ref": "#/$defs/id_list" },
+        "created": { "$ref": "#/$defs/date" },
+        "updated": { "$ref": "#/$defs/date" },
+        "answered_by": { "$ref": "#/$defs/id_list" }
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "tags", "derived_from", "created", "updated", "revision", "assessments"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "slug": { "$ref": "#/$defs/common/slug" },
+        "title": { "$ref": "#/$defs/common/title" },
+        "status": { "type": "string", "enum": ["open", "supported", "refuted", "inconclusive", "dropped"] },
+        "tags": { "$ref": "#/$defs/tags" },
+        "derived_from": { "$ref": "#/$defs/id_list" },
+        "created": { "$ref": "#/$defs/date" },
+        "updated": { "$ref": "#/$defs/date" },
+        "revision": { "type": "integer", "minimum": 1 },
+        "assessments": { "type": "array", "items": { "$ref": "#/$defs/assessment" } }
+      }
+    },
+    "research": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "tags", "derived_from", "created", "updated", "tests"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "slug": { "$ref": "#/$defs/common/slug" },
+        "title": { "$ref": "#/$defs/common/title" },
+        "status": { "type": "string", "enum": ["planned", "running", "done", "abandoned"] },
+        "tags": { "$ref": "#/$defs/tags" },
+        "derived_from": { "$ref": "#/$defs/id_list" },
+        "created": { "$ref": "#/$defs/date" },
+        "updated": { "$ref": "#/$defs/date" },
+        "tests": { "$ref": "#/$defs/id_list" },
+        "orbit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "task": { "type": "string" }, "run": { "type": "string" } }
+        }
+      }
+    },
+    "theory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "status", "tags", "derived_from", "created", "updated", "claims", "supersedes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "slug": { "$ref": "#/$defs/common/slug" },
+        "title": { "$ref": "#/$defs/common/title" },
+        "status": { "type": "string", "enum": ["active", "superseded", "refuted"] },
+        "tags": { "$ref": "#/$defs/tags" },
+        "derived_from": { "$ref": "#/$defs/id_list" },
+        "created": { "$ref": "#/$defs/date" },
+        "updated": { "$ref": "#/$defs/date" },
+        "claims": { "$ref": "#/$defs/id_list" },
+        "supersedes": { "$ref": "#/$defs/id_list" }
+      }
+    },
+    "data_manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs"],
+      "description": "research/<R###-slug>/data/manifest.json: every input the item consumes. The bytes are never committed; this file always is.",
+      "properties": {
+        "note": { "type": "string" },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "source": { "type": "string", "minLength": 1 },
+              "sha256": { "type": ["string", "null"] },
+              "size": { "type": ["integer", "null"] },
+              "fetch": { "type": "string", "minLength": 1 },
+              "shared": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
