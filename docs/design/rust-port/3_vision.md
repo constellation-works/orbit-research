@@ -46,8 +46,8 @@ is labelled.
 ### This repository (Python)
 
 The scientific contract, native appends, importers, and index/browser are
-already specified in `docs/contract.md`, `docs/native-workflow.md`,
-`docs/imports.md`, and `docs/browser.md`. The Rust port re-implements those
+originally specified by the retired scientific/import contracts, with retained
+compatibility workflows in `docs/native-workflow.md` and `docs/browser.md`. The Rust port re-implements those
 documents; it does not reopen them.
 
 ### Constellation Rust crates

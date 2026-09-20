@@ -49,21 +49,14 @@ impl Corpus {
             for entry in fs::read_dir(base)? {
                 let entry = entry?;
                 let name = entry.file_name().to_string_lossy().into_owned();
-                if !name.starts_with(kind)
-                    || name
-                        .as_bytes()
-                        .get(1..4)
-                        .is_none_or(|digits| !digits.iter().all(u8::is_ascii_digit))
-                    || name.as_bytes().get(4) != Some(&b'-')
-                {
+                if !name.starts_with(kind) {
                     continue;
                 }
+                let (expected_id, slug) =
+                    parse_record_name(kind, &name, spec["layout"] == "directory")?;
                 let relative = if spec["layout"] == "directory" {
                     Path::new(directory).join(&name).join("README.md")
                 } else {
-                    if !name.ends_with(".md") {
-                        continue;
-                    }
                     Path::new(directory).join(&name)
                 };
                 let path = self.safe_path(&relative)?;
@@ -82,9 +75,22 @@ impl Corpus {
                     .as_str()
                     .ok_or_else(|| Error::Invalid("Missing id".into()))?
                     .to_owned();
-                if !id.starts_with(kind) || !name.starts_with(&format!("{id}-")) {
+                if id != expected_id {
                     return Err(Error::Invalid(format!(
                         "Record ID/path mismatch: {}",
+                        relative.display()
+                    )));
+                }
+                if metadata["slug"]
+                    .as_str()
+                    .is_some_and(|declared| declared != slug)
+                    || metadata["slug"].is_null()
+                        && metadata["title"]
+                            .as_str()
+                            .is_some_and(|title| kebab(title) != slug)
+                {
+                    return Err(Error::Invalid(format!(
+                        "Record slug/path mismatch: {}",
                         relative.display()
                     )));
                 }
@@ -107,25 +113,66 @@ impl Corpus {
                 }
             }
         }
+        check_numbering(&records)?;
         for record in records.values() {
-            for field in [
-                "derived_from",
-                "answered_by",
-                "tests",
-                "claims",
-                "supersedes",
+            for (field, allowed) in [
+                ("derived_from", &["Q", "H", "T", "R"] as &[&str]),
+                ("answered_by", &["H", "R"]),
+                ("tests", &["H"]),
+                ("claims", &["H"]),
+                ("supersedes", &["T"]),
             ] {
                 if let Some(refs) = record.metadata[field].as_array() {
                     for target in refs {
                         let target = target
                             .as_str()
                             .ok_or_else(|| Error::Invalid("Invalid reference".into()))?;
-                        if !records.contains_key(target) {
+                        let Some(target_record) = records.get(target) else {
                             return Err(Error::Invalid(format!(
                                 "{} {field} references missing {target}",
                                 record.id
                             )));
+                        };
+                        if !allowed.contains(&target_record.kind.as_str()) {
+                            return Err(Error::Invalid(format!(
+                                "{} {field} references {} record {target}; expected {}",
+                                record.id,
+                                target_record.kind,
+                                allowed.join(" or ")
+                            )));
                         }
+                    }
+                }
+            }
+            if let Some(assessments) = record.metadata["assessments"].as_array() {
+                for (index, assessment) in assessments.iter().enumerate() {
+                    let target = assessment["research"].as_str().ok_or_else(|| {
+                        Error::Invalid(format!(
+                            "{} assessments[{index}] has invalid research reference",
+                            record.id
+                        ))
+                    })?;
+                    let Some(target_record) = records.get(target) else {
+                        return Err(Error::Invalid(format!(
+                            "{} assessments[{index}].research references missing {target}",
+                            record.id
+                        )));
+                    };
+                    if target_record.kind != "R" {
+                        return Err(Error::Invalid(format!(
+                            "{} assessments[{index}].research references {} record {target}; expected R",
+                            record.id, target_record.kind
+                        )));
+                    }
+                    if let (Some(current), Some(revision)) = (
+                        record.metadata["revision"].as_u64(),
+                        assessment["revision"].as_u64(),
+                    ) && revision > current
+                    {
+                        return Err(Error::Invalid(format!(
+                            "{} assessments[{index}] is against revision {revision}, beyond hypothesis revision {current}",
+                            record.id
+                        )));
                     }
                 }
             }
@@ -229,6 +276,71 @@ fn parse(text: &str) -> Result<(Value, String)> {
         .ok_or_else(|| Error::Invalid("Unclosed frontmatter".into()))?;
     Ok((serde_yaml::from_str(front)?, body.to_owned()))
 }
+
+fn parse_record_name(kind: &str, name: &str, directory_layout: bool) -> Result<(String, String)> {
+    let suffix = if directory_layout {
+        name
+    } else {
+        name.strip_suffix(".md")
+            .ok_or_else(|| Error::Invalid(format!("Record filename must end in .md: {name}")))?
+    };
+    let (id, slug) = suffix
+        .split_once('-')
+        .ok_or_else(|| Error::Invalid(format!("Record path must be {kind}###-slug: {name}")))?;
+    if id.len() != kind.len() + 3
+        || !id.starts_with(kind)
+        || !id[kind.len()..].bytes().all(|byte| byte.is_ascii_digit())
+        || slug.is_empty()
+        || slug.starts_with('-')
+        || slug.ends_with('-')
+        || slug.contains("--")
+        || !slug
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(Error::Invalid(format!(
+            "Record path must be {kind}###-slug: {name}"
+        )));
+    }
+    Ok((id.to_owned(), slug.to_owned()))
+}
+
+fn kebab(title: &str) -> String {
+    let mut slug = String::new();
+    for byte in title.bytes() {
+        if byte.is_ascii_lowercase() || byte.is_ascii_digit() {
+            slug.push(byte as char);
+        } else if byte.is_ascii_uppercase() {
+            slug.push((byte + b'a' - b'A') as char);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    slug.trim_matches('-').to_owned()
+}
+
+fn check_numbering(records: &BTreeMap<String, Record>) -> Result<()> {
+    let mut numbers: BTreeMap<String, Vec<u32>> = BTreeMap::new();
+    for record in records.values() {
+        let number = record.id[1..]
+            .parse::<u32>()
+            .map_err(|_| Error::Invalid(format!("Invalid record ID: {}", record.id)))?;
+        numbers.entry(record.kind.clone()).or_default().push(number);
+    }
+    for (kind, mut values) in numbers {
+        values.sort_unstable();
+        for (index, number) in values.into_iter().enumerate() {
+            let expected = index as u32 + 1;
+            if number != expected {
+                return Err(Error::Invalid(format!(
+                    "Non-monotonic IDs: expected {kind}{expected:03}, found {kind}{number:03}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn check_lineage(
     id: &str,
     records: &BTreeMap<String, Record>,

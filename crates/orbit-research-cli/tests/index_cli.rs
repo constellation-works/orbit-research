@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 use sha2::Digest as _;
@@ -13,31 +12,24 @@ const BINARY: &str = env!("CARGO_BIN_EXE_orbit-research");
 
 struct Scratch {
     path: PathBuf,
+    _temp: tempfile::TempDir,
 }
 
 impl Scratch {
     fn new() -> Self {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_nanos())
-            .unwrap_or_default();
-        let path = std::env::temp_dir().join(format!(
-            "orbit-research-index-cli-{}-{nanos}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).expect("scratch directory");
-        let path = path.canonicalize().expect("canonical scratch directory");
-        Self { path }
+        let temp = tempfile::Builder::new()
+            .prefix("orbit-research-index-cli-")
+            .tempdir()
+            .expect("unique scratch directory");
+        let path = temp
+            .path()
+            .canonicalize()
+            .expect("canonical scratch directory");
+        Self { path, _temp: temp }
     }
 
     fn join(&self, name: &str) -> PathBuf {
         self.path.join(name)
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
     }
 }
 

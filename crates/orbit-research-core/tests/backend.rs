@@ -165,3 +165,34 @@ fn truncated_task_reconciliation_refuses_retry() {
         .to_string();
     assert!(error.contains("truncated"));
 }
+
+#[test]
+fn unsafe_base_is_refused_before_any_backend_process() {
+    for base in [
+        "",
+        "--complete",
+        "-main",
+        "bad ref",
+        "a..b",
+        "a@{b",
+        "a.lock",
+        "/main",
+        "main/",
+        "a//b",
+        "a?b",
+        "a\\b",
+        "HEAD",
+    ] {
+        let (_temp, backend, marker) = fixture("valid");
+        let error = backend
+            .dispatch("T1", base)
+            .expect_err("invalid ref must refuse");
+        assert!(
+            error
+                .to_string()
+                .contains("non-option Git branch reference"),
+            "{base}: {error}"
+        );
+        assert!(!marker.exists(), "{base} invoked Orbit before rejection");
+    }
+}

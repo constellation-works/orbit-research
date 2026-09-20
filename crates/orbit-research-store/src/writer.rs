@@ -37,6 +37,12 @@ impl Corpus {
             "--path-format=absolute",
             "--git-common-dir",
         ])?);
+        let own_git = PathBuf::from(self.git(&["rev-parse", "--absolute-git-dir"])?);
+        if own_git.canonicalize()? != common.canonicalize()? {
+            return Err(Error::Invalid(
+                "Question revisions require the primary integration checkout".into(),
+            ));
+        }
         let state = common.join("orbit-research-writer");
         fs::create_dir_all(&state)?;
         let lock = OpenOptions::new()

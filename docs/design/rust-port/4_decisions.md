@@ -120,7 +120,7 @@ Python and Rust in one tree still confused installers.
 ### Decision
 
 Delete the Python package, its unit tests, and `pyproject.toml`. Keep JSON
-schemas at `schemas/` and static browser assets at `web/`, embedded by the
+schemas at `crates/orbit-research-common/assets/schemas/` and static browser assets at `web/`, embedded by the
 Rust crates. Host Python scripts that generate fixtures or drive the CLI
 may remain only if they do not import `orbit_research`.
 
@@ -129,7 +129,7 @@ may remain only if they do not import `orbit_research`.
 - `cargo test` and `make test` no longer install a Python package.
 - Historical research-view pins (0.2.0 / 0.3.0 commits) still contain Python;
   cutting `operations/research` over to the Rust binary is constellation-owned.
-- Cost: fixture generators such as `examples/make_fixture_sources.py` still
+- Cost: fixture generators such as `crates/orbit-research-cli/tests/fixtures/legacy/make_fixture_sources.py` still
   need a host `python3`, and live Python 0.3 is no longer an in-tree oracle.
 
 ## Do not link Orbit crates

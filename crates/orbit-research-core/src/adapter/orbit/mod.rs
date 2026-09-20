@@ -163,6 +163,15 @@ impl Backend {
     /// Explicit submission. Orbit enforces the actual operator/managed-run boundary.
     /// No caller role or permission override is injected by this adapter.
     pub fn dispatch(&self, task: &str, base: &str) -> Result<Value> {
+        self.prepare_dispatch(task, base)?.submit()
+    }
+    /// Complete all deterministic checks before the caller journals uncertainty.
+    pub(crate) fn prepare_dispatch<'a>(
+        &'a self,
+        task: &str,
+        base: &str,
+    ) -> Result<PreparedDispatch<'a>> {
+        validate_base(base)?;
         self.verify("ship")?;
         let current = self.task(task)?;
         if current["job_run_id"].is_string() {
@@ -175,16 +184,11 @@ impl Backend {
                 "Only an explicitly promoted task can be dispatched".into(),
             ));
         }
-        self.json(&[
-            "run".into(),
-            "ship".into(),
-            task.into(),
-            "--base".into(),
-            base.into(),
-            "--mode".into(),
-            "pr".into(),
-            "--json".into(),
-        ])
+        Ok(PreparedDispatch {
+            backend: self,
+            task: task.into(),
+            base: base.into(),
+        })
     }
     pub fn cancel(&self, id: &str) -> Result<Value> {
         self.verify("cancel")?;
@@ -271,4 +275,49 @@ impl Backend {
         }
         Ok(out)
     }
+}
+
+/// Only a successful preflight can construct this submission capability.
+pub(crate) struct PreparedDispatch<'a> {
+    backend: &'a Backend,
+    task: String,
+    base: String,
+}
+impl PreparedDispatch<'_> {
+    pub(crate) fn submit(self) -> Result<Value> {
+        self.backend.json(&[
+            "run".into(),
+            "ship".into(),
+            self.task,
+            "--base".into(),
+            self.base,
+            "--mode".into(),
+            "pr".into(),
+            "--json".into(),
+        ])
+    }
+}
+fn validate_base(base: &str) -> Result<()> {
+    if base.is_empty()
+        || base == "@"
+        || base == "HEAD"
+        || base.starts_with('-')
+        || base.starts_with('/')
+        || base.ends_with('/')
+        || base.ends_with('.')
+        || base.contains("..")
+        || base.contains("@{")
+        || base.contains("//")
+        || base
+            .bytes()
+            .any(|c| c <= b' ' || c == 127 || b"~^:?*[\\".contains(&c))
+        || base
+            .split('/')
+            .any(|part| part.starts_with('.') || part.ends_with(".lock"))
+    {
+        return Err(Error::Invalid(
+            "Dispatch base must be a valid, non-option Git branch reference".into(),
+        ));
+    }
+    Ok(())
 }

@@ -63,12 +63,12 @@ path for historical bytes. See
 
 Minimum oracle:
 
-1. `examples/migration-report.json` candidate `revision_id` values
-2. at least one native v2 export from `examples/native_workflow.py`
+1. `crates/orbit-research-common/tests/fixtures/migration-report.json` candidate `revision_id` values
+2. at least one native v2 export from `crates/orbit-research-cli/tests/fixtures/legacy/native_workflow.py`
 3. a fixture containing non-ASCII, nested `legacy` objects, and large
    integers
 
-Golden fixtures (`examples/migration-report.json` and native-workflow
+Golden fixtures (`crates/orbit-research-common/tests/fixtures/migration-report.json` and native-workflow
 exports) are the oracle. Dual-run against a live Python install is no longer
 required.
 

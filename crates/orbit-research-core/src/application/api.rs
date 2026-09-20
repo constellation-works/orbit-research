@@ -1,5 +1,5 @@
 //! Shared application operations for CLI and MCP; dashboard calls the same Corpus methods.
-use crate::{Error, Research as Corpus, Result, backend::Backend, work::WorkPlan};
+use crate::{Error, Research as Corpus, Result, work::WorkPlan};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -16,6 +16,15 @@ struct Create {
     tags: Vec<String>,
     #[serde(default)]
     derived_from: Vec<String>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReviseQuestion {
+    id: String,
+    expected_blob: String,
+    title: String,
+    body: String,
+    tags: Vec<String>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -66,29 +75,10 @@ struct ValidateResult {
 #[serde(deny_unknown_fields)]
 struct Empty {}
 
-/// Process-scoped composition. Backend authority and publication target cannot be
-/// replaced by tool arguments. An unavailable backend does not prevent local work.
-pub struct Application {
-    corpus: Corpus,
-    backend: Option<Backend>,
-    publication_ref: String,
-}
+// Stable facade for existing transport callers.
+pub use crate::{config::BackendSettings, runtime::Application};
+
 impl Application {
-    pub fn new(root: &Path, backend: Option<Backend>, publication_ref: String) -> Result<Self> {
-        if !publication_ref.starts_with("refs/remotes/") {
-            return Err(Error::Invalid(
-                "Publication target must be an explicit remote-tracking ref".into(),
-            ));
-        }
-        Ok(Self {
-            corpus: Corpus::open(root)?,
-            backend,
-            publication_ref,
-        })
-    }
-    pub fn local(root: &Path) -> Result<Self> {
-        Self::new(root, None, "refs/remotes/origin/agent-main".into())
-    }
     pub fn call(&self, operation: &str, input: Value) -> Result<Value> {
         let corpus = &self.corpus;
         let backend =
@@ -164,6 +154,16 @@ fn call_local(corpus: &Corpus, operation: &str, input: Value) -> Result<Value> {
             )?)
             .map_err(Error::from)
         }
+        "research.revise_question" => {
+            let i: ReviseQuestion = serde_json::from_value(input)?;
+            Ok(serde_json::to_value(corpus.revise_question(
+                &i.id,
+                &i.expected_blob,
+                &i.title,
+                &i.body,
+                i.tags,
+            )?)?)
+        }
         "research.plan_investigation" => {
             let i: Investigation = serde_json::from_value(input)?;
             serde_json::to_value(corpus.investigation(&i.research_id, &i.objective)?)
@@ -197,6 +197,7 @@ pub fn tools() -> Value {
         {"name":"research.link_work","description":"Create an Orbit task from a validated work plan. Persist request_key for reconciliation. Does not dispatch.","inputSchema":{"type":"object","required":["request_key","title","crew","plan"],"properties":{"request_key":text,"title":text,"crew":text,"plan":{"type":"object","additionalProperties":false,"required":["research_id","corpus_revision","research_blob","mode","context_files","instructions"],"properties":{"research_id":text,"corpus_revision":text,"research_blob":text,"mode":{"enum":["investigation","contribution","synthesis"]},"context_files":list,"instructions":text}}},"additionalProperties":false}},
         {"name":"research.list","description":"Read the validated canonical research corpus and tags.","inputSchema":{"type":"object","properties":{},"additionalProperties":false}},
         {"name":"research.create","description":"Reserve and commit a canonical Q/H/T/R record on the integration checkout. Retain request_key across retries; never allocate IDs in worker worktrees. Does not dispatch any agent.","inputSchema":{"type":"object","required":["request_key","kind","title"],"properties":{"request_key":text,"kind":{"enum":["Q","H","T","R"]},"title":text,"body":{"type":"string"},"tags":list,"derived_from":list},"additionalProperties":false}},
+        {"name":"research.revise_question","description":"Commit a question revision only if expected_blob still matches. Frozen path and lineage are preserved; requires clean primary checkout.","inputSchema":{"type":"object","required":["id","expected_blob","title","body","tags"],"properties":{"id":text,"expected_blob":text,"title":text,"body":{"type":"string"},"tags":list},"additionalProperties":false}},
         {"name":"research.plan_investigation","description":"Plan a single task owning one reserved research item, including its canonical result and evidence. Does not dispatch.","inputSchema":{"type":"object","required":["research_id","objective"],"properties":{"research_id":text,"objective":text},"additionalProperties":false}},
         {"name":"research.plan_contribution","description":"Plan disjoint code and artifact paths for one contribution to an existing research item. Use returned context_files on the Orbit task; shared summary is read-only.","inputSchema":{"type":"object","required":["research_id","unit","objective"],"properties":{"research_id":text,"unit":text,"objective":text},"additionalProperties":false}},
         {"name":"research.plan_synthesis","description":"Plan a follow-up Orbit task to reconcile contributions into the shared research README and input manifest. Schedule after contributing tasks deliver.","inputSchema":{"type":"object","required":["research_id","units"],"properties":{"research_id":text,"units":list},"additionalProperties":false}}

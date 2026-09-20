@@ -1,5 +1,9 @@
 # Local evidence browser
 
+> Legacy compatibility reference. For the current Markdown workbench, see
+> [the workbench design](design/research-workbench/1_overview.md).
+
+
 Package 0.3 adds a disposable SQLite projection and portable JSON/HTML browser. Scientific
 v1 history and v2 native appends stay in their owning repositories. The browser separates
 activity, execution, controls and verdict; resolving a reference does not confirm a claim.

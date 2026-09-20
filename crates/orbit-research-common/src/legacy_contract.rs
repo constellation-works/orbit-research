@@ -25,47 +25,47 @@ const RECORD_KINDS: &[&str] = &[
 const SCHEMAS: &[(&str, &str)] = &[
     (
         "urn:orbit-research:schema:v1:record",
-        include_str!("../../../schemas/v1/record.schema.json"),
+        include_str!("../assets/schemas/v1/record.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:manifest",
-        include_str!("../../../schemas/v1/manifest.schema.json"),
+        include_str!("../assets/schemas/v1/manifest.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:import-report",
-        include_str!("../../../schemas/v1/import-report.schema.json"),
+        include_str!("../assets/schemas/v1/import-report.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:program",
-        include_str!("../../../schemas/v1/program.schema.json"),
+        include_str!("../assets/schemas/v1/program.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:claim",
-        include_str!("../../../schemas/v1/claim.schema.json"),
+        include_str!("../assets/schemas/v1/claim.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:protocol",
-        include_str!("../../../schemas/v1/protocol.schema.json"),
+        include_str!("../assets/schemas/v1/protocol.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:experiment",
-        include_str!("../../../schemas/v1/experiment.schema.json"),
+        include_str!("../assets/schemas/v1/experiment.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:artifact",
-        include_str!("../../../schemas/v1/artifact.schema.json"),
+        include_str!("../assets/schemas/v1/artifact.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v1:assessment",
-        include_str!("../../../schemas/v1/assessment.schema.json"),
+        include_str!("../assets/schemas/v1/assessment.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v2:record",
-        include_str!("../../../schemas/v2/record.schema.json"),
+        include_str!("../assets/schemas/v2/record.schema.json"),
     ),
     (
         "urn:orbit-research:schema:v2:export",
-        include_str!("../../../schemas/v2/export.schema.json"),
+        include_str!("../assets/schemas/v2/export.schema.json"),
     ),
 ];
 
@@ -1204,7 +1204,7 @@ fn array<'a>(value: &'a Value, key: &str) -> Option<&'a [Value]> {
 mod tests {
     use super::*;
 
-    const MIGRATION_REPORT: &[u8] = include_bytes!("../../../examples/migration-report.json");
+    const MIGRATION_REPORT: &[u8] = include_bytes!("../tests/fixtures/migration-report.json");
 
     fn value(source: &str) -> Value {
         parse_json(source.as_bytes()).expect("valid test JSON")

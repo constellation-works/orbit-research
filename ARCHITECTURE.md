@@ -46,6 +46,41 @@ Core exposes the compatibility facade consumed by CLI. These paths never receive
 writes from the Markdown application. Scientific authority remains the selected
 owner corpus; project membership is a tag, and H/T assessments remain explicit.
 
+## Core module ownership
+
+Core mirrors Orbit's composition conventions while owning its types and utilities.
+It does not import Orbit libraries.
+
+```text
+orbit-research-core/
+├── assets/skills/             # packaged research guidance
+└── src/
+    ├── application/           # use cases, work planning, receipts and API routing
+    ├── bootstrap/             # local/configured assembly and workspace initialization
+    ├── runtime/               # process-scoped Application and Research handles
+    ├── config/                # operator-selected startup settings
+    └── adapter/orbit/         # external CLI invocation, identity and compatibility
+```
+
+Transports invoke application use cases. Bootstrap fixes corpus and backend scope
+at startup; runtime contains their state. The Orbit adapter owns subprocesses and
+external protocol checks, while application operations own research policy and
+request reconciliation. Store remains responsible for filesystem and Git writes.
+Existing public module aliases preserve callers during this internal reorganization.
+
+Core owns bundled skills; CLI exposes them through its resource command. Future
+research routines, auto-tasks, activities and jobs can live under Core assets and
+be scaffolded into `.orbit/`. They are not implemented or enabled by this layout.
+
+## Web module ownership
+
+`orbit-research-web/assets/dashboard/` owns the embedded HTML, CSS and JavaScript.
+`src/lib.rs` binds the loopback listener and assembles its application/session state.
+`src/api/` owns routing, session guards, response headers and Core delegation;
+`src/parse.rs` owns HTTP input shapes and extraction; `src/log_format.rs` formats
+local server diagnostics. These modules use research types and do not import Orbit
+libraries. The legacy static export assets at repository-root `web/` remain separate.
+
 ## Parallel research work
 
 A committed R item exists before work is dispatched. Contributions own disjoint

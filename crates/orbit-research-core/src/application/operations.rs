@@ -145,9 +145,10 @@ impl Corpus {
                 "Promote the task explicitly before dispatch".into(),
             ));
         }
+        let prepared = backend.prepare_dispatch(task_id, base)?;
         link.dispatch_attempted = true;
         journal.save(&key, &link)?;
-        let submission = backend.dispatch(task_id, base)?;
+        let submission = prepared.submit()?;
         link.run_id = Some(
             submission["run_id"]
                 .as_str()
@@ -265,13 +266,13 @@ fn hash(bytes: &[u8]) -> String {
 
 fn correlated_run<'a>(link: &'a Link, task: &'a Value) -> Result<Option<&'a str>> {
     let current = task["job_run_id"].as_str();
-    if let Some(expected) = link.run_id.as_deref() {
-        if current != Some(expected) {
-            return Err(Error::Invalid(
-                "Linked run differs from current Orbit task correlation; reconcile before acting"
-                    .into(),
-            ));
-        }
+    if let Some(expected) = link.run_id.as_deref()
+        && current != Some(expected)
+    {
+        return Err(Error::Invalid(
+            "Linked run differs from current Orbit task correlation; reconcile before acting"
+                .into(),
+        ));
     }
     Ok(current)
 }

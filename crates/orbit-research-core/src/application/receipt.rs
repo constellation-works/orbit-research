@@ -131,7 +131,7 @@ impl Corpus {
         let metadata: Value = serde_yaml::from_str(front)?;
         let schema = jsonschema::JSONSchema::options()
             .with_draft(jsonschema::Draft::Draft202012)
-            .compile(&self.store.schema())
+            .compile(self.store.schema())
             .map_err(|e| Error::Invalid(e.to_string()))?;
         if !schema.is_valid(&metadata)
             || metadata["id"] != receipt.record_id

@@ -208,3 +208,102 @@ fn rejects_invalid_frontmatter() {
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
     assert!(error.to_string().contains("Missing frontmatter"));
 }
+
+#[test]
+fn accepts_a_frozen_slug_when_the_title_changes() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q001-original-title.md",
+        "id: Q001\ntitle: A later title\nslug: original-title\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+        "body",
+    );
+    finish_fixture(&temp);
+    let snapshot = Corpus::open(temp.path()).unwrap().snapshot().unwrap();
+    assert_eq!(snapshot.records[0].path, "questions/Q001-original-title.md");
+}
+
+#[test]
+fn rejects_a_slug_that_disagrees_with_the_filename_or_title() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q001-wrong-slug.md",
+        "id: Q001\ntitle: Expected title\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    assert!(error.to_string().contains("Record slug/path mismatch"));
+}
+
+#[test]
+fn rejects_gaps_in_ids_per_record_kind() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q002-second.md",
+        "id: Q002\ntitle: Second\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Non-monotonic IDs: expected Q001")
+    );
+}
+
+#[test]
+fn rejects_references_to_the_wrong_record_kind() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q001-question.md",
+        "id: Q001\ntitle: Question\nstatus: answered\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: [Q001]",
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("answered_by references Q record Q001; expected H or R")
+    );
+}
+
+#[test]
+fn rejects_assessment_references_and_revisions_outside_the_hypothesis() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "hypotheses/H001-hypothesis.md",
+        "id: H001\ntitle: Hypothesis\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nrevision: 1\nassessments:\n  - date: 2026-01-01\n    research: H001\n    revision: 1\n    verdict: supports\n    strength: strong",
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("assessments[0].research references H record H001; expected R")
+    );
+
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "hypotheses/H001-hypothesis.md",
+        "id: H001\ntitle: Hypothesis\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nrevision: 1\nassessments:\n  - date: 2026-01-01\n    research: R001\n    revision: 2\n    verdict: supports\n    strength: strong",
+        "body",
+    );
+    record(
+        temp.path(),
+        "research/R001-study/README.md",
+        "id: R001\ntitle: Study\nstatus: done\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\ntests: []",
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    assert!(error.to_string().contains("beyond hypothesis revision 1"));
+}

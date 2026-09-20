@@ -1,7 +1,7 @@
 //! Behavioral coverage for all four read-only owner adapters, using the same
-//! synthetic source trees as `examples/make_fixture_sources.py`, plus the
+//! synthetic source trees as `crates/orbit-research-cli/tests/fixtures/legacy/make_fixture_sources.py`, plus the
 //! read-only/dry-run and strict-JSON invariants documented in
-//! `docs/imports.md`.
+//! the retained legacy import implementation.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use orbit_research_common::legacy_contract::validate;
 use orbit_research_core::legacy_import::{import_source, write_report};
 use serde_json::Value;
 
-/// Port of `examples/make_fixture_sources.py::create`: four small synthetic
+/// Port of `crates/orbit-research-cli/tests/fixtures/legacy/make_fixture_sources.py::create`: four small synthetic
 /// owner source trees, one per adapter, under `destination`.
 fn create_fixture(destination: &Path) {
     put(
@@ -204,8 +204,8 @@ fn principia_matches_python_oracle() {
     let report =
         import_source(&root, "principia", "principia", None, None).expect("import succeeds");
 
-    let oracle_bytes =
-        fs::read("../../examples/migration-report.json").expect("read oracle fixture");
+    let oracle_bytes = fs::read("../orbit-research-common/tests/fixtures/migration-report.json")
+        .expect("read oracle fixture");
     let oracle: Value = serde_json::from_slice(&oracle_bytes).expect("oracle parses");
 
     assert_eq!(

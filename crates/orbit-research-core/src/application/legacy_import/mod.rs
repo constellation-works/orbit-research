@@ -171,28 +171,28 @@ fn discover(
     adapter: &str,
     selected: Option<&[String]>,
 ) -> Result<(Vec<PathBuf>, Vec<String>), ImportError> {
-    if let Some(selected) = selected {
-        if !selected.is_empty() {
-            let mut paths = Vec::new();
-            for rel in selected {
-                let rel_path = Path::new(rel);
-                let path = root.join(rel_path);
-                if rel_path.is_absolute()
-                    || !contained(root, &path)
-                    || has_forbidden_component(rel_path)
-                {
-                    return Err(value_error(format!(
-                        "selected input must remain in scientific source root: {rel}"
-                    )));
-                }
-                if !path.is_file() {
-                    return Err(value_error(format!("selected input is not a file: {rel}")));
-                }
-                paths.push(path);
+    if let Some(selected) = selected
+        && !selected.is_empty()
+    {
+        let mut paths = Vec::new();
+        for rel in selected {
+            let rel_path = Path::new(rel);
+            let path = root.join(rel_path);
+            if rel_path.is_absolute()
+                || !contained(root, &path)
+                || has_forbidden_component(rel_path)
+            {
+                return Err(value_error(format!(
+                    "selected input must remain in scientific source root: {rel}"
+                )));
             }
-            let unique: BTreeSet<PathBuf> = paths.into_iter().collect();
-            return Ok((unique.into_iter().collect(), selected.to_vec()));
+            if !path.is_file() {
+                return Err(value_error(format!("selected input is not a file: {rel}")));
+            }
+            paths.push(path);
         }
+        let unique: BTreeSet<PathBuf> = paths.into_iter().collect();
+        return Ok((unique.into_iter().collect(), selected.to_vec()));
     }
     let patterns = patterns_for(adapter).ok_or_else(|| value_error("unsupported adapter"))?;
     let mut set: BTreeSet<PathBuf> = BTreeSet::new();

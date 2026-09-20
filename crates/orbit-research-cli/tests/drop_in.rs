@@ -1,6 +1,6 @@
 //! CLI acceptance after the Python package was retired.
 //!
-//! Fixture generators under `examples/` are host Python scripts that do not import
+//! Fixture generators under `crates/orbit-research-cli/tests/fixtures/legacy/` are host Python scripts that do not import
 //! `orbit_research`. They either write synthetic source trees or drive this binary.
 
 use std::fs;
@@ -144,7 +144,7 @@ fn synthetic_four_owner_imports_preserve_counts_and_candidate_ids() {
     let mut fixture = Command::new(python());
     fixture
         .current_dir(repo_root())
-        .arg("examples/make_fixture_sources.py")
+        .arg("crates/orbit-research-cli/tests/fixtures/legacy/make_fixture_sources.py")
         .arg(&sources);
     run(fixture);
 
@@ -194,7 +194,7 @@ fn native_workflow_produces_digest_stable_appends_traces_and_exports() {
     let mut command = Command::new(python());
     command
         .current_dir(repo_root())
-        .arg("examples/native_workflow.py")
+        .arg("crates/orbit-research-cli/tests/fixtures/legacy/native_workflow.py")
         .arg(&root)
         .env("ORBIT_RESEARCH_BINARY", BINARY);
     run(command);

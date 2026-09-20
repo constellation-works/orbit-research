@@ -27,6 +27,7 @@ fn fixture() -> TempDir {
     fs::write(root.join("_scripts/schema.json"), SCHEMA).unwrap();
     for directory in ["questions", "hypotheses", "theories", "research"] {
         fs::create_dir(root.join(directory)).unwrap();
+        fs::write(root.join(directory).join(".gitkeep"), "").unwrap();
     }
     fs::write(root.join("questions/Q001-original.md"), "---\nid: Q001\ntitle: Original\nstatus: open\ntags: [initial]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []\n---\nQuestion text.\n").unwrap();
     git(root, &["init", "-q"]);
@@ -102,4 +103,29 @@ fn only_questions_are_editable() {
             "{id}: {error}"
         );
     }
+}
+
+#[test]
+fn linked_worktree_cannot_revise_canonical_question() {
+    let temp = fixture();
+    let linked_parent = tempfile::tempdir().expect("worktree parent");
+    let linked = linked_parent.path().join("linked");
+    git(
+        temp.path(),
+        &[
+            "worktree",
+            "add",
+            "--detach",
+            linked.to_str().expect("path"),
+        ],
+    );
+    let corpus = Corpus::open(&linked).expect("linked corpus");
+    let blob = corpus.snapshot().expect("snapshot").records[0]
+        .git_blob
+        .clone();
+    let error = corpus
+        .revise_question("Q001", &blob, "Changed", "Text", vec![])
+        .expect_err("linked revision must refuse");
+    assert!(error.to_string().contains("primary integration checkout"));
+    assert!(git(&linked, &["status", "--porcelain"]).is_empty());
 }

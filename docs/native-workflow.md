@@ -1,5 +1,9 @@
 # Native workflow: package 0.2, record schema v2, Orbit resource v1
 
+> Legacy compatibility reference. For the current Markdown workbench, see
+> [the workbench design](design/research-workbench/1_overview.md).
+
+
 Canonical scientific records live under `research/records` in an explicitly named owner
 Git checkout. This package authors JSON; Orbit executes tasks. No SQLite projection,
 scheduler, task database, browser service or automatic sibling migration is introduced.
@@ -12,7 +16,7 @@ Rust 1.89+ and Git are required. Use a new output directory outside the reposito
 ```sh
 cargo test --workspace --locked
 cargo build -p orbit-research-cli --bin orbit-research
-ORBIT_RESEARCH_BINARY="$PWD/target/debug/orbit-research" python3 examples/native_workflow.py /tmp/research-native-demo
+ORBIT_RESEARCH_BINARY="$PWD/target/debug/orbit-research" python3 crates/orbit-research-cli/tests/fixtures/legacy/native_workflow.py /tmp/research-native-demo
 ./target/debug/orbit-research validate /tmp/research-native-demo/physics-fixture/export.json
 ./target/debug/orbit-research validate /tmp/research-native-demo/parallax-fixture/export.json
 ```
@@ -28,7 +32,7 @@ assistant evaluator. These are generated acceptance fixtures, not new scientific
 or experiments. Their explicit fixture Orbit links do not identify real tasks.
 
 No sibling package, private dataset or live journal is needed. Keep generated
-fixture checkouts outside the worktree. `examples/native_workflow.py` is a host
+fixture checkouts outside the worktree. `crates/orbit-research-cli/tests/fixtures/legacy/native_workflow.py` is a host
 script that drives the Rust CLI; it does not import a Python package.
 
 ## Requests and exact revisions

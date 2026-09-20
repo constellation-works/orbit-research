@@ -9,7 +9,7 @@ doc_role: design
 type: design
 summary: Four library crates plus one CLI binary; the Rust binary matches v1/v2 digests and the existing JSON CLI.
 tags: [rust-port, crates, canonical-json]
-paths: ["crates/**", "schemas/**", "resources/**", "web/**"]
+paths: ["crates/**", "crates/orbit-research-common/assets/schemas/**", "resources/**", "web/**"]
 related_features: [rust-port]
 related_artifacts: [ORB-12384, ORB-11353, ORB-11367, ORB-11391, ORB-11392]
 ---
@@ -39,7 +39,7 @@ orbit-research/                  # cargo workspace
     orbit-research-import/       # four read-only adapters
     orbit-research-index/        # sqlite projection + static export
     orbit-research-cli/          # [[bin]] name = "orbit-research"
-  schemas/v1/ v2/                # interchange source of truth
+  crates/orbit-research-common/assets/schemas/v1/ v2/                # interchange source of truth
   resources/v1/SKILL.md
   web/                           # static browser assets
 ```
@@ -104,7 +104,7 @@ meaning.
 
 ### 2.2 Schemas and validation
 
-JSON Schema Draft 2020-12 files under `schemas/v1/` and `schemas/v2/` remain
+JSON Schema Draft 2020-12 files under `crates/orbit-research-common/assets/schemas/v1/` and `crates/orbit-research-common/assets/schemas/v2/` remain
 the interchange source of truth. The crate embeds them and registers them
 locally; it never fetches schema URLs. Structural validation uses the
 `jsonschema` crate. Scientific invariants (digest match, historical freeze
@@ -131,7 +131,7 @@ valid missingness and is never current confirmatory evidence.
 hashes the record excluding `revision_id`, `presentation`, and `provenance`.
 The byte encoding must match CPython for every existing v1/v2 record. That
 module is specified in [specs/canonical-json.md](./specs/canonical-json.md).
-Golden tests against `examples/migration-report.json` and the native-workflow
+Compatibility tests against `crates/orbit-research-common/tests/fixtures/migration-report.json` and the native-workflow
 export are the digest oracle. Research-view pin cutover is constellation-owned.
 
 ## 3. Owner crate
@@ -158,7 +158,7 @@ authors JSON; it does not commit, push, or talk to an Orbit store.
 Today's largest file, kept isolated.
 
 - `Adapter: Principia | Parallax | Orrery | Astrolabe`
-- default discovery patterns from `docs/imports.md`
+- default discovery patterns retained in Core’s legacy import implementation
 - inventory and exception accounting, SQLite sidecar snapshots copied to a temp dir (never opened in place)
 - `--expect-revision` fails closed
 - emits a v1 `ImportReport` only
@@ -220,12 +220,12 @@ binary became a substitute when:
 
 1. `revision_id` / `protocol_digest` golden tests match existing fixtures and at least one live owner export
 2. `orbit-research validate` / `reconcile` round-trip the former Python test corpus
-3. native fixture (`examples/native_workflow.py`) produces structurally equal appends, traces and exports
+3. native fixture (`crates/orbit-research-cli/tests/fixtures/legacy/native_workflow.py`) produces structurally equal appends, traces and exports
 4. import dry-runs on the synthetic four-owner fixtures match counts, exception classes, and candidate IDs
 5. `index` + `browse-export` on the browser fixture match the Python projection digest for records and media
 
 That gate landed in [ORB-12389]. The Python package was then deleted in
-[ORB-12414]. Schemas live at `schemas/` and static browser assets at `web/`.
+[ORB-12414]. Schemas live at `crates/orbit-research-common/assets/schemas/` and static browser assets at `web/`.
 Research-view pin cutover remains a constellation-owned task. This repository
 does not edit sibling owners or the constellation launcher from a framework
 task.
