@@ -13,18 +13,22 @@ pub struct Application {
 pub struct Research {
     pub(crate) store: Corpus,
 }
+
 impl Research {
     pub fn open(root: &Path) -> Result<Self> {
         Ok(Self {
             store: Corpus::open(root)?,
         })
     }
+
     pub fn root(&self) -> &Path {
         self.store.root()
     }
+
     pub fn snapshot(&self) -> Result<Snapshot> {
         self.store.snapshot()
     }
+
     pub fn reserve(
         &self,
         key: &str,
@@ -36,6 +40,7 @@ impl Research {
     ) -> Result<Reservation> {
         self.store.reserve(key, kind, title, body, tags, parents)
     }
+
     pub fn revise_question(
         &self,
         id: &str,

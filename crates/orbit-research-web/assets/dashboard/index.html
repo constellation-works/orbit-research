@@ -1,7 +1,152 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Orbit Research</title><link rel="stylesheet" href="/app.css"></head>
-<body><aside><a class="brand" href="/">◌ <span>orbit <b>research</b></span></a><p class="eyebrow">WORKSPACE</p><button class="nav active" data-filter="all">Overview</button><button class="nav" data-filter="Q">Questions</button><button class="nav" data-filter="R">Research</button><button class="nav" data-filter="H">Hypotheses</button><button class="nav" data-filter="T">Theories</button><div class="sidebar-bottom"><span class="dot"></span> Local workspace<p>Knowledge stays in your corpus.</p></div></aside>
-<main><header><div><p class="eyebrow">YOUR RESEARCH, IN VIEW</p><h1>Overview</h1><p class="muted">A place for questions worth following.</p><p id="backend-status" class="backend-status" role="status">Checking execution backend…</p></div><button id="new-question" class="primary">+ Capture a question</button></header>
-<div id="notice" role="status" hidden></div><section id="stats" aria-label="Research counts"></section><section class="workspace"><div class="toolbar"><h2 id="list-heading">Research landscape</h2><input id="search" type="search" placeholder="Search questions, ideas, tags…" aria-label="Search records"></div><div id="tags" aria-label="Filter by tag"></div><div id="records"></div></section><footer id="revision"></footer></main>
-<dialog id="capture"><form id="capture-form"><div class="dialog-heading"><div><p class="eyebrow">START WITH CURIOSITY</p><h2>Capture a question</h2></div><button type="button" id="close-capture" aria-label="Close">×</button></div><label>Question<input name="title" required maxlength="200" placeholder="What do you want to understand?"></label><label>Context<textarea name="body" rows="5" placeholder="Why it matters, what you know, and what might settle it."></textarea></label><label>Tags<input name="tags" placeholder="project name, physics, reading"></label><p class="muted">Saved as a canonical Markdown question. No agent runs until you choose to start one.</p><p id="capture-error" role="alert"></p><button class="primary" type="submit">Save question</button></form></dialog>
-<dialog id="detail"><button id="close-detail" aria-label="Close">×</button><p class="eyebrow" id="detail-id"></p><h2 id="detail-title"></h2><div id="detail-meta"></div><pre id="detail-body"></pre><p id="detail-lineage"></p><section id="work-panel" hidden><h3>Linked work</h3><p class="muted">Planning is local. Linking and execution are explicit operator actions.</p><form id="work-form"><label>Objective<input name="objective" required maxlength="500" placeholder="What should this investigation settle?"></label><label>Request key<input name="requestKey" required maxlength="256" placeholder="A durable correlation key"></label><label>Task title<input name="taskTitle" required maxlength="200" placeholder="Research task title"></label><label>Crew<input name="crew" required maxlength="80" placeholder="Crew selected by the operator"></label><label>Dispatch base<input name="base" required maxlength="200" placeholder="Required checkout or branch base"></label><div class="work-actions"><button type="button" id="plan-work">Plan investigation</button><button type="button" id="link-work">Link task</button><button type="button" id="status-work">Refresh status</button><button type="button" id="promote-work">Promote</button><button type="button" id="dispatch-work">Dispatch</button><button type="button" id="cancel-work">Cancel run</button></div><p id="work-state" class="muted" role="status"></p><p id="work-error" role="alert"></p></form></section></dialog><script src="/app.js"></script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Orbit Research</title>
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <aside>
+      <a class="brand" href="/"
+        >◌ <span>orbit <b>research</b></span></a
+      >
+      <p class="eyebrow">WORKSPACE</p>
+      <button class="nav active" data-filter="all">Overview</button>
+      <button class="nav" data-filter="Q">Questions</button>
+      <button class="nav" data-filter="R">Research</button>
+      <button class="nav" data-filter="H">Hypotheses</button>
+      <button class="nav" data-filter="T">Theories</button>
+      <div class="sidebar-bottom">
+        <span class="dot"></span> Local workspace
+        <p>Knowledge stays in your corpus.</p>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">YOUR RESEARCH, IN VIEW</p>
+          <h1>Overview</h1>
+          <p class="muted">A place for questions worth following.</p>
+          <p id="backend-status" class="backend-status" role="status">
+            Checking execution backend…
+          </p>
+        </div>
+        <button id="new-question" class="primary">+ Capture a question</button>
+      </header>
+      <div id="notice" role="status" hidden></div>
+      <section id="stats" aria-label="Research counts"></section>
+      <section class="workspace">
+        <div class="toolbar">
+          <h2 id="list-heading">Research landscape</h2>
+          <input
+            id="search"
+            type="search"
+            placeholder="Search questions, ideas, tags…"
+            aria-label="Search records"
+          />
+        </div>
+        <div id="tags" aria-label="Filter by tag"></div>
+        <div id="records"></div>
+      </section>
+      <footer id="revision"></footer>
+    </main>
+    <dialog id="capture">
+      <form id="capture-form">
+        <div class="dialog-heading">
+          <div>
+            <p class="eyebrow">START WITH CURIOSITY</p>
+            <h2>Capture a question</h2>
+          </div>
+          <button type="button" id="close-capture" aria-label="Close">×</button>
+        </div>
+        <label
+          >Question<input
+            name="title"
+            required
+            maxlength="200"
+            placeholder="What do you want to understand?"
+        /></label>
+        <label
+          >Context<textarea
+            name="body"
+            rows="5"
+            placeholder="Why it matters, what you know, and what might settle it."
+          ></textarea>
+        </label>
+        <label
+          >Tags<input name="tags" placeholder="project name, physics, reading"
+        /></label>
+        <p class="muted">
+          Saved as a canonical Markdown question. No agent runs until you choose
+          to start one.
+        </p>
+        <p id="capture-error" role="alert"></p>
+        <button class="primary" type="submit">Save question</button>
+      </form>
+    </dialog>
+    <dialog id="detail">
+      <button id="close-detail" aria-label="Close">×</button>
+      <p class="eyebrow" id="detail-id"></p>
+      <h2 id="detail-title"></h2>
+      <div id="detail-meta"></div>
+      <pre id="detail-body"></pre>
+      <p id="detail-lineage"></p>
+      <section id="work-panel" hidden>
+        <h3>Linked work</h3>
+        <p class="muted">
+          Planning is local. Linking and execution are explicit operator
+          actions.
+        </p>
+        <form id="work-form">
+          <label
+            >Objective<input
+              name="objective"
+              required
+              maxlength="500"
+              placeholder="What should this investigation settle?"
+          /></label>
+          <label
+            >Request key<input
+              name="requestKey"
+              required
+              maxlength="256"
+              placeholder="A durable correlation key"
+          /></label>
+          <label
+            >Task title<input
+              name="taskTitle"
+              required
+              maxlength="200"
+              placeholder="Research task title"
+          /></label>
+          <label
+            >Crew<input
+              name="crew"
+              required
+              maxlength="80"
+              placeholder="Crew selected by the operator"
+          /></label>
+          <label
+            >Dispatch base<input
+              name="base"
+              required
+              maxlength="200"
+              placeholder="Required checkout or branch base"
+          /></label>
+          <div class="work-actions">
+            <button type="button" id="plan-work">Plan investigation</button>
+            <button type="button" id="link-work">Link task</button>
+            <button type="button" id="status-work">Refresh status</button>
+            <button type="button" id="promote-work">Promote</button>
+            <button type="button" id="dispatch-work">Dispatch</button>
+            <button type="button" id="cancel-work">Cancel run</button>
+          </div>
+          <p id="work-state" class="muted" role="status"></p>
+          <p id="work-error" role="alert"></p>
+        </form>
+      </section>
+    </dialog>
+    <script src="/app.js"></script>
+  </body>
+</html>

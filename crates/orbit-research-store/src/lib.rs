@@ -1,8 +1,6 @@
-//! Canonical corpus and operational journal persistence. No transports or runtime.
+//! Canonical corpus and request-log persistence. No transports or runtime.
 pub mod corpus;
-pub mod journal;
-pub mod legacy_index;
-pub mod legacy_owner;
+pub mod request_log;
 #[cfg(test)]
 mod tests;
 pub mod workspace;

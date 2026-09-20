@@ -26,9 +26,6 @@ make test
 - [Dashboard design](docs/design/user-interface/1_overview.md).
 - [CLI design](docs/design/terminal-interface/1_overview.md).
 
-Legacy JSON authoring, imports and static export remain compatibility paths,
-separate from the Markdown workbench. Their required schemas live in Common’s
-`assets/schemas/`; synthetic fixture generators live in CLI’s
-`tests/fixtures/legacy/`. They are not the new scientific-record contract.
-Historical design notes under `docs/design/rust-port/` describe the prior port;
-[Architecture](ARCHITECTURE.md) governs the current crate layout.
+The supported workflow uses canonical Observatory Markdown records. Use the CLI,
+MCP server, or loopback dashboard against an explicitly selected corpus; connect
+an Orbit backend only when linking or executing planned work.

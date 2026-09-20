@@ -1,24 +1,31 @@
 //! Plans Orbit work without creating another task engine or scheduling state.
 use crate::{Error, Research as Corpus, Result};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkPlan {
+    #[schemars(length(min = 1))]
     pub research_id: String,
+    #[schemars(length(min = 1))]
     pub corpus_revision: String,
+    #[schemars(length(min = 1))]
     pub research_blob: String,
     pub mode: WorkMode,
     pub context_files: Vec<String>,
+    #[schemars(length(min = 1))]
     pub instructions: String,
 }
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkMode {
     Investigation,
     Contribution,
     Synthesis,
 }
+
 impl Corpus {
     /// One task owns the complete investigation, including its result summary.
     /// Parallel contributions use the narrower contribution/synthesis modes.
@@ -150,6 +157,7 @@ impl Corpus {
             ),
         })
     }
+
     /// Synthesis is deliberately distinct from contribution; Orbit's ordinary
     /// file reservations serialize these shared writes without serializing contributors.
     pub fn synthesis(&self, research_id: &str, units: &[String]) -> Result<WorkPlan> {

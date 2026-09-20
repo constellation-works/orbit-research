@@ -28,6 +28,7 @@ pub(crate) fn query_value<'a>(query: &'a str, wanted: &str) -> Option<&'a str> {
         (key == wanted && !value.is_empty() && value.len() <= 256).then_some(value)
     })
 }
+
 pub(crate) fn header<'a>(request: &'a Request, name: &str) -> Option<&'a str> {
     request
         .headers()

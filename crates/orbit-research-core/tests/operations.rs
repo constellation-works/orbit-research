@@ -18,6 +18,7 @@ fn git(root: &Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
 fn quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -49,7 +50,12 @@ fn preflight_refusal_is_retryable_but_unknown_submission_is_not_repeated() {
         .expect("plan");
     let executable = temp.path().join("fake-orbit");
     let submissions = temp.path().join("submissions");
-    let identity = serde_json::json!({"registered":true,"workspace":{"id":"ws_fixture","owner_machine_id":"hm_fixture"},"checkout":{"repo_root":root.canonicalize().expect("root")}}).to_string();
+    let identity = serde_json::json!({
+        "registered": true,
+        "workspace": { "id": "ws_fixture", "owner_machine_id": "hm_fixture" },
+        "checkout": { "repo_root": root.canonicalize().expect("root") },
+    })
+    .to_string();
     fs::write(
         &executable,
         format!(

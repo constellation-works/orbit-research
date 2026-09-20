@@ -4,8 +4,7 @@ The CLI is the composition boundary for the research application. Keep parsing
 in `src/parse.rs`, output policy in `src/output/`, and research/workspace command
 surfaces under `src/command/`. Core owns corpus validation and backend authority;
 the CLI must not add alternate stores or tool arguments. Stdout is protocol data
-and stderr is diagnostics. Preserve legacy JSON commands and exit codes when
-adding new routes.
+and stderr is diagnostics.
 
 Unit/renderer/parser tests live under `src/tests/`; golden output fixtures live
 under `src/snapshots/`. Composed subprocess tests stay under crate-root `tests/`.

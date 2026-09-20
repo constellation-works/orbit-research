@@ -52,3 +52,11 @@ ci: test
 
 clean:
 	$(CARGO) clean --target-dir "$(CARGO_TARGET_DIR)"
+
+# Dashboard formatting uses a pinned formatter; Node/npm are development-only.
+.PHONY: fmt-dashboard fmt-check-dashboard
+fmt-dashboard:
+	./scripts/format-dashboard.sh --write
+
+fmt-check-dashboard:
+	./scripts/format-dashboard.sh --check

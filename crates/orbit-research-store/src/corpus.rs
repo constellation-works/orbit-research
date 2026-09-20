@@ -14,6 +14,7 @@ pub struct Corpus {
     root: PathBuf,
     pub(crate) schema: Value,
 }
+
 impl Corpus {
     pub fn open(root: &Path) -> Result<Self> {
         let root = root.canonicalize()?;
@@ -25,9 +26,11 @@ impl Corpus {
         }
         Ok(Self { root, schema })
     }
+
     pub fn schema(&self) -> &Value {
         &self.schema
     }
+
     pub fn root(&self) -> &Path {
         &self.root
     }
@@ -202,6 +205,7 @@ impl Corpus {
             tags,
         })
     }
+
     fn safe_path(&self, relative: &Path) -> Result<PathBuf> {
         if relative.is_absolute()
             || relative
@@ -224,6 +228,7 @@ impl Corpus {
         }
         Ok(path)
     }
+
     pub fn published(&self, revision: &str, reference: &str) -> Result<bool> {
         let status = Command::new("git")
             .arg("-C")
@@ -232,9 +237,11 @@ impl Corpus {
             .status()?;
         Ok(status.success())
     }
+
     pub fn committed_blob(&self, revision: &str, path: &str) -> Result<String> {
         self.git(&["rev-parse", &format!("{revision}:{path}")])
     }
+
     pub fn committed_bytes(&self, revision: &str, path: &str) -> Result<Vec<u8>> {
         let mode = self.git(&["ls-tree", revision, "--", path])?;
         if !mode.starts_with("100644 blob ") && !mode.starts_with("100755 blob ") {
@@ -252,6 +259,7 @@ impl Corpus {
         }
         Ok(out.stdout)
     }
+
     pub(crate) fn git(&self, args: &[&str]) -> Result<String> {
         let result = Command::new("git")
             .arg("-C")
@@ -266,6 +274,7 @@ impl Corpus {
         Ok(String::from_utf8_lossy(&result.stdout).trim().into())
     }
 }
+
 fn parse(text: &str) -> Result<(Value, String)> {
     let normalized = text.replace("\r\n", "\n");
     let rest = normalized

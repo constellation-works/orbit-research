@@ -16,13 +16,13 @@ CLI (composition) -> Web -> Core -> Store
                  --------> Core
 Core -> Common <- Store (workspace leaf)
 Core -> external Orbit CLI -> Orbit tasks/runs/artifacts
-Store -> owner Markdown/Git + local operational journal
+Store -> owner Markdown/Git + local request log
 ```
 
 | Crate | Owns | Must not own |
 |---|---|---|
 | orbit-research-common | passive shared record/reservation types and typed errors | I/O, configuration loading, application decisions, workspace dependencies |
-| orbit-research-store | schema validation, Git identity, canonical files, writer lock, reservation and correlation journals | agent execution, task policy, HTTP/JSON-RPC |
+| orbit-research-store | schema validation, Git identity, canonical files, writer lock, reservation intents and request correlations | agent execution, task policy, HTTP/JSON-RPC |
 | orbit-research-core | application use cases, work scope, backend admission, execution correlation, receipt acceptance | browser rendering, CLI formatting, duplicate scientific storage |
 | orbit-research-cli | args, configuration composition, central output renderer, process lifetime | direct scientific file mutations |
 | orbit-research-web | loopback HTTP, session protection, dashboard | Orbit subprocesses, scientific acceptance rules |
@@ -37,15 +37,12 @@ executable in scripts/check-dependency-direction.sh; ARCHITECTURE.md is the root
 
 Core modules: corpus use cases, work planning, backend compatibility/CLI adapter,
 operations/correlation, receipt validation, and shared API contracts. Store modules:
-corpus reader, guarded writer, journal and workspace scaffold. Preserve these boundaries
+corpus reader, guarded writer, request log and workspace scaffold. Preserve these boundaries
 if individual modules grow into directories.
 
-There are no separate contract/owner/import/index crates. Retained compatibility
-modules live under Common (pure schemas/digests), Store (owner files, rebuildable
-indexes and export persistence), and Core (import orchestration and CLI facade).
-Preserve their established commands without using them as a second scientific store
-for Markdown. No automatic migration, scheduler clone, or distributed execution
-implementation belongs in this app.
+There are no separate contract/owner/import/index crates or retained legacy JSON
+command paths. Common holds passive research records and configuration; Store
+persists Markdown and operational request logs; Core owns application policy.
 
 ## Concurrency
 

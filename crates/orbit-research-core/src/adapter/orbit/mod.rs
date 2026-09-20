@@ -6,20 +6,13 @@ use sha2::{Digest, Sha256};
 use std::{
     fs,
     io::{Read, Seek, SeekFrom},
-    path::PathBuf,
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct BackendConfig {
-    pub executable: PathBuf,
-    pub workspace: String,
-    pub checkout: PathBuf,
-    pub owner_machine_id: String,
-}
+pub use orbit_research_common::config::BackendConfig;
+
 /// Entries are certified by a release's adapter integration tests, not a version guess.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -29,11 +22,13 @@ pub struct Compatibility {
     pub platform: String,
     pub operations: Vec<String>,
 }
+
 pub struct Backend {
     config: BackendConfig,
     compatibility: Vec<Compatibility>,
     timeout: Duration,
 }
+
 impl Backend {
     pub fn new(config: BackendConfig, compatibility: Vec<Compatibility>) -> Result<Self> {
         if !config.executable.is_absolute()
@@ -49,9 +44,11 @@ impl Backend {
             timeout: Duration::from_secs(30),
         })
     }
+
     pub fn config(&self) -> &BackendConfig {
         &self.config
     }
+
     pub fn inspect(&self) -> Result<Value> {
         self.verify("observe")?;
         let identity = self.json(&[
@@ -78,14 +75,24 @@ impl Backend {
         }
         Ok(identity)
     }
+
     pub fn task(&self, id: &str) -> Result<Value> {
         self.inspect()?;
-        let task=self.tool("orbit.task.show",json!({"id":id,"fields":["id","title","status","job_run_id","job_run_host","artifacts","comments"]}))?;
+        let task = self.tool(
+            "orbit.task.show",
+            json!({
+                "id": id,
+                "fields": [
+                    "id", "title", "status", "job_run_id", "job_run_host", "artifacts", "comments"
+                ],
+            }),
+        )?;
         if task["id"] != id {
             return Err(Error::Invalid("Orbit returned the wrong task".into()));
         }
         Ok(task)
     }
+
     pub fn run(&self, id: &str) -> Result<Value> {
         self.inspect()?;
         let output = self.json(&["run".into(), "show".into(), id.into(), "--json".into()])?;
@@ -97,11 +104,13 @@ impl Backend {
         }
         Ok(run.clone())
     }
+
     pub fn artifact(&self, task: &str, path: &str) -> Result<Value> {
         self.task(task)?;
         self.tool("orbit.task.artifact.get", json!({"id":task,"path":path}))
     }
-    /// The caller journals its intent BEFORE calling: public task.add has no idempotency key.
+
+    /// The caller records its intent BEFORE calling: public task.add has no idempotency key.
     /// An uncertain response must be reconciled by correlation tag, never blindly retried.
     pub fn create_task(
         &self,
@@ -117,8 +126,21 @@ impl Backend {
                 "Invalid research request correlation".into(),
             ));
         }
-        self.tool("orbit.task.add",json!({"title":title,"description":description,"complexity":"medium","type":"feature","crew":crew,"tags":[correlation_tag],"acceptance_criteria":["Publish the scoped research result with Question, Method, Result, Limitations and Next, preserving controls and uncertainty."],"fields":["id","status","tags"]}))
+        self.tool(
+            "orbit.task.add",
+            json!({
+                "title": title,
+                "description": description,
+                "complexity": "medium",
+                "type": "feature",
+                "crew": crew,
+                "tags": [correlation_tag],
+                "acceptance_criteria": ["Publish the scoped research result with Question, Method, Result, Limitations and Next, preserving controls and uncertainty."],
+                "fields": ["id", "status", "tags"],
+            }),
+        )
     }
+
     pub fn create_scoped_task(
         &self,
         title: &str,
@@ -137,13 +159,36 @@ impl Backend {
                 "Scoped task needs correlation and explicit write paths".into(),
             ));
         }
-        self.tool("orbit.task.add",json!({"title":title,"description":description,"complexity":"medium","type":"feature","crew":crew,"tags":[correlation_tag],"context_files":context_files,"allow_missing_context":true,"acceptance_criteria":["Deliver the scoped findings and artifact digests without changing records outside the declared write paths; retain failed controls and limitations."],"fields":["id","status","tags"]}))
+        self.tool(
+            "orbit.task.add",
+            json!({
+                "title": title,
+                "description": description,
+                "complexity": "medium",
+                "type": "feature",
+                "crew": crew,
+                "tags": [correlation_tag],
+                "context_files": context_files,
+                "allow_missing_context": true,
+                "acceptance_criteria": ["Deliver the scoped findings and artifact digests without changing records outside the declared write paths; retain failed controls and limitations."],
+                "fields": ["id", "status", "tags"],
+            }),
+        )
     }
+
     pub fn promote(&self, id: &str) -> Result<Value> {
         self.verify("promote")?;
         self.task(id)?;
-        self.tool("orbit.task.update",json!({"id":id,"status":"backlog","comment":"Explicitly approved for research execution through orbit-research."}))
+        self.tool(
+            "orbit.task.update",
+            json!({
+                "id": id,
+                    "status": "backlog",
+                    "comment": "Explicitly approved for research execution through orbit-research."
+            }),
+        )
     }
+
     pub fn correlated_tasks(&self, correlation_tag: &str) -> Result<Vec<Value>> {
         self.inspect()?;
         let result = self.tool(
@@ -160,12 +205,14 @@ impl Backend {
             .cloned()
             .ok_or_else(|| Error::Invalid("Orbit task list response shape changed".into()))
     }
+
     /// Explicit submission. Orbit enforces the actual operator/managed-run boundary.
     /// No caller role or permission override is injected by this adapter.
     pub fn dispatch(&self, task: &str, base: &str) -> Result<Value> {
         self.prepare_dispatch(task, base)?.submit()
     }
-    /// Complete all deterministic checks before the caller journals uncertainty.
+
+    /// Complete all deterministic checks before the caller records uncertainty.
     pub(crate) fn prepare_dispatch<'a>(
         &'a self,
         task: &str,
@@ -190,6 +237,7 @@ impl Backend {
             base: base.into(),
         })
     }
+
     pub fn cancel(&self, id: &str) -> Result<Value> {
         self.verify("cancel")?;
         self.run(id)?;
@@ -201,6 +249,7 @@ impl Backend {
             "--json".into(),
         ])
     }
+
     fn tool(&self, name: &str, mut input: Value) -> Result<Value> {
         input["workspace"] = json!(self.config.workspace);
         self.json(&[
@@ -213,9 +262,16 @@ impl Backend {
             "json".into(),
         ])
     }
+
     fn verify(&self, operation: &str) -> Result<()> {
         let hash = format!("{:x}", Sha256::digest(fs::read(&self.config.executable)?));
-        let entry=self.compatibility.iter().find(|e| e.binary_sha256==hash && e.platform==std::env::consts::OS && e.operations.iter().any(|o| o==operation)).ok_or_else(|| Error::Invalid(format!("This Orbit binary is not certified for {operation}; local research remains available")))?;
+        let entry = self.compatibility.iter().find(|entry| {
+            entry.binary_sha256 == hash
+                && entry.platform == std::env::consts::OS
+                && entry.operations.iter().any(|supported| supported == operation)
+        }).ok_or_else(|| Error::Invalid(format!(
+            "This Orbit binary is not certified for {operation}; local research remains available"
+        )))?;
         let version = self.output(&["--version".into()], false)?;
         if version.trim() != entry.version {
             return Err(Error::Invalid(
@@ -224,9 +280,11 @@ impl Backend {
         }
         Ok(())
     }
+
     fn json(&self, args: &[String]) -> Result<Value> {
         serde_json::from_str(&self.output(args, true)?).map_err(Error::from)
     }
+
     fn output(&self, args: &[String], routed: bool) -> Result<String> {
         let mut stdout = tempfile::tempfile()?;
         let mut stderr = tempfile::tempfile()?;
@@ -283,6 +341,7 @@ pub(crate) struct PreparedDispatch<'a> {
     task: String,
     base: String,
 }
+
 impl PreparedDispatch<'_> {
     pub(crate) fn submit(self) -> Result<Value> {
         self.backend.json(&[
@@ -297,6 +356,7 @@ impl PreparedDispatch<'_> {
         ])
     }
 }
+
 fn validate_base(base: &str) -> Result<()> {
     if base.is_empty()
         || base == "@"

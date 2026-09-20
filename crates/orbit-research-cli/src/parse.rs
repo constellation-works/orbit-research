@@ -1,8 +1,7 @@
 use std::path::PathBuf;
 
 use crate::output::OutputMode;
-use clap::{Args, Parser, Subcommand};
-use orbit_research_core::legacy_owner::{Owner, OwnerConfig};
+use clap::{Parser, Subcommand};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -11,7 +10,7 @@ use orbit_research_core::legacy_owner::{Owner, OwnerConfig};
     disable_version_flag = true
 )]
 pub(crate) struct Cli {
-    /// Output mode for new commands. Legacy commands retain JSON by default.
+    /// Output mode.
     #[arg(long = "format", global = true, value_enum, default_value = "json")]
     pub(crate) format: OutputMode,
     /// Optional process-scoped Orbit backend configuration JSON.
@@ -50,181 +49,13 @@ pub(crate) enum Command {
         #[arg(long, default_value = "1", value_parser = ["1"])]
         version: String,
     },
-    /// Read one explicitly routed assigned Orbit task through the registered CLI.
-    TaskContext {
-        #[arg(long = "orbit-root")]
-        orbit_root: PathBuf,
-        #[arg(long)]
-        host: String,
-        #[arg(long)]
-        workspace: String,
-        #[arg(long)]
-        task: String,
-        #[arg(long)]
-        run: String,
-        #[arg(long = "orbit-executable", default_value = "orbit")]
-        orbit_executable: PathBuf,
-    },
-    Validate {
-        input: PathBuf,
-        #[arg(long = "target")]
-        targets: Vec<PathBuf>,
-    },
-    Reconcile {
-        input: PathBuf,
-        #[arg(long = "target")]
-        targets: Vec<PathBuf>,
-        #[arg(long)]
-        output: PathBuf,
-    },
-    /// Atomic disposable rebuild of the cross-owner SQLite projection.
-    Index {
-        #[arg(long)]
-        config: PathBuf,
-        #[arg(long)]
-        database: PathBuf,
-    },
-    /// The exact indexed snapshot, its assessments and their transitive dependencies.
-    IndexTrace {
-        #[arg(long)]
-        database: PathBuf,
-        #[arg(long)]
-        key: String,
-    },
-    /// Portable static export of the published projection; the destination must be new.
-    BrowseExport {
-        #[arg(long)]
-        config: PathBuf,
-        #[arg(long)]
-        database: PathBuf,
-        #[arg(long)]
-        output: PathBuf,
-    },
-    /// Inventory sources and emit read-only migration candidates. Always a
-    /// dry run: `--dry-run` is accepted for documentation and never changes
-    /// behavior, since there is no non-dry-run mode.
-    Import {
-        adapter: String,
-        #[arg(long = "source-root")]
-        source_root: PathBuf,
-        #[arg(long, help = "stable owner namespace, independent of filesystem path")]
-        repository: String,
-        #[arg(
-            long = "expect-revision",
-            help = "exact Git HEAD required before reading"
-        )]
-        expect_revision: Option<String>,
-        #[arg(
-            long = "select",
-            help = "relative input file; repeat to override default discovery"
-        )]
-        select: Vec<String>,
-        #[arg(long = "dry-run", help = "default and only supported mode")]
-        dry_run: bool,
-        #[arg(long, help = "new output file outside source root; default stdout")]
-        output: Option<PathBuf>,
-    },
-    Program(Authoring),
-    Claim(Authoring),
-    Artifact(Authoring),
-    Preregister(Authoring),
-    BeginRun(Authoring),
-    RecordRun(Authoring),
-    Assess(Authoring),
-    Retire(Authoring),
-    Heads {
-        #[command(flatten)]
-        owner: OwnerArgs,
-        /// Full canonical URN; identities are never inferred from a short name.
-        #[arg(long)]
-        id: String,
-    },
-    Ref {
-        #[command(flatten)]
-        owner: OwnerArgs,
-        #[arg(long)]
-        id: String,
-        #[arg(long)]
-        revision: String,
-        #[arg(long = "source-revision")]
-        source_revision: String,
-    },
-    Trace {
-        #[command(flatten)]
-        owner: OwnerArgs,
-        #[arg(long)]
-        id: String,
-        #[arg(long)]
-        revision: String,
-    },
-    Export {
-        #[command(flatten)]
-        owner: OwnerArgs,
-        #[arg(long = "source-revision")]
-        source_revision: String,
-        /// New destination outside the canonical records directory.
-        #[arg(long)]
-        output: PathBuf,
-    },
-}
-
-/// Explicit owner routing shared by every owner subcommand.
-#[derive(Args, Debug)]
-pub(crate) struct OwnerArgs {
-    #[arg(long = "owner-root")]
-    pub(crate) owner_root: PathBuf,
-    #[arg(long)]
-    pub(crate) repository: String,
-    #[arg(long, default_value = "research/records")]
-    pub(crate) records: String,
-    /// Routed source checkout as `REPOSITORY=ROOT`; repeatable.
-    #[arg(long = "source", value_name = "REPOSITORY=ROOT")]
-    pub(crate) sources: Vec<String>,
-}
-
-#[derive(Args, Debug)]
-pub(crate) struct Authoring {
-    #[command(flatten)]
-    pub(crate) owner: OwnerArgs,
-    /// Request document for this operation.
-    #[arg(long)]
-    pub(crate) request: PathBuf,
-}
-
-impl OwnerArgs {
-    pub(crate) fn open(&self) -> Result<Owner, String> {
-        let mut sources = std::collections::BTreeMap::new();
-        for value in &self.sources {
-            let (name, root) = value
-                .split_once('=')
-                .filter(|(name, root)| !name.is_empty() && !root.is_empty())
-                .ok_or_else(|| {
-                    "source routing requires unique REPOSITORY=ROOT mappings".to_owned()
-                })?;
-            if sources
-                .insert(name.to_owned(), PathBuf::from(root))
-                .is_some()
-            {
-                return Err("source routing requires unique REPOSITORY=ROOT mappings".to_owned());
-            }
-        }
-        Owner::open(
-            &self.owner_root,
-            &self.repository,
-            OwnerConfig {
-                records: self.records.clone(),
-                sources,
-                ..OwnerConfig::default()
-            },
-        )
-        .map_err(|error| error.to_string())
-    }
 }
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum WorkspaceOperation {
     Init { path: PathBuf },
 }
+
 #[derive(Debug, Subcommand)]
 pub(crate) enum ResearchOperation {
     /// Inspect the configured Orbit backend and compatibility.
@@ -232,7 +63,7 @@ pub(crate) enum ResearchOperation {
         #[arg(long)]
         corpus: PathBuf,
     },
-    /// List request-key to Orbit task correlations.
+    /// Read fresh Orbit task/run evidence for a linked request.
     Status {
         #[arg(long)]
         corpus: PathBuf,

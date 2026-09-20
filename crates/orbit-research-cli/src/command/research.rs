@@ -5,22 +5,21 @@ use std::path::PathBuf;
 use serde_json::{Value, json};
 
 use crate::parse::ResearchOperation;
+use orbit_research_core::application::Operation;
 
 /// Convert parsed CLI arguments into the Core operation boundary.
 ///
 /// This keeps file input and operation naming in the command layer while Core
 /// remains responsible for validation, persistence, and backend authority.
-pub(crate) fn prepare(
-    operation: ResearchOperation,
-) -> Result<(PathBuf, &'static str, Value), String> {
+pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operation, Value), String> {
     match operation {
-        ResearchOperation::Backend { corpus } => Ok((corpus, "research.backend", json!({}))),
+        ResearchOperation::Backend { corpus } => Ok((corpus, Operation::Backend, json!({}))),
         ResearchOperation::Status {
             corpus,
             request_key,
         } => Ok((
             corpus,
-            "research.work_status",
+            Operation::WorkStatus,
             json!({"request_key": request_key}),
         )),
         ResearchOperation::Link {
@@ -31,7 +30,7 @@ pub(crate) fn prepare(
             crew,
         } => Ok((
             corpus,
-            "research.link_work",
+            Operation::LinkWork,
             json!({"request_key":request_key,"title":title,"crew":crew,"plan":read_json(&plan)?}),
         )),
         ResearchOperation::Promote {
@@ -39,7 +38,7 @@ pub(crate) fn prepare(
             request_key,
         } => Ok((
             corpus,
-            "research.promote",
+            Operation::Promote,
             json!({"request_key": request_key}),
         )),
         ResearchOperation::Dispatch {
@@ -48,7 +47,7 @@ pub(crate) fn prepare(
             base,
         } => Ok((
             corpus,
-            "research.dispatch",
+            Operation::Dispatch,
             json!({"request_key":request_key,"base":base}),
         )),
         ResearchOperation::Cancel {
@@ -56,7 +55,7 @@ pub(crate) fn prepare(
             request_key,
         } => Ok((
             corpus,
-            "research.cancel",
+            Operation::Cancel,
             json!({"request_key": request_key}),
         )),
         ResearchOperation::ValidateResult {
@@ -65,11 +64,11 @@ pub(crate) fn prepare(
             receipt_path,
         } => Ok((
             corpus,
-            "research.validate_result",
+            Operation::ValidateResult,
             json!({"request_key":request_key,"receipt_path":receipt_path}),
         )),
-        ResearchOperation::List { corpus } => Ok((corpus, "research.list", json!({}))),
-        ResearchOperation::Check { corpus } => Ok((corpus, "research.check", json!({}))),
+        ResearchOperation::List { corpus } => Ok((corpus, Operation::List, json!({}))),
+        ResearchOperation::Check { corpus } => Ok((corpus, Operation::Check, json!({}))),
         ResearchOperation::Create {
             corpus,
             kind,
@@ -80,8 +79,15 @@ pub(crate) fn prepare(
             derived_from,
         } => Ok((
             corpus,
-            "research.create",
-            json!({"kind":kind,"title":title,"body":body,"request_key":request_key,"tags":tags,"derived_from":derived_from}),
+            Operation::Create,
+            json!({
+                "kind": kind,
+                "title": title,
+                "body": body,
+                "request_key": request_key,
+                "tags": tags,
+                "derived_from": derived_from,
+            }),
         )),
         ResearchOperation::PlanContribution {
             corpus,
@@ -90,7 +96,7 @@ pub(crate) fn prepare(
             objective,
         } => Ok((
             corpus,
-            "research.plan_contribution",
+            Operation::PlanContribution,
             json!({"research_id":research_id,"unit":unit,"objective":objective}),
         )),
         ResearchOperation::PlanInvestigation {
@@ -99,7 +105,7 @@ pub(crate) fn prepare(
             objective,
         } => Ok((
             corpus,
-            "research.plan_investigation",
+            Operation::PlanInvestigation,
             json!({"research_id":research_id,"objective":objective}),
         )),
         ResearchOperation::PlanSynthesis {
@@ -108,7 +114,7 @@ pub(crate) fn prepare(
             units,
         } => Ok((
             corpus,
-            "research.plan_synthesis",
+            Operation::PlanSynthesis,
             json!({"research_id":research_id,"units":units}),
         )),
     }

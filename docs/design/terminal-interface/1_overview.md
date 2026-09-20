@@ -14,11 +14,10 @@ Follow Orbit's terminal-interface design: commands produce structured results, o
 renderer owns output policy, stdout is data and stderr is diagnostics. No per-command
 TTY detection or hand-built incompatible tables. MCP stdout is exclusively JSON-RPC.
 
-New research commands support explicit machine JSON and human output. Resolve TTY
+Research commands support explicit machine JSON and human output. Resolve TTY
 once: auto uses compact tables interactively and plain untruncated output in pipes.
-No ANSI in pipes; IDs and paths must remain copyable. Existing legacy JSON behavior
-is a compatibility contract: preserve it unless a separately documented migration is
-approved. Explicit output mode takes precedence over auto detection.
+No ANSI in pipes; IDs and paths must remain copyable. Explicit output mode takes
+precedence over auto detection.
 
 Errors are nonzero and structured in machine mode. Usage failures exit 2, operational
 failures exit 1, success exits 0; a downstream closed pipe is quiet success. Bounded

@@ -1,4 +1,4 @@
-//! Operational request journal; scientific records remain entirely in the corpus.
+//! Operational request reconciliation; scientific records remain entirely in the corpus.
 //! Rebuildable links point to Orbit, which owns task/run/receipt authority.
 use crate::{Error, Research as Corpus, Result, backend::Backend, work::WorkPlan};
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,7 @@ pub struct Link {
     pub dispatch_attempted: bool,
     pub run_id: Option<String>,
 }
+
 impl Corpus {
     pub fn link_work(
         &self,
@@ -37,7 +38,7 @@ impl Corpus {
                 "Research execution workspace must own the selected corpus".into(),
             ));
         }
-        let journal = self.store.operation_journal()?;
+        let request_log = self.store.request_log()?;
         let key = hash(request_key.as_bytes());
         let request_digest = hash(&serde_json::to_vec(&json!([
             backend.config(),
@@ -45,7 +46,7 @@ impl Corpus {
             crew,
             plan
         ]))?);
-        let mut link = if let Some(mut link) = journal.read::<Link>(&key)? {
+        let mut link = if let Some(mut link) = request_log.read::<Link>(&key)? {
             if link.request_digest != request_digest {
                 return Err(Error::Invalid(
                     "Task request key reused for different work".into(),
@@ -62,7 +63,7 @@ impl Corpus {
                         .ok_or_else(|| Error::Invalid("Reconciled task has no ID".into()))?
                         .into(),
                 );
-                journal.save(&key, &link)?;
+                request_log.save(&key, &link)?;
                 return Ok(link);
             }
             return Err(Error::Invalid(format!(
@@ -82,7 +83,7 @@ impl Corpus {
             }
         };
         // Persist intent before the first potentially uncertain mutation.
-        journal.save(&key, &link)?;
+        request_log.save(&key, &link)?;
         let description = format!(
             "{}\n\nResearch item: {}\nReserved corpus revision: {}\nRecord blob: {}\nRequest correlation: {}\n\nBegin from a revision containing the committed research stub. Do not allocate IDs inside the execution worktree.",
             plan.instructions,
@@ -108,14 +109,15 @@ impl Corpus {
                 })?
                 .into(),
         );
-        journal.save(&key, &link)?;
+        request_log.save(&key, &link)?;
         Ok(link)
     }
+
     /// A retry observes the existing durable run. It never silently dispatches twice.
     pub fn dispatch_work(&self, backend: &Backend, request_key: &str, base: &str) -> Result<Value> {
-        let journal = self.store.operation_journal()?;
+        let request_log = self.store.request_log()?;
         let key = hash(request_key.as_bytes());
-        let mut link = journal
+        let mut link = request_log
             .read::<Link>(&key)?
             .ok_or_else(|| Error::Invalid("Unknown work request".into()))?;
         if link.workspace != backend.config().workspace
@@ -147,7 +149,7 @@ impl Corpus {
         }
         let prepared = backend.prepare_dispatch(task_id, base)?;
         link.dispatch_attempted = true;
-        journal.save(&key, &link)?;
+        request_log.save(&key, &link)?;
         let submission = prepared.submit()?;
         link.run_id = Some(
             submission["run_id"]
@@ -157,9 +159,10 @@ impl Corpus {
                 })?
                 .into(),
         );
-        journal.save(&key, &link)?;
+        request_log.save(&key, &link)?;
         Ok(submission)
     }
+
     /// Read fresh task/run evidence for a previously linked request.
     pub fn work_status(&self, backend: &Backend, request_key: &str) -> Result<Value> {
         let link = self.link_for_backend(backend, request_key)?;
@@ -242,7 +245,7 @@ impl Corpus {
     fn link_for_backend(&self, backend: &Backend, request_key: &str) -> Result<Link> {
         let link: Link = self
             .store
-            .operation_journal()?
+            .request_log()?
             .read(&hash(request_key.as_bytes()))?
             .ok_or_else(|| Error::Invalid("Unknown work request".into()))?;
         if link.workspace != backend.config().workspace
@@ -257,9 +260,10 @@ impl Corpus {
     }
 
     pub fn work_links(&self) -> Result<Vec<Link>> {
-        self.store.operation_journal()?.list()
+        self.store.request_log()?.list()
     }
 }
+
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }

@@ -1,8 +1,7 @@
 //! Assemble application state without starting an execution engine.
 use crate::{
-    Error, Research, Result,
+    BackendSettings, Error, Research, Result,
     adapter::orbit::{Backend, Compatibility},
-    config::BackendSettings,
     runtime::Application,
 };
 use std::path::Path;
@@ -20,6 +19,7 @@ impl Application {
             publication_ref,
         })
     }
+
     pub fn configured(root: &Path, settings: BackendSettings) -> Result<Self> {
         let compatibility: Vec<Compatibility> =
             serde_json::from_str(include_str!("../../resources/orbit-compatibility.json"))?;
@@ -27,6 +27,7 @@ impl Application {
         // Do not probe here: a backend outage must not prevent local capture/read.
         Self::new(root, Some(backend), settings.publication_ref)
     }
+
     pub fn local(root: &Path) -> Result<Self> {
         Self::new(root, None, "refs/remotes/origin/agent-main".into())
     }

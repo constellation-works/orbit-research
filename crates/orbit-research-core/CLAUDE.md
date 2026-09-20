@@ -6,7 +6,8 @@ Core owns research application policy and composition. Follow the repository
 - `application/`: shared use cases, planning, receipt checks and request coordination.
 - `bootstrap/`: local/configured assembly and workspace initialization delegation.
 - `runtime/`: process-scoped handles; no scheduler or execution engine.
-- `config/`: operator-selected settings; tool arguments cannot replace authority.
+- Common `config/` owns passive settings; Core loads and validates them at bootstrap.
+  Tool arguments cannot replace authority.
 - `adapter/orbit/`: external Orbit CLI protocol, compatibility and identity checks.
 - `assets/skills/`: bundled research guidance. Future workflow assets are deferred.
 

@@ -1,9 +1,9 @@
 //! Leaf contracts shared by persistence, application and presentation layers.
 //! No filesystem operations, Git invocation, runtime, or workspace-crate dependencies.
+pub mod config;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-pub mod legacy_contract;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -16,6 +16,7 @@ pub enum Error {
     #[error(transparent)]
     Yaml(#[from] serde_yaml::Error),
 }
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// A disposable view of a canonical Markdown file. No scientific state is stored here.
@@ -29,6 +30,7 @@ pub struct Record {
     pub content_sha256: String,
     pub git_blob: String,
 }
+
 #[derive(Debug, Serialize)]
 pub struct Snapshot {
     pub revision: String,

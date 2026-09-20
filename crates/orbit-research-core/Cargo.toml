@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 orbit-research-common = { path = "../orbit-research-common" }
 orbit-research-store = { path = "../orbit-research-store" }
+schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 jsonschema.workspace = true
@@ -15,9 +16,6 @@ sha2.workspace = true
 tempfile.workspace = true
 serde_yaml.workspace = true
 
-regex.workspace = true
-rusqlite.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -19,12 +19,14 @@ pub struct Receipt {
     pub record_blob: String,
     pub artifacts: Vec<Artifact>,
 }
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Artifact {
     pub path: String,
     pub sha256: String,
 }
+
 #[derive(Debug, Serialize)]
 pub struct AcceptedResult {
     pub record_id: String,
@@ -33,6 +35,7 @@ pub struct AcceptedResult {
     pub corpus_commit: String,
     pub record_blob: String,
 }
+
 impl Corpus {
     /// Caller obtains `receipt`, `task` and `run` from the configured Orbit backend.
     /// A local cache or agent response is never supplied as authoritative evidence.

@@ -100,7 +100,7 @@ fn local_capture_and_work_plans_need_no_backend() {
 }
 
 #[test]
-fn unconfigured_backend_operations_fail_before_journal_or_task_mutation() {
+fn unconfigured_backend_operations_fail_before_request_log_or_task_mutation() {
     let (temp, app) = fixture();
     let error = app
         .call("research.backend", json!({}))
@@ -165,4 +165,20 @@ fn operation_inputs_cannot_replace_fixed_root_or_backend_scope() {
         let error = app.call(operation, input).unwrap_err().to_string();
         assert!(error.contains("unknown field"), "{operation}: {error}");
     }
+}
+
+#[test]
+fn derived_constraints_are_enforced_before_mutation() {
+    use orbit_research_core::application::Operation;
+    let (temp, app) = fixture();
+    for input in [
+        json!({"request_key":"", "kind":"Q", "title":"Question"}),
+        json!({"request_key":"bad-kind", "kind":"assessment", "title":"Question"}),
+        json!({"request_key":"empty-title", "kind":"Q", "title":""}),
+    ] {
+        assert!(app.execute(Operation::Create, input).is_err());
+    }
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "1");
+    assert!(!temp.path().join(".git/orbit-research-writer").exists());
+    assert!(app.execute(Operation::List, json!({})).is_ok());
 }

@@ -14,7 +14,7 @@ use std::{
 
 pub use orbit_research_common::Reservation;
 #[derive(Debug, Serialize, Deserialize)]
-struct Journal {
+struct ReservationIntent {
     request_digest: String,
     id: String,
     path: String,
@@ -22,6 +22,7 @@ struct Journal {
     parent: String,
     reservation: Option<Reservation>,
 }
+
 impl Corpus {
     /// Revise a question only when the caller still holds its exact content identity.
     pub fn revise_question(
@@ -129,6 +130,7 @@ impl Corpus {
             request_digest: digest(text.as_bytes()),
         })
     }
+
     /// `request_key` is caller-generated once and retained across uncertain responses.
     /// Reusing it with a different request is refused. The owner checkout must be clean.
     pub fn reserve(
@@ -181,9 +183,9 @@ impl Corpus {
             tags,
             derived_from
         ]))?);
-        let journal_path = state.join(format!("{key}.json"));
-        let mut journal: Journal = if journal_path.exists() {
-            let old: Journal = serde_json::from_slice(&fs::read(&journal_path)?)?;
+        let intent_path = state.join(format!("{key}.json"));
+        let mut intent: ReservationIntent = if intent_path.exists() {
+            let old: ReservationIntent = serde_json::from_slice(&fs::read(&intent_path)?)?;
             if old.request_digest != request_digest {
                 return Err(Error::Invalid(
                     "Request key was already used for different content".into(),
@@ -236,7 +238,19 @@ impl Corpus {
                 return Err(Error::Invalid("Cannot read UTC date".into()));
             }
             let date = String::from_utf8_lossy(&date.stdout).trim().to_owned();
-            let mut meta = json!({"id":id,"title":title,"status":match kind {"R"=>"planned","T"=>"active",_=>"open"},"tags":tags,"derived_from":derived_from,"created":date,"updated":date});
+            let mut meta = json!({
+                "id": id,
+                "title": title,
+                "status": match kind {
+                    "R" => "planned",
+                    "T" => "active",
+                    _ => "open",
+                },
+                "tags": tags,
+                "derived_from": derived_from,
+                "created": date,
+                "updated": date,
+            });
             match kind {
                 "Q" => {
                     meta["answered_by"] = json!([]);
@@ -285,7 +299,7 @@ impl Corpus {
                 )
             };
             let text = format!("---\n{}---\n\n{body}", serde_yaml::to_string(&meta)?);
-            let journal = Journal {
+            let intent = ReservationIntent {
                 request_digest,
                 id,
                 path,
@@ -293,11 +307,11 @@ impl Corpus {
                 parent: snapshot.revision,
                 reservation: None,
             };
-            write_new(&journal_path, &serde_json::to_vec(&journal)?)?;
-            journal
+            write_new(&intent_path, &serde_json::to_vec(&intent)?)?;
+            intent
         };
         let head = self.git(&["rev-parse", "HEAD"])?;
-        if head != journal.parent {
+        if head != intent.parent {
             // Recover a crash after commit, before the durable return value was written.
             let message = self.git(&["log", "-1", "--format=%B"])?;
             if !message
@@ -309,30 +323,30 @@ impl Corpus {
                         .into(),
                 ));
             }
-            let committed = self.git(&["show", &format!("HEAD:{}", journal.path)])?;
-            if committed.trim_end() != journal.text.trim_end() {
+            let committed = self.git(&["show", &format!("HEAD:{}", intent.path)])?;
+            if committed.trim_end() != intent.text.trim_end() {
                 return Err(Error::Invalid(
                     "Committed reservation content differs".into(),
                 ));
             }
         } else {
-            let path = self.root().join(&journal.path);
+            let path = self.root().join(&intent.path);
             let parent = path
                 .parent()
                 .ok_or_else(|| Error::Invalid("Invalid reservation path".into()))?;
             safe_create_dirs(self.root(), parent)?;
             if path.exists() {
                 if fs::symlink_metadata(&path)?.file_type().is_symlink()
-                    || fs::read_to_string(&path)? != journal.text
+                    || fs::read_to_string(&path)? != intent.text
                 {
                     return Err(Error::Invalid(
                         "Reservation path has conflicting edits".into(),
                     ));
                 }
             } else {
-                write_new(&path, journal.text.as_bytes())?;
+                write_new(&path, intent.text.as_bytes())?;
             }
-            let mut paths = vec![journal.path.clone()];
+            let mut paths = vec![intent.path.clone()];
             if kind == "R" {
                 let manifest = parent.join("data/manifest.json");
                 safe_create_dirs(self.root(), &parent.join("data"))?;
@@ -372,30 +386,32 @@ impl Corpus {
                 "-m",
                 &format!(
                     "Reserve {} for research\n\nOrbit-Research-Request: {key}",
-                    journal.id
+                    intent.id
                 ),
             ])?;
         }
         let reservation = Reservation {
-            id: journal.id.clone(),
-            path: journal.path.clone(),
+            id: intent.id.clone(),
+            path: intent.path.clone(),
             commit: self.git(&["rev-parse", "HEAD"])?,
-            request_digest: journal.request_digest.clone(),
+            request_digest: intent.request_digest.clone(),
         };
-        journal.reservation = Some(reservation.clone());
-        let temporary = journal_path.with_extension("tmp");
+        intent.reservation = Some(reservation.clone());
+        let temporary = intent_path.with_extension("tmp");
         {
             let mut file = fs::File::create(&temporary)?;
-            file.write_all(&serde_json::to_vec(&journal)?)?;
+            file.write_all(&serde_json::to_vec(&intent)?)?;
             file.sync_all()?;
         }
-        fs::rename(temporary, journal_path)?;
+        fs::rename(temporary, intent_path)?;
         Ok(reservation)
     }
 }
+
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+
 fn write_new(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(bytes)?;

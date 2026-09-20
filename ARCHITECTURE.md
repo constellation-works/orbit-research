@@ -18,7 +18,8 @@ Core also depends directly on Common for its public operation types. Common is a
 workspace leaf; no workspace crate dependency is permitted.
 
 - **Common** owns passive Record, Snapshot and Reservation values and shared typed
-  errors. No I/O, application policy, configuration loading or generic utility bucket.
+  errors, plus passive settings under `src/config/`. No I/O, application policy,
+  configuration loading or generic utility bucket.
 - **CLI** owns argument parsing, process composition and output. It composes the
   core, loopback HTTP adapter and stdio MCP adapter. `orbit-research` remains the
   installed binary; there is no second workbench binary.
@@ -29,7 +30,7 @@ workspace leaf; no workspace crate dependency is permitted.
   restrictions. It never starts another execution engine.
 - **Store** owns canonical Markdown/frontmatter reads and guarded writes, Git
   content identities, serialized committed ID reservations, atomic request
-  journals, and corpus scaffolding. The operational journal contains request
+  logs, and corpus scaffolding. The request log contains request
   correlation and pointers to Orbit, never competing scientific records.
   Unknown outcomes are reconciled; a timeout is not permission to submit twice.
 - **Web** owns the loopback HTTP protocol, browser session protections and the
@@ -39,12 +40,9 @@ workspace leaf; no workspace crate dependency is permitted.
   it to a different filesystem root.
 
 The workspace contains exactly six crates: Common, Store, Core, CLI, Web and MCP.
-The former contract/owner/import/index packages are removed. Existing command
-compatibility lives in modules: pure legacy schema/digest rules in Common;
-owner-file and index/export persistence in Store; import orchestration in Core.
-Core exposes the compatibility facade consumed by CLI. These paths never receive
-writes from the Markdown application. Scientific authority remains the selected
-owner corpus; project membership is a tag, and H/T assessments remain explicit.
+The former contract/owner/import/index packages and their legacy JSON command
+surfaces are removed. Scientific authority remains the selected Markdown owner
+corpus; project membership is a tag, and H/T assessments remain explicit.
 
 ## Core module ownership
 
@@ -58,7 +56,6 @@ orbit-research-core/
     ├── application/           # use cases, work planning, receipts and API routing
     ├── bootstrap/             # local/configured assembly and workspace initialization
     ├── runtime/               # process-scoped Application and Research handles
-    ├── config/                # operator-selected startup settings
     └── adapter/orbit/         # external CLI invocation, identity and compatibility
 ```
 
@@ -66,20 +63,36 @@ Transports invoke application use cases. Bootstrap fixes corpus and backend scop
 at startup; runtime contains their state. The Orbit adapter owns subprocesses and
 external protocol checks, while application operations own research policy and
 request reconciliation. Store remains responsible for filesystem and Git writes.
-Existing public module aliases preserve callers during this internal reorganization.
+Passive `BackendSettings` and `BackendConfig` live in Common. Core bootstrap loads
+them and the Orbit adapter validates them; Common never imports Core or reads files.
 
 Core owns bundled skills; CLI exposes them through its resource command. Future
 research routines, auto-tasks, activities and jobs can live under Core assets and
 be scaffolded into `.orbit/`. They are not implemented or enabled by this layout.
 
+## Operation contracts
+
+`application/operation.rs` is the single registry of typed operation variants,
+external names, descriptions, request types and handlers. Request structs in
+`application/request.rs` derive both Serde decoding and JSON Schema. The registry
+generates tool discovery and dispatch from those same types, so nested work plans,
+defaults, required fields and unknown-field rules stay aligned. Derived constraints
+are checked before handlers run, using cached compiled validators.
+
+Rust callers use `Application::execute(Operation::ReviseQuestion, arguments)`.
+Only external protocol boundaries parse names such as `research.revise_question`.
+Adding a tool requires a typed request, handler and registry entry, rather than a
+handwritten JSON schema and several string switches.
+
 ## Web module ownership
 
 `orbit-research-web/assets/dashboard/` owns the embedded HTML, CSS and JavaScript.
 `src/lib.rs` binds the loopback listener and assembles its application/session state.
-`src/api/` owns routing, session guards, response headers and Core delegation;
+`src/api/` uses a flat method/path match and a shared request wrapper for session
+guards, bounded JSON decoding and response headers; handlers delegate to Core;
 `src/parse.rs` owns HTTP input shapes and extraction; `src/log_format.rs` formats
 local server diagnostics. These modules use research types and do not import Orbit
-libraries. The legacy static export assets at repository-root `web/` remain separate.
+libraries. The legacy static export implementation has been removed.
 
 ## Parallel research work
 
@@ -94,10 +107,22 @@ Orbit owns tasks, worktrees, file reservations, run state and delivery history.
 
 Use workspace dependencies, typed errors and narrow public APIs. Keep
 persistence in Store, decisions in Core and protocol concerns in adapters.
-Store unit/fixture tests live under `src/tests`; composed integration tests
-live in consuming crates. Tests use isolated temporary Git repositories.
+Unit tests follow [the sibling test layout](docs/design-patterns/test_layout.md):
+a parent module declares `tests/`, with files mirroring sibling production files.
+Tests exercise exposed seams rather than child-module access to private helpers.
+End-to-end public crate tests stay under crate-root `tests/`. Git tests use isolated
+temporary repositories.
 
 `scripts/check-dependency-direction.sh --self-test` enforces the crate graph and
 rejects dependencies on Orbit libraries. Update this document with dependency
 changes. The repository's `make test` gate remains required, with focused tests
 for each new application boundary and independent review/QA before sign-off.
+
+Rust formatting is enforced by `make fmt-check`. Dashboard HTML/CSS/JavaScript use
+pinned Prettier 3.6.2 through `make fmt-dashboard` and `make fmt-check-dashboard`.
+Node/npm are needed only for dashboard formatting, not for the Rust runtime.
+
+`Store::request_log` holds only dispatch idempotency and Orbit task/run pointers.
+The writer records reservation intents for crash recovery. Neither is a scientific
+journal or an alternate record store; both are required to prevent duplicate writes
+and work after uncertain outcomes.
