@@ -17,6 +17,11 @@ cargo build --workspace --locked
 make test
 ```
 
+`make install` builds a release CLI and installs it to `~/.local/bin`. Override
+`INSTALL_BIN_DIR` for another destination or use `INSTALL_PROFILE=debug` for a
+development build. `CARGO_TARGET_DIR` is respected. `BUILD_BUDGET` optionally names
+a command wrapper accepting `-- COMMAND ...`; its default (`env`) runs Cargo directly.
+
 ## Design and structure
 
 - [Architecture](ARCHITECTURE.md): the five crates and module ownership.

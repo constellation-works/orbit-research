@@ -1,14 +1,32 @@
 .DEFAULT_GOAL := help
-.PHONY: help build check test crate-test fmt fmt-check clippy check-dependency-direction ci clean
+.PHONY: help build install check test crate-test fmt fmt-check clippy check-dependency-direction ci clean
 
 CARGO ?= cargo
 CARGO_TARGET_DIR ?= target
 export CARGO_TARGET_DIR
 
+# Override with a build-budget wrapper accepting `-- COMMAND ...` if needed.
+BUILD_BUDGET ?= env
+BINARY := orbit-research
+BIN_CRATE := orbit-research-cli
+INSTALL_PROFILE ?= release
+INSTALL_BIN_DIR ?= $(HOME)/.local/bin
+
+ifeq ($(INSTALL_PROFILE),release)
+INSTALL_CARGO_PROFILE := --release
+INSTALL_TARGET_DIR := $(CARGO_TARGET_DIR)/release
+else ifeq ($(INSTALL_PROFILE),debug)
+INSTALL_CARGO_PROFILE :=
+INSTALL_TARGET_DIR := $(CARGO_TARGET_DIR)/debug
+else
+$(error INSTALL_PROFILE must be release or debug)
+endif
+
 help:
 	@echo "Orbit Research Make Targets"
 	@echo ""
 	@echo "  make build                       Build the Rust workspace"
+	@echo "  make install                     Install the CLI (release; INSTALL_BIN_DIR overrides destination)"
 	@echo "  make check                       Type-check the Rust workspace"
 	@echo "  make test                        Run the complete required drop-in gate"
 	@echo "  make crate-test                  Run Rust crate and CLI tests"
@@ -21,6 +39,11 @@ help:
 
 build:
 	$(CARGO) build --workspace --locked --target-dir "$(CARGO_TARGET_DIR)"
+
+install:
+	$(BUILD_BUDGET) -- $(CARGO) build -p $(BIN_CRATE) $(INSTALL_CARGO_PROFILE)
+	install -d "$(INSTALL_BIN_DIR)"
+	install -m 755 "$(INSTALL_TARGET_DIR)/$(BINARY)" "$(INSTALL_BIN_DIR)/$(BINARY)"
 
 check:
 	$(CARGO) check --workspace --locked --target-dir "$(CARGO_TARGET_DIR)"
