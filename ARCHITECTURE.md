@@ -78,6 +78,28 @@ CLI `src/mcp.rs` owns stdio protocol framing and session handling, with sibling
 tests in `src/tests/mcp.rs`. Core owns the shared operation registry, schemas and
 application dispatch; it does not own the MCP transport.
 
+## Store module ownership
+
+`corpus.rs` coordinates validated working-tree and committed reads. `record.rs`
+owns canonical Markdown parsing/rendering, filename rules and record scaffolds.
+`validation.rs` compiles owner schemas and validates references, numbering and
+lineage. `git.rs` owns Git identity, byte reads and command-status interpretation.
+`writer.rs` owns the common checkout lock and durable create/revision transaction.
+Request correlation and initial workspace scaffolding remain in `request_log.rs`
+and `workspace.rs`.
+
+Work planning uses `Corpus::committed_snapshot`: schema and records are read from
+one pinned commit. Browsing uses `snapshot`, a working-tree view whose revision is
+its base HEAD, not a promise that its files are committed. Both hashes for a record
+come from the same byte buffer. Writers reuse the compiled owner contract and
+refuse a changed schema until the handle is reopened.
+
+Creation and revision persist a complete intent before changing canonical files.
+An identical retry resumes that intent, checks exact file bytes and refuses
+conflicting edits. Atomic intent replacement and directory sync protect the
+recovery record; they do not turn external Git operations into cooperating writers.
+See the [write contract](docs/design/research-workbench/specs/contracts.md).
+
 ## Operation contracts
 
 `application/operation.rs` is the single registry of typed operation variants,

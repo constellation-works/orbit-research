@@ -148,3 +148,23 @@ fn forged_write_scope_is_rejected_before_backend_invocation() {
     assert!(error.to_string().contains("write scope"), "{error}");
     assert!(!temp.path().join(".git/orbit-research-operations").exists());
 }
+
+#[test]
+fn planning_uses_committed_content_while_browsing_exposes_edits() {
+    let (temp, corpus) = corpus();
+    let before = corpus.investigation("R001", "Measure the control").unwrap();
+    let path = temp.path().join("research/R001-study/README.md");
+    let mut text = fs::read_to_string(&path).unwrap();
+    text.push_str("\nUncommitted local observation.\n");
+    fs::write(&path, text).unwrap();
+    let browse = corpus.snapshot().unwrap();
+    assert!(
+        browse.records[0]
+            .body
+            .contains("Uncommitted local observation")
+    );
+    let after = corpus.investigation("R001", "Measure the control").unwrap();
+    assert_eq!(after.corpus_revision, before.corpus_revision);
+    assert_eq!(after.research_blob, before.research_blob);
+    assert_ne!(after.research_blob, browse.records[0].git_blob);
+}

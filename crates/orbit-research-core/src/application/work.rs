@@ -33,7 +33,7 @@ impl Corpus {
         if objective.trim().is_empty() {
             return Err(Error::Invalid("Work objective is required".into()));
         }
-        let snapshot = self.snapshot()?;
+        let snapshot = self.store.committed_snapshot()?;
         let record = snapshot
             .records
             .iter()
@@ -61,7 +61,7 @@ impl Corpus {
     /// A deserialized plan is untrusted. Validate its declared write scope again
     /// immediately before linking it to an executable task.
     pub(crate) fn validate_work_plan(&self, plan: &WorkPlan) -> Result<()> {
-        let snapshot = self.snapshot()?;
+        let snapshot = self.store.committed_snapshot()?;
         let record = snapshot
             .records
             .iter()
@@ -131,7 +131,7 @@ impl Corpus {
         if objective.trim().is_empty() {
             return Err(Error::Invalid("Work objective is required".into()));
         }
-        let snapshot = self.snapshot()?;
+        let snapshot = self.store.committed_snapshot()?;
         let record = snapshot
             .records
             .iter()
@@ -166,7 +166,7 @@ impl Corpus {
                 "Synthesis needs at least one contributing work unit".into(),
             ));
         }
-        let snapshot = self.snapshot()?;
+        let snapshot = self.store.committed_snapshot()?;
         let record = snapshot
             .records
             .iter()

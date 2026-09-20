@@ -10,6 +10,11 @@ tags: [research-workbench]
 
 # Contracts
 
+## Why This Exists
+
+The research application must preserve scientific provenance and prevent duplicate
+writes while coordinating work through an external Orbit backend.
+
 ## Canonical corpus
 
 The owner schema is authoritative. IDs and paths remain stable when titles change.
@@ -23,6 +28,12 @@ Existing corpora are validated without overwrite. The app reads record metadata,
 Markdown, manifests and artifact digests; experiment scripts/notebooks remain owner
 content and are opaque. It neither executes nor semantically indexes that code.
 
+Working-tree reads expose HEAD as their base revision, not as the identity of
+uncommitted content. Work plans and their admission checks must use a committed
+snapshot: owner schema and record bytes from one resolved commit. Hashes for a
+record must describe the exact bytes read. Commit findings before including them
+in a work plan.
+
 ## Writes and recovery
 
 Creation requires a durable request key. Reusing a key with identical content returns
@@ -35,6 +46,20 @@ is available and verified. Synthetic corpus tests are not proof of that capabili
 an edit before modifying files. Unknown commit or backend submission outcomes require
 reconciliation, never blind replay. External/noncooperating writers must not be
 silently overwritten. Keep incomplete attempts inspectable.
+
+Both creation and revision persist an atomic intent before replacing canonical
+files. Revision retry identity includes the expected blob and complete requested
+content. The same retry may resume original or intended bytes; different external
+edits refuse without overwrite. Intent publication syncs the complete file and its
+containing directory. Recovery checks exact committed bytes for every owned file,
+including manifests; whitespace differences are differences. A failed Git hook or
+commit leaves recoverable state and never triggers blind rollback. If HEAD moved
+past an incomplete operation's recognizable commit, require manual reconciliation.
+
+The writer refuses a working owner schema that changed since its handle opened.
+Existing creation intents remain readable; malformed intents are preserved and
+reported with their path, never silently discarded. These mechanisms coordinate
+cooperating writers, not arbitrary external file mutation.
 
 ## Orbit backend
 

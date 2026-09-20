@@ -325,3 +325,283 @@ fn hypothesis_revision_is_a_plain_yaml_integer() {
     assert_eq!(yaml["revision"].as_u64(), Some(1));
     assert!(!text.contains("$serde_json"));
 }
+
+#[cfg(unix)]
+fn install_failing_pre_commit(root: &Path) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let hooks = root.join(".git/test-hooks");
+    fs::create_dir(&hooks).unwrap();
+    let hook = hooks.join("pre-commit");
+    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    let mut permissions = fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&hook, permissions).unwrap();
+    git(root, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
+    hook
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_question_commit_is_inspectable_and_identical_retry_succeeds() {
+    let temp = revision_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let hook = install_failing_pre_commit(temp.path());
+
+    corpus
+        .revise_question(
+            "Q001",
+            &old,
+            "Retryable edit",
+            "Body with trailing spaces.  ",
+            vec!["retry".into()],
+        )
+        .unwrap_err();
+    let edited = fs::read(temp.path().join("questions/Q001-original.md")).unwrap();
+    assert!(String::from_utf8_lossy(&edited).contains("Retryable edit"));
+    assert_eq!(
+        git(temp.path(), &["diff", "--cached", "--name-only"]),
+        "questions/Q001-original.md"
+    );
+
+    fs::remove_file(hook).unwrap();
+    let revision = corpus
+        .revise_question(
+            "Q001",
+            &old,
+            "Retryable edit",
+            "Body with trailing spaces.  ",
+            vec!["retry".into()],
+        )
+        .unwrap();
+    assert_eq!(revision.commit, git(temp.path(), &["rev-parse", "HEAD"]));
+    assert_eq!(fs::read(temp.path().join(&revision.path)).unwrap(), edited);
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn conflicting_edit_after_failed_question_commit_is_preserved_and_refused() {
+    let temp = revision_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let hook = install_failing_pre_commit(temp.path());
+    corpus
+        .revise_question("Q001", &old, "Pending edit", "body", vec!["retry".into()])
+        .unwrap_err();
+    fs::remove_file(hook).unwrap();
+
+    let path = temp.path().join("questions/Q001-original.md");
+    let conflicting = b"external edit with exact bytes  \n\n";
+    fs::write(&path, conflicting).unwrap();
+    let error = corpus
+        .revise_question("Q001", &old, "Pending edit", "body", vec!["retry".into()])
+        .unwrap_err();
+    assert!(error.to_string().contains("conflicting"));
+    assert_eq!(fs::read(path).unwrap(), conflicting);
+}
+
+fn clear_reservation_result(root: &Path) -> PathBuf {
+    let state = root.join(".git/orbit-research-writer");
+    let intent_path = fs::read_dir(&state)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let mut intent: serde_json::Value =
+        serde_json::from_slice(&fs::read(&intent_path).unwrap()).unwrap();
+    intent["reservation"] = serde_json::Value::Null;
+    fs::write(&intent_path, serde_json::to_vec(&intent).unwrap()).unwrap();
+    intent_path
+}
+
+#[test]
+fn retry_recovers_question_committed_before_receipt_was_saved() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let first = reserve_q(&corpus, "recover-q-success", "Recovery", "exact body");
+    clear_reservation_result(temp.path());
+
+    let recovered = reserve_q(&corpus, "recover-q-success", "Recovery", "exact body");
+    assert_eq!(recovered.id, first.id);
+    assert_eq!(recovered.path, first.path);
+    assert_eq!(recovered.commit, first.commit);
+    assert_eq!(recovered.request_digest, first.request_digest);
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "2");
+}
+
+#[test]
+fn retry_recovers_research_committed_before_receipt_was_saved() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let first = corpus
+        .reserve(
+            "recover-r-success",
+            "R",
+            "Recovery study",
+            "question",
+            vec!["recovery".into()],
+            vec![],
+        )
+        .unwrap();
+    clear_reservation_result(temp.path());
+
+    let recovered = corpus
+        .reserve(
+            "recover-r-success",
+            "R",
+            "Recovery study",
+            "question",
+            vec!["recovery".into()],
+            vec![],
+        )
+        .unwrap();
+    assert_eq!(recovered.id, first.id);
+    assert_eq!(recovered.path, first.path);
+    assert_eq!(recovered.commit, first.commit);
+    assert_eq!(recovered.request_digest, first.request_digest);
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "2");
+}
+
+#[test]
+fn reservation_recovery_compares_exact_record_bytes() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let reservation = reserve_q(&corpus, "recover-q", "Recovery", "exact body");
+    clear_reservation_result(temp.path());
+
+    let path = temp.path().join(&reservation.path);
+    let mut changed = fs::read(&path).unwrap();
+    changed.extend_from_slice(b"  \n");
+    fs::write(&path, &changed).unwrap();
+    git(temp.path(), &["add", "--", &reservation.path]);
+    git(temp.path(), &["commit", "--amend", "--no-edit", "-q"]);
+
+    let error = corpus
+        .reserve(
+            "recover-q",
+            "Q",
+            "Recovery",
+            "exact body",
+            vec!["capture".into()],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("content differs"));
+    assert_eq!(fs::read(path).unwrap(), changed);
+}
+
+#[test]
+fn research_reservation_recovery_validates_the_exact_manifest_bytes() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let reservation = corpus
+        .reserve(
+            "recover-r",
+            "R",
+            "Recovery study",
+            "question",
+            vec!["recovery".into()],
+            vec![],
+        )
+        .unwrap();
+    clear_reservation_result(temp.path());
+
+    let directory = Path::new(&reservation.path).parent().unwrap();
+    let manifest_relative = directory.join("data/manifest.json");
+    let manifest = temp.path().join(&manifest_relative);
+    let changed = b"{\"inputs\":[]}  \n";
+    fs::write(&manifest, changed).unwrap();
+    git(
+        temp.path(),
+        &["add", "--", manifest_relative.to_str().unwrap()],
+    );
+    git(temp.path(), &["commit", "--amend", "--no-edit", "-q"]);
+
+    let error = corpus
+        .reserve(
+            "recover-r",
+            "R",
+            "Recovery study",
+            "question",
+            vec!["recovery".into()],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("manifest"));
+    assert_eq!(fs::read(manifest).unwrap(), changed);
+}
+
+#[cfg(unix)]
+#[test]
+fn retry_preserves_conflicting_index_even_when_working_file_matches_intent() {
+    let temp = revision_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let hook = install_failing_pre_commit(temp.path());
+    corpus
+        .revise_question("Q001", &old, "Pending edit", "body", vec![])
+        .unwrap_err();
+    fs::remove_file(hook).unwrap();
+    let relative = "questions/Q001-original.md";
+    let path = temp.path().join(relative);
+    let intended = fs::read(&path).unwrap();
+    fs::write(&path, "external staged edit\n").unwrap();
+    git(temp.path(), &["add", "--", relative]);
+    fs::write(&path, intended).unwrap();
+    let error = corpus
+        .revise_question("Q001", &old, "Pending edit", "body", vec![])
+        .unwrap_err();
+    assert!(error.to_string().contains("Staged path"), "{error}");
+    assert_eq!(
+        git(temp.path(), &["show", ":questions/Q001-original.md"]),
+        "external staged edit"
+    );
+}
+
+#[test]
+fn older_research_intent_without_file_list_recovers_original_receipt() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let first = corpus
+        .reserve("legacy-r", "R", "Legacy study", "question", vec![], vec![])
+        .unwrap();
+    let intent_path = clear_reservation_result(temp.path());
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&fs::read(&intent_path).unwrap()).unwrap();
+    value.as_object_mut().unwrap().remove("files");
+    fs::write(&intent_path, serde_json::to_vec(&value).unwrap()).unwrap();
+    let retry = corpus
+        .reserve("legacy-r", "R", "Legacy study", "question", vec![], vec![])
+        .unwrap();
+    assert_eq!(retry.commit, first.commit);
+    assert_eq!(retry.id, first.id);
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "2");
+}
+
+#[test]
+fn malformed_intent_is_reported_and_preserved_without_reallocation() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let first = reserve_q(&corpus, "damaged", "Question", "body");
+    let path = clear_reservation_result(temp.path());
+    fs::write(&path, b"{\"request_digest\":").unwrap();
+    let error = corpus
+        .reserve(
+            "damaged",
+            "Q",
+            "Question",
+            "body",
+            vec!["capture".into()],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Incomplete write intent"));
+    assert!(error.to_string().contains(path.to_str().unwrap()));
+    assert_eq!(fs::read(&path).unwrap(), b"{\"request_digest\":");
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), first.commit);
+}

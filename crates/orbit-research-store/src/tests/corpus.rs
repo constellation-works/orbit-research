@@ -167,6 +167,31 @@ fn rejects_missing_references() {
 }
 
 #[test]
+fn rejects_an_indirect_missing_lineage_reference_without_panicking() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q001-one.md",
+        "id: Q001\ntitle: One\nstatus: open\ntags: [x]\nderived_from: [Q002]\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+        "one",
+    );
+    record(
+        temp.path(),
+        "questions/Q002-two.md",
+        "id: Q002\ntitle: Two\nstatus: open\ntags: [x]\nderived_from: [Q999]\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+        "two",
+    );
+    finish_fixture(&temp);
+
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("Q002 derived_from references missing Q999")
+    );
+}
+
+#[test]
 fn rejects_lineage_cycles() {
     let temp = start_fixture();
     record(
@@ -306,4 +331,58 @@ fn rejects_assessment_references_and_revisions_outside_the_hypothesis() {
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
     assert!(error.to_string().contains("beyond hypothesis revision 1"));
+}
+
+#[test]
+fn committed_snapshot_ignores_worktree_edits_and_uses_committed_blob_ids() {
+    let temp = canonical_fixture();
+    let path = "questions/Q001-why.md";
+    let committed_body = Corpus::open(temp.path())
+        .unwrap()
+        .snapshot()
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|record| record.id == "Q001")
+        .unwrap()
+        .body;
+    fs::write(
+        temp.path().join(path),
+        "---\nid: Q001\ntitle: Dirty\n---\nUncommitted replacement.\n",
+    )
+    .unwrap();
+
+    let snapshot = Corpus::open(temp.path())
+        .unwrap()
+        .committed_snapshot()
+        .unwrap();
+    let question = snapshot
+        .records
+        .iter()
+        .find(|record| record.id == "Q001")
+        .unwrap();
+    assert_eq!(question.body, committed_body);
+    assert_eq!(question.metadata["title"], "Why");
+    assert_eq!(
+        question.git_blob,
+        command(temp.path(), &["rev-parse", &format!("HEAD:{path}")])
+    );
+}
+
+#[test]
+fn published_distinguishes_invalid_refs_from_valid_non_ancestors() {
+    let temp = canonical_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+
+    assert!(
+        corpus
+            .published("HEAD", "refs/heads/does-not-exist")
+            .is_err()
+    );
+
+    let unrelated = command(
+        temp.path(),
+        &["commit-tree", "HEAD^{tree}", "-m", "unrelated root"],
+    );
+    assert!(!corpus.published(&unrelated, "HEAD").unwrap());
 }
