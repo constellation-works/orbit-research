@@ -6,7 +6,7 @@ name: dependabot-alert-sweep-orbit-research
 description: >
   Daily host-side collection of bounded, redacted Dependabot alert evidence,
   followed by deterministic filing of deduped dependency-remediation tasks.
-enabled: false
+enabled: true
 trigger:
   cron: "25 3 * * *"
   missed_run: skip
