@@ -9,8 +9,8 @@ tool definitions and application dispatch remain in Core.
 
 Parser and MCP tests live under `src/tests/`, renderer tests under `src/output/tests/`; golden output fixtures live
 under `src/snapshots/`. Composed subprocess tests stay under crate-root `tests/`.
-CLI-specific tool templates belong under `assets/tool_templates/`; shared research
-skills are packaged by Core under `assets/skills/` and exposed by CLI.
+Shared research skills are packaged under Core’s `assets/skills/` and exposed by
+CLI. This crate has no packaged tool templates.
 
 Orbit's audit_middleware.rs depends on its runtime and persistent audit store.
 Do not copy that dependency into this app. Research mutations retain Git and
