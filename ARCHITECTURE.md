@@ -53,9 +53,9 @@ orbit-research-core/
 ├── assets/skills/             # packaged research guidance
 └── src/
     ├── application/           # use cases, work planning, receipts and API routing
-    ├── bootstrap/             # local/configured assembly and workspace initialization
-    ├── config/                # operator-selected backend settings
-    ├── runtime/               # process-scoped Application and Research handles
+    ├── bootstrap.rs             # local/configured assembly and workspace initialization
+    ├── config.rs                # operator-selected backend settings
+    ├── runtime.rs               # process-scoped Application and Research handles
     └── adapter/
         ├── mcp.rs             # bounded stdio transport
         ├── tests/mcp.rs       # transport tests through its public surface
@@ -66,7 +66,7 @@ Transports invoke application use cases. Bootstrap fixes corpus and backend scop
 at startup; runtime contains their state. The Orbit adapter owns subprocesses and
 external protocol checks, while application operations own research policy and
 request reconciliation. Store remains responsible for filesystem and Git writes.
-`BackendSettings` and `BackendConfig` live in Core’s `config/`: only application
+`BackendSettings` and `BackendConfig` live in Core’s `config.rs`: only application
 composition and backend execution need them. Bootstrap loads them and the Orbit
 adapter validates them. Common retains scientific values and errors shared by Store
 and Core; it never imports Core or reads files.

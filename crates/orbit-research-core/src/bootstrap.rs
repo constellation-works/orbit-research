@@ -22,7 +22,7 @@ impl Application {
 
     pub fn configured(root: &Path, settings: BackendSettings) -> Result<Self> {
         let compatibility: Vec<Compatibility> =
-            serde_json::from_str(include_str!("../../resources/orbit-compatibility.json"))?;
+            serde_json::from_str(include_str!("../resources/orbit-compatibility.json"))?;
         let backend = Backend::new(settings.backend, compatibility)?;
         // Do not probe here: a backend outage must not prevent local capture/read.
         Self::new(root, Some(backend), settings.publication_ref)
