@@ -1,13 +1,15 @@
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write as _};
+use std::io::{self, IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::{Command as ProcessCommand, ExitCode};
 
 use clap::{Args, Parser, Subcommand};
-use orbit_research_contract::{parse_json, reconcile, validate};
-use orbit_research_import::{ADAPTERS, import_source, write_report};
-use orbit_research_owner::{Owner, OwnerConfig, reference, write_json_new};
+use orbit_research_core::legacy_contract::{parse_json, reconcile, validate};
+use orbit_research_core::legacy_import::{ADAPTERS, import_source, write_report};
+use orbit_research_core::legacy_owner::{Owner, OwnerConfig, reference, write_json_new};
 use serde_json::{Value, json};
+
+mod output;
 
 /// A refused request. Carries the fail-closed `problems` an invalid `index` rebuild
 /// reports alongside its message, per `specs/cli-compat.md`.
@@ -25,12 +27,12 @@ impl From<String> for Invalid {
     }
 }
 
-impl From<orbit_research_index::IndexError> for Invalid {
-    fn from(error: orbit_research_index::IndexError) -> Self {
+impl From<orbit_research_core::legacy_index::IndexError> for Invalid {
+    fn from(error: orbit_research_core::legacy_index::IndexError) -> Self {
         let problems = error.problems().map(|problems| {
             problems
                 .iter()
-                .map(orbit_research_index::Problem::to_value)
+                .map(orbit_research_core::legacy_index::Problem::to_value)
                 .collect()
         });
         Invalid {
@@ -47,12 +49,37 @@ impl From<orbit_research_index::IndexError> for Invalid {
     disable_version_flag = true
 )]
 struct Cli {
+    /// Output mode for new commands. Legacy commands retain JSON by default.
+    #[arg(long = "format", global = true, value_enum, default_value = "json")]
+    format: output::OutputMode,
     #[command(subcommand)]
     command: Command,
 }
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Initialize a new corpus or validate an existing corpus without modifying it.
+    Workspace {
+        #[command(subcommand)]
+        operation: WorkspaceOperation,
+    },
+    /// Canonical Markdown research operations, shared with the MCP server.
+    Research {
+        #[command(subcommand)]
+        operation: ResearchOperation,
+    },
+    /// Serve the local research dashboard.
+    Serve {
+        #[arg(long)]
+        corpus: PathBuf,
+        #[arg(long, default_value_t = 4318)]
+        port: u16,
+    },
+    /// Serve research tools over MCP stdio for one explicitly selected corpus.
+    Mcp {
+        #[arg(long)]
+        corpus: PathBuf,
+    },
     /// Print the packaged native workflow instructions.
     Resource {
         #[arg(long, default_value = "1", value_parser = ["1"])]
@@ -229,25 +256,182 @@ impl OwnerArgs {
     }
 }
 
+#[derive(Debug, Subcommand)]
+enum WorkspaceOperation {
+    Init { path: PathBuf },
+}
+#[derive(Debug, Subcommand)]
+enum ResearchOperation {
+    List {
+        #[arg(long)]
+        corpus: PathBuf,
+    },
+    Check {
+        #[arg(long)]
+        corpus: PathBuf,
+    },
+    Create {
+        #[arg(long)]
+        corpus: PathBuf,
+        #[arg(long, value_parser=["Q","H","T","R"])]
+        kind: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long, default_value = "")]
+        body: String,
+        #[arg(long)]
+        request_key: String,
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+        #[arg(long = "derived-from")]
+        derived_from: Vec<String>,
+    },
+    PlanContribution {
+        #[arg(long)]
+        corpus: PathBuf,
+        #[arg(long)]
+        research_id: String,
+        #[arg(long)]
+        unit: String,
+        #[arg(long)]
+        objective: String,
+    },
+    PlanInvestigation {
+        #[arg(long)]
+        corpus: PathBuf,
+        #[arg(long)]
+        research_id: String,
+        #[arg(long)]
+        objective: String,
+    },
+    PlanSynthesis {
+        #[arg(long)]
+        corpus: PathBuf,
+        #[arg(long)]
+        research_id: String,
+        #[arg(long = "unit", required = true)]
+        units: Vec<String>,
+    },
+}
+
 fn main() -> ExitCode {
     match Cli::try_parse() {
         Ok(cli) => run(cli),
-        Err(error) => invalid(error.to_string().into()),
+        Err(error) if error.exit_code() == 0 => {
+            let _ = error.print();
+            ExitCode::SUCCESS
+        }
+        Err(error) => invalid(error.to_string().into(), 2),
     }
 }
 
 fn run(cli: Cli) -> ExitCode {
+    // MCP owns stdout for the whole session; do not emit a trailing CLI envelope.
+    if let Command::Mcp { corpus } = &cli.command {
+        return match orbit_research_mcp::serve_mcp(corpus, io::stdin().lock(), io::stdout().lock())
+        {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
+    // Legacy commands retain their established invalid-input exit contract.
+    let error_code = if matches!(
+        &cli.command,
+        Command::Research { .. } | Command::Workspace { .. } | Command::Serve { .. }
+    ) {
+        1
+    } else {
+        2
+    };
+    let mode = cli.format;
     match execute(cli) {
         Ok((output, code)) => {
-            emit(io::stdout().lock(), &output);
-            ExitCode::from(code)
+            let interactive = io::stdout().is_terminal();
+            match output::render_with_terminal(&mut io::stdout().lock(), &output, mode, interactive)
+            {
+                Ok(()) => ExitCode::from(code),
+                Err(error) if error.kind() == io::ErrorKind::BrokenPipe => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("{error}");
+                    ExitCode::from(1)
+                }
+            }
         }
-        Err(error) => invalid(error),
+        Err(error) => invalid(error, error_code),
     }
 }
 
 fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
     match cli.command {
+        Command::Mcp { .. } => Err("MCP must run as a stdio session".to_string().into()),
+        Command::Serve { corpus, port } => {
+            orbit_research_web::serve(
+                orbit_research_core::Research::open(&corpus).map_err(|e| e.to_string())?,
+                port,
+            )
+            .map_err(|e| e.to_string())?;
+            Ok((json!({"stopped":true}), 0))
+        }
+        Command::Workspace {
+            operation: WorkspaceOperation::Init { path },
+        } => Ok((
+            orbit_research_core::init_workspace(&path).map_err(|e| e.to_string())?,
+            0,
+        )),
+        Command::Research { operation } => {
+            let (corpus, name, input) = match operation {
+                ResearchOperation::List { corpus } => (corpus, "research.list", json!({})),
+                ResearchOperation::Check { corpus } => (corpus, "research.check", json!({})),
+                ResearchOperation::Create {
+                    corpus,
+                    kind,
+                    title,
+                    body,
+                    request_key,
+                    tags,
+                    derived_from,
+                } => (
+                    corpus,
+                    "research.create",
+                    json!({"kind":kind,"title":title,"body":body,"request_key":request_key,"tags":tags,"derived_from":derived_from}),
+                ),
+                ResearchOperation::PlanContribution {
+                    corpus,
+                    research_id,
+                    unit,
+                    objective,
+                } => (
+                    corpus,
+                    "research.plan_contribution",
+                    json!({"research_id":research_id,"unit":unit,"objective":objective}),
+                ),
+                ResearchOperation::PlanInvestigation {
+                    corpus,
+                    research_id,
+                    objective,
+                } => (
+                    corpus,
+                    "research.plan_investigation",
+                    json!({"research_id":research_id,"objective":objective}),
+                ),
+                ResearchOperation::PlanSynthesis {
+                    corpus,
+                    research_id,
+                    units,
+                } => (
+                    corpus,
+                    "research.plan_synthesis",
+                    json!({"research_id":research_id,"units":units}),
+                ),
+            };
+            Ok((
+                orbit_research_core::api::call(&corpus, name, input).map_err(|e| e.to_string())?,
+                0,
+            ))
+        }
         Command::Resource { version: _ } => Ok((
             json!({
                 "version": 1,
@@ -359,7 +543,7 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             Ok((json!({"output": output.to_string_lossy()}), 0))
         }
         Command::Index { config, database } => {
-            let outcome = orbit_research_index::rebuild(&config, &database)?;
+            let outcome = orbit_research_core::legacy_index::rebuild(&config, &database)?;
             Ok((
                 json!({
                     "database": outcome.database.to_string_lossy(),
@@ -371,7 +555,7 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             ))
         }
         Command::IndexTrace { database, key } => {
-            let trace = orbit_research_index::trace(&database, &key)?;
+            let trace = orbit_research_core::legacy_index::trace(&database, &key)?;
             Ok((trace, 0))
         }
         Command::BrowseExport {
@@ -379,7 +563,8 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             database,
             output,
         } => {
-            let outcome = orbit_research_index::export_browser(&database, &output, &config)?;
+            let outcome =
+                orbit_research_core::legacy_index::export_browser(&database, &output, &config)?;
             Ok((
                 json!({
                     "output": outcome.output.to_string_lossy(),
@@ -573,13 +758,13 @@ fn write_new(path: &Path, value: &Value) -> Result<(), String> {
     file.write_all(b"\n").map_err(|error| error.to_string())
 }
 
-fn invalid(error: Invalid) -> ExitCode {
+fn invalid(error: Invalid, code: u8) -> ExitCode {
     let mut payload = json!({"error":{"code":"invalid-input","message":error.message}});
     if let Some(problems) = error.problems {
         payload["error"]["problems"] = json!(problems);
     }
     emit(io::stderr().lock(), &payload);
-    ExitCode::from(2)
+    ExitCode::from(code)
 }
 
 fn emit(mut stream: impl io::Write, value: &Value) {

@@ -1,10 +1,11 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/orbit-research-contract",
-    "crates/orbit-research-owner",
-    "crates/orbit-research-import",
-    "crates/orbit-research-index",
+    "crates/orbit-research-common",
+    "crates/orbit-research-store",
+    "crates/orbit-research-core",
+    "crates/orbit-research-web",
+    "crates/orbit-research-mcp",
     "crates/orbit-research-cli",
 ]
 
@@ -14,6 +15,9 @@ rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]
+serde_yaml = "0.9"
+fs2 = "0.4"
+tiny_http = "0.12"
 clap = { version = "4.5", features = ["derive"] }
 jsonschema = { version = "0.18", default-features = false, features = ["draft202012"] }
 libc = "0.2"

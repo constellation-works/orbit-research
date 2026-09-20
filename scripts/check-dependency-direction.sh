@@ -1,61 +1,42 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 metadata=$(cargo metadata --format-version 1 --no-deps --manifest-path "$repo_root/Cargo.toml")
-
 ORBIT_RESEARCH_CARGO_METADATA="$metadata" python3 - "${1:-}" <<'PY'
 import json
 import os
 import sys
 
+allowed = {
+    "orbit-research-common": set(),
+    "orbit-research-store": {"orbit-research-common"},
+    "orbit-research-core": {"orbit-research-common", "orbit-research-store"},
+    "orbit-research-web": {"orbit-research-core"},
+    "orbit-research-mcp": {"orbit-research-core"},
+    "orbit-research-cli": {"orbit-research-core", "orbit-research-web", "orbit-research-mcp"},
+}
 packages = json.loads(os.environ["ORBIT_RESEARCH_CARGO_METADATA"])["packages"]
-
-workspace = {package["name"] for package in packages}
-dependencies = {
-    package["name"]: {dependency["name"] for dependency in package["dependencies"]}
-    for package in packages
-}
-
-forbidden = {
-    "orbit-research-import": {"orbit-research-owner"},
-    "orbit-research-index": {"orbit-research-import"},
-    "orbit-research-contract": {
-        "orbit-research-owner",
-        "orbit-research-import",
-        "orbit-research-index",
-        "orbit-research-cli",
-    },
-}
-
+graph = {p["name"]: {d["name"] for d in p["dependencies"]} for p in packages}
 def check(graph):
-    problems = []
-    for package, forbidden_edges in forbidden.items():
-        for dependency in sorted(graph.get(package, set()) & forbidden_edges):
-            problems.append(f"forbidden dependency: {package} -> {dependency}")
-    for package, direct in graph.items():
-        for dependency in sorted(direct):
-            if dependency.startswith("orbit-") and dependency not in workspace:
-                problems.append(f"forbidden Orbit library dependency: {package} -> {dependency}")
-    return problems
+    errors = []
+    for name, dependencies in graph.items():
+        if name not in allowed:
+            errors.append(f"unexpected workspace crate: {name}")
+            continue
+        for dependency in dependencies:
+            if dependency.startswith("orbit-") and dependency not in allowed[name]:
+                errors.append(f"forbidden dependency: {name} -> {dependency}")
+    return errors
 
 if sys.argv[1] == "--self-test":
-    cases = [
-        ("orbit-research-import", "orbit-research-owner"),
-        ("orbit-research-index", "orbit-research-import"),
-        ("orbit-research-contract", "orbit-research-owner"),
-        ("orbit-research-contract", "orbit-research-import"),
-        ("orbit-research-contract", "orbit-research-index"),
-        ("orbit-research-contract", "orbit-research-cli"),
-    ]
-    for package, dependency in cases:
-        synthetic = {name: set(direct) for name, direct in dependencies.items()}
-        synthetic.setdefault(package, set()).add(dependency)
-        if not check(synthetic):
-            raise SystemExit(f"self-test failed to reject {package} -> {dependency}")
-
-problems = check(dependencies)
-if problems:
-    print("\n".join(problems), file=sys.stderr)
-    raise SystemExit(1)
+    assert not check(allowed), "accepted graph rejected"
+    for name, permitted in allowed.items():
+        for dependency in set(allowed) - permitted:
+            assert check({name: {dependency}}), f"missed edge {name} -> {dependency}"
+        assert check({name: {"orbit-core"}}), "embedded Orbit library accepted"
+    assert check({"orbit-research-index": set()}), "retired crate accepted"
+errors = check(graph)
+if errors:
+    print("\n".join(errors), file=sys.stderr)
+    sys.exit(1)
 PY

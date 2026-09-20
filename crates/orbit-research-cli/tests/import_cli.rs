@@ -11,7 +11,10 @@ fn binary() -> &'static str {
 }
 
 fn run(args: &[&str]) -> Output {
-    Command::new(binary()).args(args).output().expect("spawn orbit-research")
+    Command::new(binary())
+        .args(args)
+        .output()
+        .expect("spawn orbit-research")
 }
 
 fn write_fixture(root: &Path) {
@@ -51,17 +54,31 @@ fn dry_run_flag_present_or_absent_never_writes_scientific_records() {
     let before = snapshot(&root);
 
     for extra in [vec!["--dry-run"], vec![]] {
-        let mut args = vec!["import", "principia", "--source-root", root.to_str().expect("utf8"), "--repository", "principia"];
+        let mut args = vec![
+            "import",
+            "principia",
+            "--source-root",
+            root.to_str().expect("utf8"),
+            "--repository",
+            "principia",
+        ];
         args.extend(extra);
         let output = run(&args);
-        assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         let report: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("stdout is a JSON report");
         assert_eq!(report["kind"], "import-report");
         assert_eq!(report["dry_run"], true);
 
         let after = snapshot(&root);
-        assert_eq!(after, before, "import must not create, delete or mutate files in the source root");
+        assert_eq!(
+            after, before,
+            "import must not create, delete or mutate files in the source root"
+        );
     }
 }
 
@@ -102,9 +119,14 @@ fn output_flag_writes_outside_source_root_and_refuses_unsafe_destinations() {
         "--output",
         outside.to_str().expect("utf8"),
     ]);
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(outside.exists());
-    let summary: serde_json::Value = serde_json::from_slice(&output.stdout).expect("stdout is JSON");
+    let summary: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout is JSON");
     assert_eq!(summary["source_unchanged"], true);
     assert!(summary.get("counts").is_some());
 
