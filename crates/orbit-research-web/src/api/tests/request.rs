@@ -1,4 +1,5 @@
 use super::super::request::{HttpRequest, Reply};
+use orbit_research_core::Error;
 use serde_json::Value;
 use tiny_http::{Header, Method, StatusCode, TestRequest};
 
@@ -93,4 +94,38 @@ fn oversized_json_is_rejected_before_deserialization() {
         reply.into_response().expect("response").status_code(),
         StatusCode(413)
     );
+}
+
+#[test]
+fn application_errors_translate_without_leaking_internal_diagnostics() {
+    let cases = [
+        (
+            Error::InvalidInput("bad operation".into()),
+            400,
+            "bad operation",
+        ),
+        (Error::Conflict("stale record".into()), 409, "stale record"),
+        (
+            Error::Internal("/private/repo: git status failed".into()),
+            500,
+            "Internal server error",
+        ),
+        (
+            Error::Io(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "/private/repo",
+            )),
+            500,
+            "Internal server error",
+        ),
+    ];
+    for (error, status, visible) in cases {
+        let reply = Reply::from(error);
+        assert!(reply.body().contains(visible));
+        if status == 500 {
+            assert!(!reply.body().contains("/private/repo"));
+        }
+        let response = reply.into_response().expect("response");
+        assert_eq!(response.status_code(), StatusCode(status));
+    }
 }

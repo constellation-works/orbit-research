@@ -8,6 +8,12 @@ use serde_json::Value;
 pub enum Error {
     #[error("{0}")]
     Invalid(String),
+    #[error("{0}")]
+    InvalidInput(String),
+    #[error("{0}")]
+    Conflict(String),
+    #[error("{0}")]
+    Internal(String),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]

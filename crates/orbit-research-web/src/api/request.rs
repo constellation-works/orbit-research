@@ -88,6 +88,11 @@ impl Reply {
         Self::json(status, json!({ "error": message }))
     }
 
+    #[cfg(test)]
+    pub(super) fn body(&self) -> &str {
+        &self.body
+    }
+
     pub(super) fn into_response(self) -> Result<Response<Cursor<Vec<u8>>>> {
         let mut response =
             Response::from_string(self.body).with_status_code(StatusCode(self.status));
@@ -112,6 +117,12 @@ impl Reply {
 
 impl From<Error> for Reply {
     fn from(error: Error) -> Self {
-        Self::error(409, &error.to_string())
+        match error {
+            Error::Invalid(message) | Error::InvalidInput(message) => Self::error(400, &message),
+            Error::Conflict(message) => Self::error(409, &message),
+            Error::Internal(_) | Error::Io(_) | Error::Json(_) | Error::Yaml(_) => {
+                Self::error(500, "Internal server error")
+            }
+        }
     }
 }

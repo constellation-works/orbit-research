@@ -139,13 +139,13 @@ impl Corpus {
                     .find(|r| r.id == id && r.kind == "Q")
                     .ok_or_else(|| Error::Invalid("Only existing questions are editable".into()))?;
                 if record.git_blob != expected_blob {
-                    return Err(Error::Invalid(
+                    return Err(Error::Conflict(
                         "Question changed since it was opened; reload before editing".into(),
                     ));
                 }
                 let before = fs::read_to_string(self.root().join(&record.path))?;
                 if self.hash_bytes(before.as_bytes())? != expected_blob {
-                    return Err(Error::Invalid(
+                    return Err(Error::Conflict(
                         "Question changed while preparing revision".into(),
                     ));
                 }
@@ -376,7 +376,7 @@ impl<'a> Writer<'a> {
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && file.before.is_none() => Ok(()),
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
-            _ => Err(Error::Invalid(format!(
+            _ => Err(Error::Conflict(format!(
                 "Write path {} has conflicting edits; preserve intent for reconciliation",
                 file.path
             ))),
@@ -385,7 +385,7 @@ impl<'a> Writer<'a> {
 
     fn commit(&self, key: &str, intent: &ReservationIntent) -> Result<String> {
         if self.corpus.git(&["rev-parse", "HEAD"])? != intent.parent {
-            return Err(Error::Invalid(
+            return Err(Error::Conflict(
                 "Corpus advanced before commit; reconcile incomplete write".into(),
             ));
         }
@@ -430,7 +430,7 @@ impl<'a> Writer<'a> {
             if bytes != file.text.as_bytes()
                 && !file.before.as_ref().is_some_and(|s| bytes == s.as_bytes())
             {
-                return Err(Error::Invalid(format!(
+                return Err(Error::Conflict(format!(
                     "Staged path {} has conflicting edits; refusing commit",
                     file.path
                 )));

@@ -109,7 +109,7 @@ fn run_git(path: &Path, args: &[&str]) -> Result<()> {
     if output.status.success() {
         return Ok(());
     }
-    Err(Error::Invalid(format!(
+    Err(Error::Internal(format!(
         "Scaffold is incomplete and can be resumed with orbit-research workspace init {}: {}",
         path.display(),
         String::from_utf8_lossy(&output.stderr).trim()
