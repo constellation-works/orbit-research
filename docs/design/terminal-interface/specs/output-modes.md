@@ -38,6 +38,11 @@ snapshot metadata in JSON; NDJSON carries records only. Do not add display nulls
 or formatted timestamps to change the application's schema. Canonical absent
 fields remain as provided by Core. Machine consumers must select a machine mode.
 
+`research check` returns its own compact object with `valid`, `base_revision`,
+`record_count` and `tag_count`; it does not return record bodies. Human modes
+render that result as one validation summary line. `research list` keeps the full
+canonical snapshot shape.
+
 ## 3. Streams and Exit Codes
 
 - stdout: successful payload or requested help/version only.

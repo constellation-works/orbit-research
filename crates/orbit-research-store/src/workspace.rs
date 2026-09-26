@@ -49,7 +49,7 @@ pub fn init(path: &Path) -> Result<Value> {
     }
     fs::write(
         path.join("README.md"),
-        "# Research workspace\n\nQuestions, hypotheses, theories and research items are canonical Markdown. Project names are tags. Use `orbit-research research create` to reserve and commit IDs before dispatch. Contributing tasks own `research/R###-slug/code/<unit>/` and `artifacts/<unit>/`; synthesis updates the shared README and input manifest. Orbit owns tasks and execution.\n\nValidate with `orbit-research research check --corpus .`. Connect an Orbit backend explicitly when ready; local capture needs no backend.\n",
+        "# Research workspace\n\nQuestions, hypotheses, theories and research items are canonical Markdown. Project names are tags. Use `orbit-research research create` to reserve and commit IDs before dispatch. Contributing tasks own `research/R###-slug/code/<unit>/` and `artifacts/<unit>/`; synthesis updates the shared README and input manifest. Orbit owns tasks and execution.\n\nValidate with `orbit-research research check --corpus .` for a concise summary of the base revision and record/tag counts. Use `orbit-research research list --corpus .` to browse records. Connect an Orbit backend explicitly when ready; local capture needs no backend.\n",
     )?;
     fs::write(
         path.join(".gitignore"),
@@ -57,7 +57,7 @@ pub fn init(path: &Path) -> Result<Value> {
     )?;
     fs::write(
         path.join("_scripts/check.sh"),
-        "#!/bin/sh\nset -eu\nexec orbit-research research check --corpus \"$(CDPATH= cd -- \"$(dirname -- \"$0\")/..\" && pwd)\"\n",
+        "#!/bin/sh\nset -eu\n# Validate and print the base revision and record/tag counts.\nexec orbit-research research check --corpus \"$(CDPATH= cd -- \"$(dirname -- \"$0\")/..\" && pwd)\"\n",
     )?;
     make_check_executable(path)?;
     if let Err(error) = run_git(path, &["init", "-q"]).and_then(|()| commit_scaffold(path)) {

@@ -1,7 +1,7 @@
 ---
 title: Terminal Interface — Design
 owner: codex
-last_updated: 2026-09-20
+last_updated: 2026-09-25
 status: Draft
 feature: terminal-interface
 doc_role: design
@@ -71,15 +71,18 @@ canonical body, metadata, path and content identities. See
 
 ## 5. Detail, Resources and Machine Output
 
-Other structured values render as untruncated dotted field labels and values.
+`research check --corpus PATH` renders one human summary line with validation
+status, base revision and record/tag counts. Other structured values render as
+untruncated dotted field labels and values.
 Arrays repeat the field label; empty arrays and nulls display `-`. Packaged
 `resource` instructions render as Markdown text in human modes. Control characters
 are escaped; detail bodies retain newlines and tabs for readability.
 
-JSON preserves the existing complete result shape, including the list snapshot's
-revision and tags. It is pretty on a terminal and compact in a pipe. NDJSON emits
-one record per line for a list, flushing after each record; singleton results
-produce one line. It omits list envelope metadata by design.
+JSON preserves the check summary fields and the list snapshot's canonical
+revision, records and tags. It is pretty on a terminal and compact in a pipe.
+NDJSON emits one record per line for a list, flushing after each record; check
+summaries produce one structured JSON line. It omits list envelope metadata by
+design.
 
 ## 6. Streams and Errors
 
@@ -105,8 +108,9 @@ they parse JSON. Tests follow [test layout](../../design-patterns/test_layout.md
 
 - Changing the default from JSON to auto requires existing scripts to add
   `--format json` or set `ORBIT_RESEARCH_FORMAT=json`. The JSON schema is unchanged.
-- Non-list human results use generic dotted fields rather than bespoke layouts;
-  arrays of objects are verbose. They are not truncated.
+- Non-list human results use generic dotted fields rather than bespoke layouts,
+  except for the compact corpus check summary; arrays of objects are verbose.
+  They are not truncated.
 - Width fitting measures display columns, but truncation walks characters rather
   than extended grapheme clusters; complex emoji or combining sequences may split.
 - A terminal narrower than the fixed columns can still overflow. Identifiers and

@@ -16,6 +16,11 @@ orbit-research research check --corpus /path/to/corpus
 orbit-research research list --corpus /path/to/corpus
 ```
 
+`research check` validates the corpus and reports success, its base revision,
+and record and tag counts without including record bodies. Use `research list`
+to browse the canonical snapshot and `research show` to read one record. For
+scripts, `--format json` or `--format ndjson` keeps the check result structured.
+
 Create a record with a stable request key. Reuse the same request key for an
 identical retry. Question revisions require the expected Git blob so concurrent
 changes fail safely. Preserve conflicting evidence, failed controls, limitations,

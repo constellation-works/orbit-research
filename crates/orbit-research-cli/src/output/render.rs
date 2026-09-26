@@ -46,6 +46,17 @@ pub(crate) fn render(
         Mode::Table | Mode::Plain => {
             if let Some(records) = records(value) {
                 render_records(out, diagnostics, records, sink)
+            } else if let Some((valid, revision, record_count, tag_count)) =
+                validation_summary(value)
+            {
+                let outcome = if valid { "passed" } else { "failed" };
+                writeln!(
+                    out,
+                    "Corpus validation {outcome} at base revision {}: {record_count} record{}, {tag_count} tag{}.",
+                    safe_text(revision),
+                    if record_count == 1 { "" } else { "s" },
+                    if tag_count == 1 { "" } else { "s" },
+                )
             } else if let Some(skill) = value.get("skill").and_then(Value::as_str) {
                 writeln!(out, "{}", safe_text(skill))
             } else {
@@ -62,6 +73,15 @@ fn records(value: &Value) -> Option<&Vec<Value>> {
                 .all(|row| row.get("id").is_some() && row.get("kind").is_some())
         })
     })
+}
+
+fn validation_summary(value: &Value) -> Option<(bool, &str, u64, u64)> {
+    Some((
+        value.get("valid")?.as_bool()?,
+        value.get("base_revision")?.as_str()?,
+        value.get("record_count")?.as_u64()?,
+        value.get("tag_count")?.as_u64()?,
+    ))
 }
 
 fn json_line(out: &mut impl Write, value: &Value) -> io::Result<()> {

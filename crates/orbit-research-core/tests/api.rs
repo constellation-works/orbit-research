@@ -182,3 +182,54 @@ fn derived_constraints_are_enforced_before_mutation() {
     assert!(!temp.path().join(".git/orbit-research-writer").exists());
     assert!(app.execute(Operation::List, json!({})).is_ok());
 }
+
+#[test]
+fn check_returns_a_compact_summary_and_list_keeps_its_snapshot_schema() {
+    let (temp, app) = fixture();
+    create_r(&app, "check-summary");
+    let base_revision = git(temp.path(), &["rev-parse", "HEAD"]);
+    let status_before = git(temp.path(), &["status", "--porcelain"]);
+
+    let check = app.call("research.check", json!({})).unwrap();
+    assert_eq!(
+        check,
+        json!({
+            "valid": true,
+            "base_revision": base_revision,
+            "record_count": 1,
+            "tag_count": 1,
+        })
+    );
+    assert!(check.get("records").is_none());
+    assert!(check.get("body").is_none());
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), base_revision);
+    assert_eq!(git(temp.path(), &["status", "--porcelain"]), status_before);
+
+    let list = app.call("research.list", json!({})).unwrap();
+    assert_eq!(list["revision"], base_revision);
+    assert_eq!(list["records"].as_array().unwrap().len(), 1);
+    assert!(
+        list["records"][0]["body"]
+            .as_str()
+            .expect("record body")
+            .contains("Question under study")
+    );
+    assert_eq!(list["tags"], json!(["api"]));
+}
+
+#[test]
+fn check_rejects_an_invalid_corpus_without_changing_git_state() {
+    let (temp, app) = fixture();
+    fs::write(
+        temp.path().join("questions/Q001-invalid.md"),
+        "not canonical frontmatter\n",
+    )
+    .unwrap();
+    let head_before = git(temp.path(), &["rev-parse", "HEAD"]);
+    let status_before = git(temp.path(), &["status", "--porcelain"]);
+
+    let error = app.call("research.check", json!({})).unwrap_err();
+    assert!(error.to_string().contains("Missing frontmatter"));
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head_before);
+    assert_eq!(git(temp.path(), &["status", "--porcelain"]), status_before);
+}
