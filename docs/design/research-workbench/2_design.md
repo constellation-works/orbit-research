@@ -98,6 +98,9 @@ Creation retains the caller's request key. Revision derives its retry identity
 from record ID, expected blob and the requested title/body/tags. The persisted
 revision intent includes original and intended bytes. A retry may encounter the
 original file or the exact intended replacement; any different bytes refuse.
+Snapshot record paths and persisted intent paths use Git's forward-slash form on
+every platform. Loading an older intent also normalizes native separators before
+comparing its owned paths with Git's staged paths.
 
 Intents are written through synced temporary files and atomically published, then
 the parent directory is synced. Canonical files use the same atomic publication

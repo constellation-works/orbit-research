@@ -101,6 +101,7 @@ impl Corpus {
                     reservation: None,
                     files: vec![],
                 };
+                intent.normalize_paths();
                 intent.upgrade_files();
                 writer.save_new(&key, &intent)?;
                 intent
@@ -165,7 +166,7 @@ impl Corpus {
                 metadata["updated"] = json!(record::utc_date()?);
                 self.contract.validate(&metadata, &record.path)?;
                 let text = record::render(&metadata, &format!("{body}\n"))?;
-                let intent = ReservationIntent {
+                let mut intent = ReservationIntent {
                     request_digest,
                     id: id.into(),
                     path: record.path.clone(),
@@ -178,6 +179,7 @@ impl Corpus {
                         before: Some(before),
                     }],
                 };
+                intent.normalize_paths();
                 writer.save_new(&key, &intent)?;
                 intent
             }
@@ -187,6 +189,16 @@ impl Corpus {
 }
 
 impl ReservationIntent {
+    fn normalize_paths(&mut self) {
+        self.path = self.path.replace('\\', "/");
+        for file in &mut self.files {
+            file.path = file.path.replace('\\', "/");
+        }
+        if let Some(reservation) = &mut self.reservation {
+            reservation.path = reservation.path.replace('\\', "/");
+        }
+    }
+
     fn upgrade_files(&mut self) {
         if !self.files.is_empty() {
             return;
@@ -197,10 +209,10 @@ impl ReservationIntent {
             before: None,
         });
         if self.id.starts_with('R') {
-            if let Some(parent) = Path::new(&self.path).parent() {
+            if let Some((parent, _)) = self.path.rsplit_once('/') {
                 self.files.push(WriteFile {
                     // Intent paths are Git paths, including on Windows.
-                    path: format!("{}/data/manifest.json", parent.to_string_lossy()),
+                    path: format!("{parent}/data/manifest.json"),
                     text: "{\"inputs\":[]}\n".into(),
                     before: None,
                 });
@@ -271,6 +283,7 @@ impl<'a> Writer<'a> {
                 "Request key was already used for different content".into(),
             ));
         }
+        intent.normalize_paths();
         intent.upgrade_files();
         Ok(Some(intent))
     }
