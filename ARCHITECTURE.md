@@ -100,8 +100,13 @@ refuse a changed schema until the handle is reopened.
 
 Creation and revision persist a complete intent before changing canonical files.
 An identical retry resumes that intent, checks exact file bytes and refuses
-conflicting edits. Atomic intent replacement and directory sync protect the
-recovery record; they do not turn external Git operations into cooperating writers.
+conflicting edits. Atomic intent replacement and synced temporary file contents
+protect the recovery record. Unix also syncs the containing directory after
+publication; Windows does not offer a supported directory sync through Rust's
+file API, so a sudden power loss can lose a newly published directory entry.
+When the intent entry survives, retries reconcile an interrupted operation with
+the committed Git state.
+These protections do not turn external Git operations into cooperating writers.
 See the [write contract](docs/design/research-workbench/specs/contracts.md).
 
 ## Operation contracts
