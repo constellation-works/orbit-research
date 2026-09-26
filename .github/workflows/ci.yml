@@ -1,5 +1,9 @@
 name: CI
 
+# To update an action: review upstream release notes and action.yml, verify the
+# release tag's commit (peel annotated tags), then change its SHA and version
+# comment together. Keep the Rust toolchain input explicit when changing its pin.
+
 on:
   pull_request:
   push:
@@ -17,11 +21,12 @@ jobs:
     name: Quality (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1; Rust 1.89.0
         with:
+          toolchain: 1.89.0
           components: clippy, rustfmt
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: make test
       - run: cargo build --workspace --locked
       - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
@@ -35,7 +40,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.89.0
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1; Rust 1.89.0
+        with:
+          toolchain: 1.89.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --workspace --locked
