@@ -8,4 +8,5 @@ __pycache__/
 dist/
 build/
 .env
+# Orbit per-user state — not a repository artifact.
 .orbit/
