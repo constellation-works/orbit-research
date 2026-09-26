@@ -491,6 +491,8 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
         })
         .unwrap();
     let intent: serde_json::Value = serde_json::from_slice(&fs::read(intent).unwrap()).unwrap();
+    assert_eq!(intent["path"], "research/R001-portable-study/README.md");
+    assert_eq!(intent["files"][0]["path"], intent["path"]);
     assert_eq!(
         intent["files"][1]["path"],
         "research/R001-portable-study/data/manifest.json"
@@ -521,7 +523,11 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
     let first = corpus
         .revise_question("Q001", &old, "Portable edit", "new body", vec![])
         .unwrap();
-    clear_reservation_result(questions.path());
+    let intent_path = clear_reservation_result(questions.path());
+    let intent: serde_json::Value =
+        serde_json::from_slice(&fs::read(intent_path).unwrap()).unwrap();
+    assert_eq!(intent["path"], "questions/Q001-original.md");
+    assert_eq!(intent["files"][0]["path"], intent["path"]);
     let retried = corpus
         .revise_question("Q001", &old, "Portable edit", "new body", vec![])
         .unwrap();
@@ -532,6 +538,33 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
             .unwrap()
             .contains("new body")
     );
+}
+
+#[test]
+fn retry_normalizes_older_revision_intent_paths() {
+    let questions = revision_fixture();
+    let corpus = Corpus::open(questions.path()).unwrap();
+    let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let first = corpus
+        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .unwrap();
+    let intent_path = clear_reservation_result(questions.path());
+    let mut intent: serde_json::Value =
+        serde_json::from_slice(&fs::read(&intent_path).unwrap()).unwrap();
+    let native_path = "questions\\Q001-original.md";
+    intent["path"] = native_path.into();
+    intent["files"][0]["path"] = native_path.into();
+    fs::write(&intent_path, serde_json::to_vec(&intent).unwrap()).unwrap();
+
+    let retried = corpus
+        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .unwrap();
+    assert_eq!(retried.commit, first.commit);
+    assert_eq!(retried.path, "questions/Q001-original.md");
+    let intent: serde_json::Value =
+        serde_json::from_slice(&fs::read(intent_path).unwrap()).unwrap();
+    assert_eq!(intent["path"], retried.path);
+    assert_eq!(intent["files"][0]["path"], retried.path);
 }
 
 #[test]

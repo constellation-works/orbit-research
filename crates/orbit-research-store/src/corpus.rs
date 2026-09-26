@@ -122,15 +122,20 @@ impl Corpus {
                 } else {
                     Path::new(directory).join(&name)
                 };
+                let git_path = relative
+                    .components()
+                    .map(|component| component.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
                 let bytes = if committed.is_some() {
-                    self.committed_bytes(revision, &relative.to_string_lossy())?
+                    self.committed_bytes(revision, &git_path)?
                 } else {
                     fs::read(self.safe_path(&relative)?)?
                 };
                 let text = std::str::from_utf8(&bytes)
                     .map_err(|_| Error::Invalid(format!("{} is not UTF-8", relative.display())))?;
                 let (metadata, body) = parse(text)?;
-                contract.validate(&metadata, &relative.to_string_lossy())?;
+                contract.validate(&metadata, &git_path)?;
                 let id = metadata["id"]
                     .as_str()
                     .ok_or_else(|| Error::Invalid("Missing id".into()))?
@@ -157,7 +162,7 @@ impl Corpus {
                 let record = Record {
                     id: id.clone(),
                     kind: kind.clone(),
-                    path: relative.to_string_lossy().into_owned(),
+                    path: git_path,
                     metadata,
                     body,
                     content_sha256: format!("{:x}", Sha256::digest(&bytes)),
