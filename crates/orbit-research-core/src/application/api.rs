@@ -1,6 +1,7 @@
 //! Shared application entry points. Protocol strings are parsed only at the edge.
 use super::{Operation, request::*};
 use crate::{Error, Result, adapter::orbit::OrbitBackend};
+use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
 
@@ -91,6 +92,24 @@ pub(super) fn validate_result(app: &Application, input: ValidateResult) -> Resul
 
 pub(super) fn list(app: &Application, _: Empty) -> Result<Value> {
     Ok(serde_json::to_value(app.corpus.snapshot()?)?)
+}
+
+#[derive(Serialize)]
+struct ValidationSummary {
+    valid: bool,
+    base_revision: String,
+    record_count: usize,
+    tag_count: usize,
+}
+
+pub(super) fn check(app: &Application, _: Empty) -> Result<Value> {
+    let snapshot = app.corpus.snapshot()?;
+    Ok(serde_json::to_value(ValidationSummary {
+        valid: true,
+        base_revision: snapshot.revision,
+        record_count: snapshot.records.len(),
+        tag_count: snapshot.tags.len(),
+    })?)
 }
 
 pub(super) fn create(app: &Application, input: Create) -> Result<Value> {

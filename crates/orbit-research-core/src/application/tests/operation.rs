@@ -26,6 +26,16 @@ fn every_advertised_operation_has_one_exact_wire_name() {
 }
 
 #[test]
+fn check_is_a_distinct_read_only_validation_operation() {
+    assert_ne!(Operation::Check, Operation::List);
+    assert_eq!(Operation::Check.as_str(), "research.check");
+    let description = Operation::Check.definition().description;
+    assert!(description.contains("Validate the canonical corpus"));
+    assert!(description.contains("base revision"));
+    assert!(description.contains("without returning record bodies"));
+}
+
+#[test]
 fn create_schema_tracks_defaults_kinds_and_required_fields() {
     let schema = schema(Operation::Create);
     let minimum = json!({"request_key": "capture-1", "kind": "Q", "title": "Question"});

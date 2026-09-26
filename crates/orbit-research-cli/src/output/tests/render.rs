@@ -114,3 +114,39 @@ fn snapshot_ndjson_emits_one_record_per_line() {
         2
     );
 }
+
+#[test]
+fn validation_summary_is_concise_for_humans_and_structured_for_machines() {
+    let value = serde_json::json!({
+        "valid": true,
+        "base_revision": "abc123",
+        "record_count": 1,
+        "tag_count": 2
+    });
+    let mut human = Vec::new();
+    render_with_terminal(&mut human, &value, OutputMode::Auto, false)
+        .expect("summary rendering should succeed");
+    assert_eq!(
+        String::from_utf8(human).expect("summary output is UTF-8"),
+        "Corpus validation passed at base revision abc123: 1 record, 2 tags.\n"
+    );
+
+    let mut json = Vec::new();
+    render_with_terminal(&mut json, &value, OutputMode::Json, false)
+        .expect("JSON output should succeed");
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&json).expect("summary remains JSON"),
+        value
+    );
+
+    let mut ndjson = Vec::new();
+    render_with_terminal(&mut ndjson, &value, OutputMode::Ndjson, false)
+        .expect("NDJSON output should succeed");
+    let lines = String::from_utf8(ndjson).expect("summary output is UTF-8");
+    assert_eq!(lines.lines().count(), 1);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(lines.trim())
+            .expect("summary remains one JSON line"),
+        value
+    );
+}

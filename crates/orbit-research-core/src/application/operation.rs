@@ -122,8 +122,8 @@ operations! {
     Check => (
         "research.check",
         Empty,
-        list,
-        "Read and validate the canonical corpus without changing records."
+        check,
+        "Validate the canonical corpus and report its base revision and record/tag counts without returning record bodies. Does not change records."
     ),
     Create => (
         "research.create",

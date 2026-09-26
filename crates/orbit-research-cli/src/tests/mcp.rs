@@ -163,14 +163,34 @@ fn tool_call_delegates_and_wraps_core_errors() {
     let values = exchange(
         temp.path(),
         r#"{"jsonrpc":"2.0","id":1,"method":"initialize"}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"research.list","arguments":{}}}
-{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"research.missing","arguments":{}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"research.check","arguments":{}}}
+{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"research.list","arguments":{}}}
+{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"research.missing","arguments":{}}}
 "#,
     );
     assert!(values[1]["result"]["isError"] == false);
-    assert!(values[2]["result"]["isError"] == true);
-    assert!(
+    assert!(values[2]["result"]["isError"] == false);
+    let check: Value = serde_json::from_str(
+        values[1]["result"]["content"][0]["text"]
+            .as_str()
+            .expect("check result text"),
+    )
+    .expect("check result JSON");
+    assert_eq!(check["valid"], true);
+    assert_eq!(check["record_count"], 0);
+    assert!(check.get("records").is_none());
+    let list: Value = serde_json::from_str(
         values[2]["result"]["content"][0]["text"]
+            .as_str()
+            .expect("list result text"),
+    )
+    .expect("list result JSON");
+    assert!(list["revision"].is_string());
+    assert!(list["records"].is_array());
+    assert!(list["tags"].is_array());
+    assert!(values[3]["result"]["isError"] == true);
+    assert!(
+        values[3]["result"]["content"][0]["text"]
             .as_str()
             .expect("text error content")
             .contains("Unknown research operation")
