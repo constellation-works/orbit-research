@@ -199,7 +199,8 @@ impl ReservationIntent {
         if self.id.starts_with('R') {
             if let Some(parent) = Path::new(&self.path).parent() {
                 self.files.push(WriteFile {
-                    path: parent.join("data/manifest.json").to_string_lossy().into(),
+                    // Intent paths are Git paths, including on Windows.
+                    path: format!("{}/data/manifest.json", parent.to_string_lossy()),
                     text: "{\"inputs\":[]}\n".into(),
                     before: None,
                 });
