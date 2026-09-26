@@ -481,6 +481,20 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
             vec![],
         )
         .unwrap();
+    let intent_path = research.path().join(".git/orbit-research-writer");
+    let intent = fs::read_dir(intent_path)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .find(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .unwrap();
+    let intent: serde_json::Value = serde_json::from_slice(&fs::read(intent).unwrap()).unwrap();
+    assert_eq!(
+        intent["files"][1]["path"],
+        "research/R001-portable-study/data/manifest.json"
+    );
     assert!(
         research
             .path()
@@ -517,6 +531,36 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
         fs::read_to_string(questions.path().join(&first.path))
             .unwrap()
             .contains("new body")
+    );
+}
+
+#[test]
+fn retry_refuses_unrelated_staged_path() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    reserve_q(&corpus, "unrelated-staged", "Own record", "body");
+    clear_reservation_result(temp.path());
+    git(temp.path(), &["reset", "--soft", "HEAD^"]);
+    fs::write(temp.path().join("unrelated.txt"), "external staged edit\n").unwrap();
+    git(temp.path(), &["add", "--", "unrelated.txt"]);
+
+    let error = corpus
+        .reserve(
+            "unrelated-staged",
+            "Q",
+            "Own record",
+            "body",
+            vec!["capture".into()],
+            vec![],
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Unrelated staged changes appeared; refusing commit"
+    );
+    assert_eq!(
+        git(temp.path(), &["show", ":unrelated.txt"]),
+        "external staged edit"
     );
 }
 
