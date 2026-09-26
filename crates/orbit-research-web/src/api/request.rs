@@ -27,13 +27,6 @@ impl HttpRequest {
         self.inner.url().split('?').next().unwrap_or_default()
     }
 
-    pub(super) fn query(&self) -> &str {
-        self.inner
-            .url()
-            .split_once('?')
-            .map_or("", |(_, query)| query)
-    }
-
     pub(super) fn validate(&self, address: &str, origin: &str, token: &str) -> HttpResult<()> {
         if header(&self.inner, "Host") != Some(address) {
             return Err(Reply::error(403, "Unrecognized host"));

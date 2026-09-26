@@ -1,6 +1,6 @@
 //! Flat route dispatch; every endpoint shares the same HTTP boundary.
 use super::request::{HttpRequest, HttpResult, Reply};
-use crate::parse::{Capture, OperationRequest, query_value};
+use crate::parse::{Capture, OperationRequest};
 use orbit_research_core::{Application, Result, application::Operation};
 use serde_json::{Value, json};
 use tiny_http::{Method, Request};
@@ -40,22 +40,11 @@ fn route(request: &mut HttpRequest, application: &Application, token: &str) -> H
         (Method::Get, "/api/corpus") => execute(application, Operation::List, json!({})),
         (Method::Get, "/api/work-links") => execute(application, Operation::WorkLinks, json!({})),
         (Method::Get, "/api/backend") => execute(application, Operation::Backend, json!({})),
-        (Method::Get, "/api/work-status") => work_status(request, application),
         (Method::Post, "/api/questions") => capture(request, application),
         (Method::Post, "/api/operations") => operate(request, application),
         (Method::Get | Method::Post, _) => Err(Reply::error(404, "Not found")),
         _ => Err(Reply::error(405, "Method not allowed")),
     }
-}
-
-fn work_status(request: &HttpRequest, application: &Application) -> HttpResult<Reply> {
-    let request_key = query_value(request.query(), "request_key")
-        .ok_or_else(|| Reply::error(400, "request_key is required"))?;
-    execute(
-        application,
-        Operation::WorkStatus,
-        json!({ "request_key": request_key }),
-    )
 }
 
 fn capture(request: &mut HttpRequest, application: &Application) -> HttpResult<Reply> {
