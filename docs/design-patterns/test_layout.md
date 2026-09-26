@@ -1,7 +1,7 @@
 ---
 type: pattern
 summary: "Per-Module Sibling tests/ Directory"
-last_validated: 2026-09-12
+last_validated: 2026-09-25
 ---
 # Per-Module Sibling tests/ Directory
 
@@ -87,9 +87,18 @@ src/command/
 
 This nests the test module as a *child* of the source module. Children can read parent privates, so the structural "test only public" enforcement is lost — the convention then depends entirely on author discipline. Use the sibling layout shown above instead.
 
-## Reference: `orbit-mcp::adapter`
+## Current workspace examples
 
-The MCP `adapter` module has children `name_map.rs`, `schema.rs`, `dispatch.rs`, and `structured.rs`. The canonical layout: `adapter/mod.rs` declares each child plus `#[cfg(test)] mod tests;`, and `adapter/tests/` contains one file per source child (`tests/name_map.rs`, `tests/schema.rs`, etc.). MCP proxy/discovery tests live beside their implementations under `orbit-mcp/src/remote/tests/`; Registry's crate-level tests live under `orbit-registry/src/tests/`, including the workspace-registry persistence tests in `tests/workspace_registry.rs`. Each test file accesses its sibling source through the narrowest deliberate visibility.
+The Core application follows this layout: `application/mod.rs` declares
+`#[cfg(test)] mod tests;`, and `application/tests/operation.rs` covers the
+sibling `application/operation.rs`. The Web API uses the same shape:
+`api/mod.rs` declares its test module, and `api/tests/request.rs` covers
+`api/request.rs`. Their `tests/mod.rs` files declare the matching child test
+modules.
+
+Crate-level public API tests are separate integration tests under
+`crates/orbit-research-core/tests/`; Cargo builds each file there as its own
+test target.
 
 ## Migration recipe
 

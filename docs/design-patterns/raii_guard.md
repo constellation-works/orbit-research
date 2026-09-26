@@ -1,152 +1,55 @@
 ---
 type: pattern
 summary: "RAII Guard Pattern"
-last_validated: 2026-09-07
+last_validated: 2026-09-25
 ---
 # RAII Guard Pattern
 
-Bind a side effect to a lexical scope: do something at construction, undo it in `Drop`. Callers write `let _g = Guard::enter(...);` and rely on scope exit — including `?`-return and panic unwind — to clean up. The defining trait: **`Drop` does meaningful work** (restoring state, releasing a lock, persisting a record), not just freeing memory.
+Bind cleanup or restoration to a lexical scope when it must run on every exit
+path. A guard acquires or records state when it is created, then releases or
+restores that state when it is dropped. Scope exit includes ordinary returns,
+`?` propagation, and panic unwinding.
 
 ```rust
-struct Guard { /* captured state to undo */ }
+struct Guard {
+    // State needed to undo the operation.
+}
 
 impl Guard {
-    fn enter(...) -> Self { /* install / acquire / stage */ }
+    fn enter(/* inputs */) -> Self {
+        // Acquire, install, or stage the resource.
+        todo!()
+    }
 }
 
 impl Drop for Guard {
-    fn drop(&mut self) { /* restore / release / finalize */ }
-}
-```
-
-Four shapes in the codebase carry distinct lessons.
-
-## Reference: `AuditGuard` — record the scope's outcome once
-
-From `crates/orbit-cli/src/audit_middleware.rs:28`:
-
-```rust
-pub struct AuditGuard<'a> {
-    runtime: &'a OrbitRuntime,
-    meta: CommandMeta,
-    start: Instant,
-    status: AuditEventStatus,    // defaults to Failure
-    exit_code: i32,              // defaults to -1
-    error_message: Option<String>,
-}
-
-impl AuditGuard<'_> {
-    pub fn mark_success(&mut self) { /* ... */ }
-    pub fn mark_failure(&mut self, error: &OrbitError) { /* ... */ }
-}
-
-impl Drop for AuditGuard<'_> {
     fn drop(&mut self) {
-        if take_tool_audit_recorded() { return; }       // suppression flag
-        let params = AuditEventInsertParams { /* ... */ };
-        let write = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-            || self.runtime.record_audit_event(&params),
-        ));
-        // log and swallow; never propagate from Drop
+        // Release or restore the resource.
     }
 }
 ```
 
-Patterns to copy:
+Use a custom guard when `Drop` performs meaningful cleanup, such as restoring
+process state or rolling back a staged change. When ordinary ownership already
+provides the cleanup (for example, a `File` releasing its OS handle), store the
+resource in a field and let its normal destructor run.
 
-- **Default to the "bad" outcome.** Status starts as `Failure`/`-1`; scope exits without an explicit `mark_*` correctly reflect "process died mid-command."
-- **Mutation methods on `&mut self`, not constructor params.** Caller updates the outcome as it learns; `Drop` reads final state.
-- **`catch_unwind` around the side effect.** A panic *during audit emission* can't double-panic the unwind.
+## Design checks
 
-## Reference: `StagedTextFile` — `Drop` as rollback
+- Make partial initialization safe. If construction can fail after installing
+  one of several resources, undo completed steps before returning the error;
+  `Drop` only runs after a value has been constructed successfully.
+- Keep `Drop` short and infallible. It cannot return an error to the caller; if
+  cleanup can fail, decide how that failure is recorded or surfaced before
+  relying on `Drop` alone.
+- Avoid holding a process-wide lock for the entire lifetime of a long-running
+  operation. Keep critical sections short and store only the state needed for
+  release.
+- Make ownership explicit so cleanup cannot affect a resource that another
+  actor acquired after the original resource was released.
 
-From `crates/orbit-common/src/fs/io.rs:112`:
+## Current workspace status
 
-```rust
-pub struct StagedTextFile {
-    target_path: PathBuf,
-    temp_path: PathBuf,
-    committed: bool,
-}
-
-impl StagedTextFile {
-    pub fn new(target: &Path, content: &str) -> io::Result<Self> { /* write temp file */ }
-    pub fn commit(&mut self) -> io::Result<()> { /* rename, set committed = true */ }
-}
-
-impl Drop for StagedTextFile {
-    fn drop(&mut self) {
-        if self.committed { return; }
-        let _ = fs::remove_file(&self.temp_path);
-    }
-}
-```
-
-Patterns to copy:
-
-- **`committed: bool` is the lever.** Caller explicitly opts into the success path by calling `commit()`. Drop = rollback by default.
-- **Shape for "stage → validate → commit-or-bail."** Between `new()` and `commit()`, the caller can inspect the staged content; any early-return cleans up the temp file automatically.
-
-## Reference: `SignalHandlerGuard` — restore global state
-
-From `crates/orbit-exec/src/supervision/signal.rs`:
-
-```rust
-pub(super) struct SignalHandlerGuard {
-    start_gen: u64,          // signals observed after this wait started
-    slot: Option<usize>,     // lock-free live-pgid table index
-}
-
-impl SignalHandlerGuard {
-    pub(super) fn install(child_pid: u32) -> Result<Self, OrbitError> {
-        let start_gen = acquire_handlers()?;   // refcount++; first waiter installs
-        let slot = if is_child_process_group_leader(child_pid) {
-            register_pgid(child_pid)           // only a verified live group leader
-        } else {
-            None
-        };
-        Ok(Self { start_gen, slot })
-    }
-
-    pub(super) fn release_process_group(&mut self) {
-        unregister_pgid(self.slot.take());     // called as soon as the child is reaped
-    }
-}
-
-impl Drop for SignalHandlerGuard {
-    fn drop(&mut self) {
-        unregister_pgid(self.slot.take());
-        release_handlers();                    // last waiter restores prior sigaction
-    }
-}
-```
-
-`acquire_handlers` takes a process-wide `Mutex` only for the refcount/`sigaction` critical section. The first waiter snapshots the previous SIGINT/SIGTERM dispositions and installs a handler that stores a generation counter, records a pending forward, and `killpg`s every registered child group; the last drop restores those dispositions and re-raises a captured signal (except `SIG_IGN`) with the mutex released. Concurrent waits overlap. A slot only ever holds a pid that leads its own live process group (never our own group), the handler re-checks that before each `killpg`, and the waiter releases the slot the moment the child is reaped — a reaped pid can be reused by an unrelated group leader, and a fan-out to it would signal processes Orbit never spawned.
-
-Patterns to copy:
-
-- **Refcount a process-global side effect.** The guard's job is "this wait is live", not "I own the handler exclusively". Last `Drop` restores prior state.
-- **Keep the mutex off the long path.** Holding `MutexGuard` as a field would serialize every supervised child for its entire lifetime.
-- **Hand-rollback on partial first install.** `Drop` only runs on values that successfully return; if SIGINT is installed and SIGTERM fails, restore SIGINT before returning `Err`, and do not bump the refcount.
-- **Capture prior state next to the refcount, not on every guard.** Previous `sigaction` structs live in the shared install record because only the first/last waiter should swap them.
-
-## Reference: `FileLockGuard` — resource held until `Drop`
-
-From `crates/orbit-store/src/fs/lock/mod.rs`:
-
-```rust
-#[must_use = "the advisory lock is released as soon as the guard is dropped"]
-pub(crate) struct FileLockGuard {
-    _file: File,
-}
-```
-
-Patterns to copy:
-
-- **Hold the resource in a field.** `FileLockGuard` keeps the locked `File`
-  alive in `_file`; dropping the file releases the OS advisory lock. There is
-  no separate explicit release path to call or duplicate.
-
----
-
-**Note on test fixtures.** Several test files use small `EnvVarGuard` / `TempDir` structs that save-and-restore env vars or `remove_dir_all` on drop. They follow the pattern but are too thin to be reference-grade; lift from a production guard above when writing new ones.
+There is no production custom `Drop` implementation or named guard type in the
+current research crates. This page describes a general Rust pattern; it has no
+live workspace example to copy.
