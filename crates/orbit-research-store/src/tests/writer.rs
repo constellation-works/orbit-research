@@ -468,6 +468,59 @@ fn retry_recovers_research_committed_before_receipt_was_saved() {
 }
 
 #[test]
+fn portable_reservation_and_revision_retry_after_receipt_loss() {
+    let research = fixture();
+    let corpus = Corpus::open(research.path()).unwrap();
+    let first = corpus
+        .reserve(
+            "portable-research",
+            "R",
+            "Portable study",
+            "question",
+            vec![],
+            vec![],
+        )
+        .unwrap();
+    assert!(
+        research
+            .path()
+            .join("research/R001-portable-study/data/manifest.json")
+            .is_file()
+    );
+    clear_reservation_result(research.path());
+    let retried = corpus
+        .reserve(
+            "portable-research",
+            "R",
+            "Portable study",
+            "question",
+            vec![],
+            vec![],
+        )
+        .unwrap();
+    assert_eq!(retried.commit, first.commit);
+    assert_eq!(git(research.path(), &["rev-list", "--count", "HEAD"]), "2");
+
+    let questions = revision_fixture();
+    let corpus = Corpus::open(questions.path()).unwrap();
+    let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let first = corpus
+        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .unwrap();
+    clear_reservation_result(questions.path());
+    let retried = corpus
+        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .unwrap();
+    assert_eq!(retried.commit, first.commit);
+    assert_eq!(git(questions.path(), &["rev-list", "--count", "HEAD"]), "3");
+    assert!(
+        fs::read_to_string(questions.path().join(&first.path))
+            .unwrap()
+            .contains("new body")
+    );
+}
+
+#[test]
 fn reservation_recovery_compares_exact_record_bytes() {
     let temp = fixture();
     let corpus = Corpus::open(temp.path()).unwrap();

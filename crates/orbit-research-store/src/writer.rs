@@ -490,7 +490,7 @@ fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
-/// Persist complete bytes before publishing the name, then sync the containing directory.
+/// Persist complete bytes before publishing the name. Sync directory entries where supported.
 fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
     let parent = path
         .parent()
@@ -509,6 +509,10 @@ fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
         temporary.persist_noclobber(path)
     }
     .map_err(|e| Error::Io(e.error))?;
+    // std::fs::File::open cannot open Windows directories without
+    // FILE_FLAG_BACKUP_SEMANTICS; std offers no portable directory sync.
+    // Synced file contents and atomic publication still permit intent retries.
+    #[cfg(unix)]
     File::open(parent)?.sync_all()?;
     Ok(())
 }
