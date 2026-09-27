@@ -10,6 +10,13 @@ tags: [research-workbench]
 
 # Contracts
 
+> **Partially superseded (2026-09-27):** the "Orbit backend" and "Result
+> acceptance" sections below describe the CLI adapter and agent-supplied
+> receipt model, both removed. Orbit owns dispatch/status/cancel through its
+> own native commands; `validate`/`accept` return as plugin tools in later
+> slices. See the constellation `operations/research/orbit-research-plugin.md`
+> spec. The canonical corpus and writes/recovery sections are unaffected.
+
 ## Why This Exists
 
 The research application must preserve scientific provenance and prevent duplicate
@@ -90,7 +97,10 @@ unpublished or cross-item receipts refuse with an actionable reason.
 ## Common operations
 
 Expose validated reads, Q/H/T/R creation, guarded question edit, contribution/synthesis
-planning, task linking, dispatch, status, cancellation and receipt validation through
-Core. CLI/MCP/web share semantics and failure behavior. Read and planning operations
-never dispatch implicitly. Tool schemas disallow unrecognized fields; corpus scope is
-fixed during process composition. Machine stdout contains protocol/output only.
+planning and local request correlation through Core. CLI/MCP share semantics and
+failure behavior. Read and planning operations never dispatch implicitly. Tool schemas
+disallow unrecognized fields; corpus scope is fixed during process composition.
+Machine stdout contains protocol/output only. Task linking, dispatch, status,
+cancellation and result acceptance move to Orbit-native commands and the plugin's
+`link`/`validate`/`accept` tools (later slices; see the constellation
+`operations/research/orbit-research-plugin.md` spec).

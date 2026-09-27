@@ -127,29 +127,6 @@ fn single_investigation_owns_exactly_one_reserved_item() {
 }
 
 #[test]
-fn forged_write_scope_is_rejected_before_backend_invocation() {
-    use orbit_research_core::backend::{BackendConfig, OrbitBackend};
-    let (temp, corpus) = corpus();
-    let backend = OrbitBackend::new(
-        BackendConfig {
-            executable: temp.path().join("must-not-run"),
-            workspace: "ws_fixture".into(),
-            checkout: temp.path().to_owned(),
-            owner_machine_id: "fixture".into(),
-        },
-        vec![],
-    )
-    .unwrap();
-    let mut plan = corpus.investigation("R001", "objective").unwrap();
-    plan.context_files = vec!["dir:research".into()];
-    let error = corpus
-        .link_work(&backend, "request", "work", "luna", &plan)
-        .unwrap_err();
-    assert!(error.to_string().contains("write scope"), "{error}");
-    assert!(!temp.path().join(".git/orbit-research-operations").exists());
-}
-
-#[test]
 fn planning_uses_committed_content_while_browsing_exposes_edits() {
     let (temp, corpus) = corpus();
     let before = corpus.investigation("R001", "Measure the control").unwrap();

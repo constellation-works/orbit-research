@@ -1,12 +1,15 @@
 # orbit-research
 
 A local research workbench for canonical Observatory Markdown records, with a
-separate dashboard, CLI and MCP interface. Orbit owns execution tasks, crews,
-runs and delivery; scientific records stay in the selected knowledgebase.
+CLI and MCP interface. Orbit owns execution tasks, crews, runs and delivery
+directly; scientific records stay in the selected knowledgebase.
 
-The workbench redesign is under active implementation. Local corpus operations
-are available; connected execution is gated by the bundled Orbit compatibility
-allowlist. An uncertified backend is refused, without disabling local research.
+The workbench is being converted into an Orbit plugin (see the constellation
+`operations/research/orbit-research-plugin.md` spec). Local corpus operations
+(capture, list, show, check, create, revise, planning) are available. Research
+views become read-only Orbit plugin panels rather than a standalone dashboard;
+task creation, dispatch and acceptance land through the plugin's `plan`/`link`/
+`validate`/`accept` tools in later slices.
 
 ## Build and validate
 
@@ -24,16 +27,19 @@ a command wrapper accepting `-- COMMAND ...`; its default (`env`) runs Cargo dir
 
 ## Design and structure
 
-- [Architecture](ARCHITECTURE.md): the five crates and module ownership.
-- [Workbench design](docs/design/research-workbench/1_overview.md): product scope.
+- [Architecture](ARCHITECTURE.md): the four crates and module ownership.
+- [Workbench design](docs/design/research-workbench/1_overview.md): product scope
+  (superseded in part; see the note at its top).
 - [Research contracts](docs/design/research-workbench/specs/contracts.md): canonical
-  records, owner boundaries and execution integration.
-- [Dashboard design](docs/design/user-interface/1_overview.md).
+  records and owner boundaries (execution sections superseded; see the note at
+  its top).
+- [Dashboard design](docs/design/user-interface/1_overview.md): superseded — the
+  standalone dashboard is removed; research views become Orbit plugin panels.
 - [CLI design](docs/design/terminal-interface/1_overview.md).
 
-The supported workflow uses canonical Observatory Markdown records. Use the CLI,
-MCP server, or loopback dashboard against an explicitly selected corpus; connect
-an Orbit backend only when linking or executing planned work.
+The supported workflow uses canonical Observatory Markdown records. Use the CLI
+or MCP server against an explicitly selected corpus; Orbit owns task creation,
+dispatch and delivery through its own native commands.
 
 ## Terminal use
 

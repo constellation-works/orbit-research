@@ -3,15 +3,18 @@
 Core owns research application policy and composition. Follow the repository
 [architecture](../../ARCHITECTURE.md) and owning feature contracts.
 
-- `application/`: shared use cases, planning, receipt checks and request coordination.
-- `bootstrap.rs`: local/configured assembly and workspace initialization delegation.
+- `application/`: shared use cases, planning and local request correlation.
+- `bootstrap.rs`: local assembly and workspace initialization delegation.
 - `runtime.rs`: process-scoped handles; no scheduler or execution engine.
-- `config.rs` owns backend settings; bootstrap loads them and the Orbit adapter validates them.
-  Tool arguments cannot replace authority.
-- `adapter/orbit/`: external Orbit CLI protocol, compatibility and identity checks.
-- `assets/`: bundled data, including `orbit-compatibility.json` and research guidance
-  under `skills/`. Future workflow assets are deferred.
+- `assets/`: bundled data, including research guidance under `skills/`. Future
+  workflow assets are deferred.
 
 Use local research types. Do not import Orbit utilities, types or implementation
 crates. Persistence belongs in Store, passive shared values in Common, transport
-protocols in CLI and Web. Keep scientific support separate from execution success.
+protocols in CLI. Keep scientific support separate from execution success.
+
+Orbit owns execution, dispatch and cancellation directly (`orbit run show`,
+`orbit task update`, `orbit run job`, `orbit run cancel`); this crate no longer
+shells out to an Orbit CLI adapter. See the plugin conversion spec
+(constellation `operations/research/orbit-research-plugin.md`) for the
+superseding `plan`/`link`/`validate`/`accept` design.

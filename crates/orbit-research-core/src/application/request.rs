@@ -1,5 +1,4 @@
 //! Request contracts shared by deserialization and tool schema generation.
-use super::work::WorkPlan;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -58,43 +57,6 @@ pub(super) struct Synthesis {
     #[schemars(length(min = 1))]
     pub(super) research_id: String,
     pub(super) units: Vec<String>,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct LinkWork {
-    #[schemars(length(min = 1))]
-    pub(super) request_key: String,
-    #[schemars(length(min = 1))]
-    pub(super) title: String,
-    #[schemars(length(min = 1))]
-    pub(super) crew: String,
-    pub(super) plan: WorkPlan,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct RequestKey {
-    #[schemars(length(min = 1))]
-    pub(super) request_key: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Dispatch {
-    #[schemars(length(min = 1))]
-    pub(super) request_key: String,
-    #[schemars(length(min = 1))]
-    pub(super) base: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ValidateResult {
-    #[schemars(length(min = 1))]
-    pub(super) request_key: String,
-    #[schemars(length(min = 1))]
-    pub(super) receipt_path: String,
 }
 
 #[derive(Deserialize, JsonSchema)]

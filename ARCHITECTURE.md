@@ -1,16 +1,19 @@
 # Architecture
 
 Lower layers do not depend on application or transport layers. Orbit Research is
-an independent application; it uses an explicitly selected Orbit CLI, never an
-Orbit implementation crate, runtime, scheduler, or internal database.
+an independent application. It no longer shells out to an Orbit CLI adapter to
+drive execution: Orbit owns tasks, crews, runs and delivery natively, and this
+app coordinates only through local request correlation. See the plugin
+conversion spec (constellation `operations/research/orbit-research-plugin.md`)
+for the superseding `plan`/`link`/`validate`/`accept` design, which lands in
+later slices.
 
 ```text
-orbit-research-cli ──┬── orbit-research-web ──┐
-                    └───────────────────────┴── orbit-research-core
-                                                        │
-                                                orbit-research-store
-                                                        │
-                                                orbit-research-common
+orbit-research-cli ── orbit-research-core
+                              │
+                      orbit-research-store
+                              │
+                      orbit-research-common
 ```
 
 Core also depends directly on Common for its public operation types. Common is a
@@ -19,29 +22,23 @@ workspace leaf; no workspace crate dependency is permitted.
 - **Common** owns passive Record, Snapshot and Reservation values and shared typed
   errors. No I/O, application policy, configuration loading or generic utility bucket.
 - **CLI** owns argument parsing, process composition and output. It composes the
-  core, loopback HTTP adapter and its stdio MCP adapter. `orbit-research` remains the
-  installed binary; there is no second workbench binary.
-- **Core** owns shared application operations, contribution/synthesis planning,
-  backend compatibility and explicit authority checks, task/run coordination,
-  research receipt acceptance and backend configuration.
-  It receives an explicit corpus root and invokes Orbit through argv and structured
-  responses, preserving caller
-  restrictions. It never starts another execution engine. `OrbitBackend` is the sole execution
-  adapter; `Application::orbit` is optional so local research needs no Orbit setup.
+  core and its stdio MCP adapter. `orbit-research` remains the installed binary;
+  there is no second workbench binary.
+- **Core** owns shared application operations, contribution/synthesis planning
+  and local request correlation. It receives an explicit corpus root; it never
+  starts another execution engine and never shells out to Orbit.
 - **Store** owns canonical Markdown/frontmatter reads and guarded writes, Git
   content identities, serialized committed ID reservations, atomic request
-  logs, and corpus scaffolding. The request log contains request
-  correlation and pointers to Orbit, never competing scientific records.
-  Unknown outcomes are reconciled; a timeout is not permission to submit twice.
-- **Web** owns the loopback HTTP protocol, browser session protections and the
-  dashboard. It delegates operations to Core and has no direct store dependency.
+  logs, and corpus scaffolding. The request log holds writer intents and link
+  request keys; it is not a scientific journal or an alternate record store.
 - **CLI’s MCP transport** owns stdio JSON-RPC transport and delegates tool contracts/operations
   to the application layer. Its corpus scope is fixed at startup; tool arguments cannot switch
   it to a different filesystem root.
 
-The workspace contains exactly five crates: Common, Store, Core, CLI and Web.
-The former contract/owner/import/index packages and their legacy JSON command
-surfaces are removed. Scientific authority remains the selected Markdown owner
+The workspace contains exactly four crates: Common, Store, Core and CLI. The
+former contract/owner/import/index packages, their legacy JSON command
+surfaces, the standalone dashboard (`orbit-research-web`) and the Orbit CLI
+adapter are removed. Scientific authority remains the selected Markdown owner
 corpus; project membership is a tag, and H/T assessments remain explicit.
 
 ## Core module ownership
@@ -51,28 +48,22 @@ It does not import Orbit libraries.
 
 ```text
 orbit-research-core/
-├── assets/                   # compatibility data and skills/ research guidance
+├── assets/                   # skills/ research guidance
 └── src/
-    ├── application/           # use cases, work planning, receipts and API routing
-    ├── bootstrap.rs             # local/configured assembly and workspace initialization
-    ├── config.rs                # operator-selected backend settings
-    ├── runtime.rs               # process-scoped Application and Research handles
-    └── adapter/
-        └── orbit/            # external CLI invocation, identity and compatibility
+    ├── application/           # use cases, work planning and request correlation
+    ├── bootstrap.rs             # local assembly and workspace initialization
+    └── runtime.rs               # process-scoped Application and Research handles
 ```
 
-Transports invoke application use cases. Bootstrap fixes corpus and backend scope
-at startup; runtime contains their state. The Orbit adapter owns subprocesses and
-external protocol checks, while application operations own research policy and
-request reconciliation. Store remains responsible for filesystem and Git writes.
-`BackendSettings` and `BackendConfig` live in Core’s `config.rs`: only application
-composition and backend execution need them. Bootstrap loads them and the Orbit
-adapter validates them. Common retains scientific values and errors shared by Store
-and Core; it never imports Core or reads files.
+Transports invoke application use cases. Bootstrap fixes the corpus scope at
+startup; runtime contains its state. Application operations own research policy
+and local request correlation. Store remains responsible for filesystem and Git
+writes. Common retains scientific values and errors shared by Store and Core; it
+never imports Core or reads files.
 
 Packaged files live under each owning crate’s `assets/` directory: Core owns
-`orbit-compatibility.json` and `skills/`, Store owns `schema.json`, and Web owns
-`dashboard/`. Do not introduce a parallel `resources/` directory.
+`skills/`, and Store owns `schema.json`. Do not introduce a parallel `resources/`
+directory.
 
 Core owns bundled skills; CLI exposes them through its resource command. Future
 research routines, auto-tasks, activities and jobs can live under Core assets and
@@ -123,16 +114,6 @@ Only external protocol boundaries parse names such as `research.revise_question`
 Adding a tool requires a typed request, handler and registry entry, rather than a
 handwritten JSON schema and several string switches.
 
-## Web module ownership
-
-`orbit-research-web/assets/dashboard/` owns the embedded HTML, CSS and JavaScript.
-`src/lib.rs` binds the loopback listener and assembles its application/session state.
-`src/api/router.rs` uses a flat method/path match and a shared request wrapper for session
-guards, bounded JSON decoding and response headers; handlers delegate to Core;
-`src/parse.rs` owns HTTP input shapes and extraction; `src/log_format.rs` formats
-local server diagnostics. These modules use research types and do not import Orbit
-libraries. The legacy static export implementation has been removed.
-
 ## Parallel research work
 
 A committed R item exists before work is dispatched. Contributions own disjoint
@@ -145,11 +126,10 @@ Orbit owns tasks, worktrees, file reservations, run state and delivery history.
 ## Standards and validation
 
 Keep `mod.rs` focused on module declarations and exports; implementation belongs
-in named sibling files (for example `adapter/orbit/backend.rs`, `api/router.rs`
-and CLI `output/render.rs`).
+in named sibling files (for example CLI `output/render.rs`).
 
 Use workspace dependencies, typed errors and narrow public APIs. Keep
-persistence in Store, decisions in Core and protocol concerns in adapters.
+persistence in Store and decisions in Core.
 Unit tests follow [the sibling test layout](docs/design-patterns/test_layout.md):
 a parent module declares `tests/`, with files mirroring sibling production files.
 Tests exercise exposed seams rather than child-module access to private helpers.
@@ -161,11 +141,9 @@ rejects dependencies on Orbit libraries. Update this document with dependency
 changes. The repository's `make test` gate remains required, with focused tests
 for each new application boundary and independent review/QA before sign-off.
 
-Rust formatting is enforced by `make fmt-check`. Dashboard HTML/CSS/JavaScript use
-pinned Prettier 3.6.2 through `make fmt-dashboard` and `make fmt-check-dashboard`.
-Node/npm are needed only for dashboard formatting, not for the Rust runtime.
+Rust formatting is enforced by `make fmt-check`.
 
-`Store::request_log` holds only dispatch idempotency and Orbit task/run pointers.
-The writer records reservation intents for crash recovery. Neither is a scientific
+`Store::request_log` holds writer intents and link request keys. The writer
+records reservation intents for crash recovery. Neither is a scientific
 journal or an alternate record store; both are required to prevent duplicate writes
 and work after uncertain outcomes.

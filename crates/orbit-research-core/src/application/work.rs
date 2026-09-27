@@ -58,60 +58,6 @@ impl Corpus {
         })
     }
 
-    /// A deserialized plan is untrusted. Validate its declared write scope again
-    /// immediately before linking it to an executable task.
-    pub(crate) fn validate_work_plan(&self, plan: &WorkPlan) -> Result<()> {
-        let snapshot = self.store.committed_snapshot()?;
-        let record = snapshot
-            .records
-            .iter()
-            .find(|r| r.id == plan.research_id && r.kind == "R")
-            .ok_or_else(|| Error::Invalid("Planned research record disappeared".into()))?;
-        if snapshot.revision != plan.corpus_revision || record.git_blob != plan.research_blob {
-            return Err(Error::Conflict(
-                "Research plan is stale; refresh it before creating work".into(),
-            ));
-        }
-        if plan.instructions.trim().is_empty() {
-            return Err(Error::Invalid("Work instructions are required".into()));
-        }
-        let directory = std::path::Path::new(&record.path)
-            .parent()
-            .ok_or_else(|| Error::Invalid("Missing research directory".into()))?
-            .to_string_lossy();
-        let valid = match plan.mode {
-            WorkMode::Investigation => plan.context_files == [format!("dir:{directory}")],
-            WorkMode::Synthesis => {
-                plan.context_files
-                    == [
-                        format!("file:{}", record.path),
-                        format!("file:{directory}/data/manifest.json"),
-                    ]
-            }
-            WorkMode::Contribution => {
-                let prefix = format!("dir:{directory}/code/");
-                let unit = plan
-                    .context_files
-                    .first()
-                    .and_then(|v| v.strip_prefix(&prefix));
-                match unit {
-                    Some(unit) => {
-                        self.contribution(&plan.research_id, unit, "Validate scope")?
-                            .context_files
-                            == plan.context_files
-                    }
-                    None => false,
-                }
-            }
-        };
-        if !valid {
-            return Err(Error::Invalid(
-                "Work plan write scope does not match its research item and mode".into(),
-            ));
-        }
-        Ok(())
-    }
-
     /// Parallel contributors own only these paths. Their outputs are findings,
     /// not a change to the parent research item's scientific conclusions.
     pub fn contribution(&self, research_id: &str, unit: &str, objective: &str) -> Result<WorkPlan> {

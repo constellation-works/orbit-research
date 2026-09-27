@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 use clap::{CommandFactory, Parser};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::command::application::compose;
 use crate::output::{Invalid, OutputSink};
@@ -58,7 +58,7 @@ fn fail(error: Invalid, code: u8, sink: &OutputSink) -> ExitCode {
 fn run(cli: Cli) -> ExitCode {
     let sink = OutputSink::from_process(cli.format);
     if let Command::Mcp { corpus } = &cli.command {
-        let application = match compose(corpus, cli.backend_config.as_deref()) {
+        let application = match compose(corpus) {
             Ok(application) => application,
             Err(error) => return fail(error, 1, &sink),
         };
@@ -93,27 +93,21 @@ fn run(cli: Cli) -> ExitCode {
 }
 
 fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
-    let backend_config = cli.backend_config;
     match cli.command {
         Command::Mcp { .. } => Err("MCP must run as a stdio session".to_owned().into()),
-        Command::Serve { corpus, port } => {
-            let app = compose(&corpus, backend_config.as_deref())?;
-            orbit_research_web::serve_application(app, port).map_err(|error| error.to_string())?;
-            Ok((json!({"stopped":true}), 0))
-        }
         Command::Workspace {
             operation: WorkspaceOperation::Init { path },
         } => Ok((command::workspace::initialize(&path)?, 0)),
         Command::Research {
             operation: ResearchOperation::Show { corpus, id },
         } => {
-            let application = compose(&corpus, backend_config.as_deref())?;
+            let application = compose(&corpus)?;
             Ok((command::research::show(&application, &id)?, 0))
         }
         Command::Research { operation } => {
             let (corpus, operation, input) = command::research::prepare(operation)?;
             Ok((
-                compose(&corpus, backend_config.as_deref())?
+                compose(&corpus)?
                     .execute(operation, input)
                     .map_err(|error| error.to_string())?,
                 0,

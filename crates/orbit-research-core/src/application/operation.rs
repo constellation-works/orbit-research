@@ -65,53 +65,11 @@ macro_rules! operations {
 }
 
 operations! {
-    Backend => (
-        "research.backend",
-        Empty,
-        backend,
-        "Inspect the configured Orbit backend and compatibility. Never changes backend scope."
-    ),
     WorkLinks => (
         "research.work_links",
         Empty,
         work_links,
         "List local request correlations pointing to authoritative Orbit tasks. Cached pointers are not fresh run status."
-    ),
-    WorkStatus => (
-        "research.work_status",
-        RequestKey,
-        work_status,
-        "Read fresh Orbit task/run evidence for a linked request."
-    ),
-    Promote => (
-        "research.promote",
-        RequestKey,
-        promote,
-        "Explicitly approve the linked task for execution. Requires configured backend authority; does not dispatch."
-    ),
-    Dispatch => (
-        "research.dispatch",
-        Dispatch,
-        dispatch,
-        "Explicitly dispatch an approved linked task. Unknown prior submissions are reconciled, never blindly repeated."
-    ),
-    Cancel => (
-        "research.cancel",
-        RequestKey,
-        cancel,
-        "Explicitly cancel only the run currently correlated with the linked task."
-    ),
-    ValidateResult => (
-        "research.validate_result",
-        ValidateResult,
-        validate_result,
-        "Fetch an Orbit receipt and verify its task/run, published record and artifact identities. Does not infer scientific support."
-    ),
-    LinkWork => (
-        "research.link_work",
-        LinkWork,
-        link_work,
-        "Create an Orbit task from a validated work plan. Persist request_key for reconciliation. Does not dispatch."
     ),
     List => (
         "research.list",
