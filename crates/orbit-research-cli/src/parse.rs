@@ -242,45 +242,38 @@ pub(crate) enum ResearchOperation {
         #[arg(long)]
         corpus: PathBuf,
     },
-    /// Plan work in a separate code/artifact directory for an existing research item.
-    PlanContribution {
+    /// Draft an Orbit task (title, description, acceptance criteria,
+    /// context_files) for a reserved research item. Read-only: creates
+    /// nothing, in the corpus or in Orbit.
+    Plan {
         /// Path to the canonical research corpus.
         #[arg(long)]
         corpus: PathBuf,
+        /// Drafting shape: one task owning a whole item (investigation), a
+        /// disjoint code/artifacts unit (contribution), or a reconciling
+        /// follow-up (synthesis).
+        #[arg(long, value_enum)]
+        shape: PlanShape,
         /// Reserved research record ID, such as R001.
         #[arg(long)]
         research_id: String,
-        /// Contribution name used for its code and artifact paths.
+        /// Question or outcome this work should address (investigation, contribution).
         #[arg(long)]
-        unit: String,
-        /// Question or outcome this work should address.
+        objective: Option<String>,
+        /// Contribution name used for its code and artifact paths (contribution).
         #[arg(long)]
-        objective: String,
+        unit: Option<String>,
+        /// Completed contribution name; repeat for multiple contributions (synthesis).
+        #[arg(long = "contribution")]
+        contributions: Vec<String>,
     },
-    /// Plan an investigation for a reserved research item.
-    PlanInvestigation {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Reserved research record ID, such as R001.
-        #[arg(long)]
-        research_id: String,
-        /// Question or outcome this work should address.
-        #[arg(long)]
-        objective: String,
-    },
-    /// Plan a follow-up that combines completed contributions.
-    PlanSynthesis {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Reserved research record ID, such as R001.
-        #[arg(long)]
-        research_id: String,
-        /// Completed contribution name; repeat for multiple contributions.
-        #[arg(long = "unit", required = true)]
-        units: Vec<String>,
-    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub(crate) enum PlanShape {
+    Investigation,
+    Contribution,
+    Synthesis,
 }
 
 #[derive(Debug, Args)]

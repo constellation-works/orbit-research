@@ -53,6 +53,16 @@ fn show_schema_matches_the_operation_registry() {
     );
 }
 
+#[test]
+fn plan_schema_matches_the_operation_registry() {
+    assert_eq!(
+        committed_schema("plan.request.json"),
+        registry_schema(Operation::Plan),
+        "schemas/plan.request.json has drifted from Operation::Plan; regenerate it from \
+         `Operation::Plan.definition().input_schema`"
+    );
+}
+
 /// `version` reports plugin/protocol versions rather than corpus data, so it
 /// has no `Operation` of its own (its handler must not require an openable
 /// corpus, see `src/plugin.rs`). Its contract is still "no input", so it is

@@ -19,7 +19,16 @@ fn every_advertised_operation_has_one_exact_wire_name() {
         assert!(names.insert(name), "duplicate tool: {name}");
         let operation: Operation = name.parse().expect("advertised name must route");
         assert_eq!(operation.as_str(), name);
-        assert_eq!(tool["inputSchema"]["additionalProperties"], false);
+        // A tagged-enum request (`Plan`) advertises `oneOf` branches instead
+        // of one flat object; each branch must still deny unknown fields.
+        match tool["inputSchema"]["oneOf"].as_array() {
+            Some(branches) => {
+                for branch in branches {
+                    assert_eq!(branch["additionalProperties"], false, "{name}");
+                }
+            }
+            None => assert_eq!(tool["inputSchema"]["additionalProperties"], false, "{name}"),
+        }
     }
     assert!("research.revise-question".parse::<Operation>().is_err());
     assert!("research.UNKNOWN".parse::<Operation>().is_err());

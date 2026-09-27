@@ -121,10 +121,13 @@ unpublished or cross-item receipts refuse with an actionable reason.
 ## Common operations
 
 Expose validated reads, Q/H/T/R creation, capture, guarded revision, assessment,
-contribution/synthesis planning and local request correlation through Core. CLI/MCP share semantics and
-failure behavior. Read and planning operations never dispatch implicitly. Tool schemas
-disallow unrecognized fields; corpus scope is fixed during process composition.
-Machine stdout contains protocol/output only. Task linking, dispatch, status,
+task drafting (`plan`: investigation, contribution or synthesis) and local request
+correlation through Core. CLI/MCP share semantics and failure behavior. Read and
+planning operations never dispatch implicitly. Tool schemas disallow unrecognized
+fields; corpus scope is fixed during process composition. Machine stdout contains
+protocol/output only. Task linking is the plugin's own `link` tool: it stores
+correlation before submission through the `orbit.task.add`/`orbit.task.list`
+callbacks, and Core itself never shells out to Orbit. Dispatch, status,
 cancellation and result acceptance move to Orbit-native commands and the plugin's
-`link`/`validate`/`accept` tools (later slices; see the constellation
+`validate`/`accept` tools (later slices; see the constellation
 `operations/research/orbit-research-plugin.md` spec).

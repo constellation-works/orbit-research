@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
-use crate::parse::{ModeArg, ResearchOperation, WriterMode};
+use crate::parse::{ModeArg, PlanShape, ResearchOperation, WriterMode};
 use orbit_research_core::application::Operation;
 
 /// Convert parsed CLI arguments into the Core operation boundary.
@@ -139,34 +139,37 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
                 &mode,
             ),
         )),
-        ResearchOperation::PlanContribution {
+        ResearchOperation::Plan {
             corpus,
+            shape,
             research_id,
+            objective,
             unit,
-            objective,
-        } => Ok((
-            corpus,
-            Operation::PlanContribution,
-            json!({"research_id":research_id,"unit":unit,"objective":objective}),
-        )),
-        ResearchOperation::PlanInvestigation {
-            corpus,
-            research_id,
-            objective,
-        } => Ok((
-            corpus,
-            Operation::PlanInvestigation,
-            json!({"research_id":research_id,"objective":objective}),
-        )),
-        ResearchOperation::PlanSynthesis {
-            corpus,
-            research_id,
-            units,
-        } => Ok((
-            corpus,
-            Operation::PlanSynthesis,
-            json!({"research_id":research_id,"units":units}),
-        )),
+            contributions,
+        } => {
+            let input = match shape {
+                PlanShape::Investigation => json!({
+                    "shape": "investigation",
+                    "research_id": research_id,
+                    "objective": objective
+                        .ok_or_else(|| "--objective is required for --shape investigation".to_owned())?,
+                }),
+                PlanShape::Contribution => json!({
+                    "shape": "contribution",
+                    "research_id": research_id,
+                    "unit": unit
+                        .ok_or_else(|| "--unit is required for --shape contribution".to_owned())?,
+                    "objective": objective
+                        .ok_or_else(|| "--objective is required for --shape contribution".to_owned())?,
+                }),
+                PlanShape::Synthesis => json!({
+                    "shape": "synthesis",
+                    "research_id": research_id,
+                    "units": contributions,
+                }),
+            };
+            Ok((corpus, Operation::Plan, input))
+        }
     }
 }
 

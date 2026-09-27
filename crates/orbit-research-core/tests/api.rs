@@ -62,35 +62,50 @@ fn local_capture_and_work_plans_need_no_backend() {
 
     let investigation = app
         .call(
-            "research.plan_investigation",
-            json!({"research_id":"R001","objective":"Reproduce the baseline."}),
+            "research.plan",
+            json!({
+                "shape": "investigation",
+                "research_id":"R001",
+                "objective":"Reproduce the baseline."
+            }),
         )
         .unwrap();
-    assert_eq!(investigation["mode"], "investigation");
     assert_eq!(
         investigation["context_files"],
         json!(["dir:research/R001-a-study"])
     );
+    assert!(
+        !investigation["acceptance_criteria"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 
     let contribution = app
         .call(
-            "research.plan_contribution",
+            "research.plan",
             json!({
+                "shape": "contribution",
                 "research_id":"R001",
                 "unit":"control-a",
                 "objective":"Measure the control."
             }),
         )
         .unwrap();
-    assert_eq!(contribution["mode"], "contribution");
+    assert!(
+        contribution["title"]
+            .as_str()
+            .unwrap()
+            .contains("control-a")
+    );
 
     let synthesis = app
         .call(
-            "research.plan_synthesis",
-            json!({"research_id":"R001","units":["control-a"]}),
+            "research.plan",
+            json!({"shape": "synthesis", "research_id":"R001","units":["control-a"]}),
         )
         .unwrap();
-    assert_eq!(synthesis["mode"], "synthesis");
+    assert!(synthesis["title"].as_str().unwrap().contains("Synthesize"));
     assert!(temp.path().join(".git/orbit-research-writer").exists());
     assert!(
         !temp.path().join(".git/orbit-research-operations").exists(),
@@ -108,8 +123,8 @@ fn operation_inputs_cannot_replace_fixed_root_or_declare_unknown_fields() {
             json!({"request_key":"r","kind":"Q","title":"Question","root":"/tmp"}),
         ),
         (
-            "research.plan_investigation",
-            json!({"research_id":"R001","objective":"objective","backend":"other"}),
+            "research.plan",
+            json!({"shape":"investigation","research_id":"R001","objective":"objective","backend":"other"}),
         ),
     ];
     for (operation, input) in cases {
