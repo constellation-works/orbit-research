@@ -1,0 +1,61 @@
+schemaVersion: 2
+kind: Plugin
+metadata:
+  name: research
+  version: 0.1.0
+  description: >-
+    Read-only access to the orbit-research canonical Q/H/T/R corpus: a
+    validated snapshot, single-record detail and corpus health, generated
+    from the shared operation registry rather than hand-duplicated schemas.
+  publisher: constellation-works
+  origin: orbit
+  homepage: https://github.com/constellation-works/orbit-research
+spec:
+  requires:
+    orbit: ">=0.24.0 <1.0.0"
+    host_api: 1
+    platforms: [linux, macos]
+
+  backend:
+    type: exec
+    command: bin/orbit-research
+    args: [orbit-tool]
+    timeout_ms: 30000
+    sandbox: default
+
+  permissions:
+    fs:
+      read: ["{{workspace}}"]
+    network: none
+
+  tools:
+    - name: list
+      description: Read the validated canonical research corpus and tags.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/list.request.json }
+    - name: show
+      description: >-
+        Read one canonical record by id, with its body and lineage. Refuses
+        an id absent from the corpus.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/show.request.json }
+      cli: { positional: [id] }
+    - name: check
+      description: >-
+        Validate the canonical corpus and report its base revision and
+        record/tag counts without returning record bodies. Does not change
+        records.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/check.request.json }
+    - name: version
+      description: >-
+        Report the orbit-research-core crate version serving this plugin,
+        independent of whether the bound workspace holds a valid corpus.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/version.request.json }
+
+  tests: [tests/conformance/*.yaml]

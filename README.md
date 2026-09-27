@@ -6,10 +6,14 @@ directly; scientific records stay in the selected knowledgebase.
 
 The workbench is being converted into an Orbit plugin (see the constellation
 `operations/research/orbit-research-plugin.md` spec). Local corpus operations
-(capture, list, show, check, create, revise, planning) are available. Research
-views become read-only Orbit plugin panels rather than a standalone dashboard;
-task creation, dispatch and acceptance land through the plugin's `plan`/`link`/
-`validate`/`accept` tools in later slices.
+(capture, list, show, check, create, revise, planning) are available. `plugin.yaml`
+(repo root) exposes `list`, `show`, `check` and `version` as sandboxed, read-only
+Orbit plugin tools (`fs.read: {{workspace}}` only, no `unsandboxed` grant, no
+`requires.programs`) served by `orbit-research orbit-tool`; see
+[the plugin transport note](ARCHITECTURE.md). Research views become read-only
+Orbit plugin panels rather than a standalone dashboard; task creation, dispatch
+and acceptance land through the plugin's `plan`/`link`/`validate`/`accept` tools
+in later slices.
 
 ## Build and validate
 

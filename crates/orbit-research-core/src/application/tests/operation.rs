@@ -55,3 +55,13 @@ fn create_schema_tracks_defaults_kinds_and_required_fields() {
     invalid["root"] = json!("/another/owner");
     assert!(!schema.is_valid(&invalid));
 }
+
+#[test]
+fn show_schema_requires_a_well_formed_id() {
+    let schema = schema(Operation::Show);
+    assert!(schema.is_valid(&json!({"id": "Q001"})));
+    assert!(!schema.is_valid(&json!({"id": "nonsense"})));
+    assert!(!schema.is_valid(&json!({"id": "Q1"})));
+    assert!(!schema.is_valid(&json!({})));
+    assert!(!schema.is_valid(&json!({"id": "Q001", "extra": true})));
+}

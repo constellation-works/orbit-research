@@ -61,6 +61,13 @@ pub(super) struct Synthesis {
 
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub(super) struct Show {
+    #[schemars(regex(pattern = "^[QHTR][0-9]{3}$"))]
+    pub(super) id: String,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub(super) struct Empty {}
 
 /// The kinds this application is authorized to create. Assessments stay explicit.

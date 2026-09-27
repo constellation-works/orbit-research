@@ -13,9 +13,7 @@ use orbit_research_core::application::Operation;
 /// remains responsible for validation, persistence, and backend authority.
 pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operation, Value), String> {
     match operation {
-        ResearchOperation::Show { .. } => {
-            Err("Record detail uses the read-only show handler".into())
-        }
+        ResearchOperation::Show { corpus, id } => Ok((corpus, Operation::Show, json!({"id": id}))),
         ResearchOperation::List { corpus } => Ok((corpus, Operation::List, json!({}))),
         ResearchOperation::Check { corpus } => Ok((corpus, Operation::Check, json!({}))),
         ResearchOperation::Create {
@@ -67,19 +65,4 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
             json!({"research_id":research_id,"units":units}),
         )),
     }
-}
-
-/// Select a detail view from Core's validated snapshot; no alternate reader.
-pub(crate) fn show(
-    application: &orbit_research_core::Application,
-    id: &str,
-) -> Result<Value, String> {
-    let snapshot = application
-        .execute(Operation::List, json!({}))
-        .map_err(|error| error.to_string())?;
-    snapshot["records"]
-        .as_array()
-        .and_then(|records| records.iter().find(|record| record["id"] == id))
-        .cloned()
-        .ok_or_else(|| format!("Research record {id} was not found"))
 }

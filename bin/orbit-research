@@ -1,0 +1,30 @@
+#!/bin/sh
+set -eu
+
+# Select the executable: a binary bundled beside this launcher
+# (scripts/bundle-plugin-binary.sh places it), else the first orbit-research
+# on the caller's PATH. Orbit runs plugin backends with a cleared environment,
+# so no override variable could reach this script; the probe below keeps a
+# stale PATH executable from being used silently.
+launcher_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
+bundled_binary="$launcher_dir/orbit-research.bin"
+if [ -e "$bundled_binary" ]; then
+    research_binary=$bundled_binary
+else
+    research_binary=$(command -v orbit-research 2>/dev/null || true)
+fi
+
+json_escape() {
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+incompatible() {
+    path=$(json_escape "${research_binary:-<not found>}")
+    printf '{"ok":false,"error":{"code":"incompatible_binary","message":"orbit-research at %s must support the orbit-tool exec envelope","retryable":false,"detail":{"path":"%s"}}}\n' "$path" "$path"
+    exit 0
+}
+
+[ -n "$research_binary" ] || incompatible
+[ -x "$research_binary" ] || incompatible
+
+exec "$research_binary" "$@"

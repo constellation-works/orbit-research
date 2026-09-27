@@ -77,6 +77,12 @@ operations! {
         list,
         "Read the validated canonical research corpus and tags."
     ),
+    Show => (
+        "research.show",
+        Show,
+        show,
+        "Read one canonical record by id, with its body and lineage. Refuses an id absent from the corpus."
+    ),
     Check => (
         "research.check",
         Empty,
