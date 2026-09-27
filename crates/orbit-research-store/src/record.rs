@@ -59,9 +59,10 @@ pub(crate) fn kebab(title: &str) -> String {
     slug.trim_matches('-').to_owned()
 }
 
-pub(crate) fn render(metadata: &Value, body: &str) -> Result<String> {
+/// `raw` is everything after the closing delimiter line, kept byte for byte.
+pub(crate) fn render(metadata: &Value, raw: &str) -> Result<String> {
     Ok(format!(
-        "---\n{}---\n\n{body}",
+        "---\n{}---\n{raw}",
         serde_yaml::to_string(metadata)?
     ))
 }
@@ -89,6 +90,15 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
+/// The status every new record of `kind` starts in.
+pub fn initial_status(kind: &str) -> &'static str {
+    match kind {
+        "R" => "planned",
+        "T" => "active",
+        _ => "open",
+    }
+}
+
 pub(crate) fn scaffold(
     contract: &crate::validation::Contract,
     id: &str,
@@ -99,21 +109,18 @@ pub(crate) fn scaffold(
     derived_from: Vec<String>,
 ) -> Result<(String, String)> {
     use serde_json::json;
-    let slug = kebab(title);
-    if slug.is_empty() {
+    let full_slug = kebab(title);
+    if full_slug.is_empty() {
         return Err(Error::Invalid(
             "Title needs at least one ASCII letter or number for its path".into(),
         ));
     }
+    let slug = capped_slug(&full_slug);
     let date = utc_date()?;
     let mut meta = json!({
         "id": id,
         "title": title,
-        "status": match kind {
-            "R" => "planned",
-            "T" => "active",
-            _ => "open",
-        },
+        "status": initial_status(kind),
         "tags": tags,
         "derived_from": derived_from,
         "created": date,
@@ -135,7 +142,11 @@ pub(crate) fn scaffold(
             meta["tests"] = json!([]);
         }
     }
-    contract.validate(&meta, &id)?;
+    if slug != full_slug {
+        // A captured question's first line can be long; freeze a shorter path slug.
+        meta["slug"] = json!(slug);
+    }
+    contract.validate(&meta, id)?;
     let directory = contract.schema["x-observatory"]["kinds"][kind]["directory"]
         .as_str()
         .ok_or_else(|| Error::Invalid("Missing owner directory".into()))?;
@@ -160,6 +171,18 @@ pub(crate) fn scaffold(
             "# {id} — {title}\n\n## Question\n\n{body}\n\n## Method\n\nPending.\n\n## Result\n\nPending.\n\n## Limitations\n\nNot yet run.\n\n## Next\n\nAwait dispatch.\n"
         )
     };
-    let text = render(&meta, &body)?;
+    let text = render(&meta, &format!("\n{body}"))?;
     Ok((path, text))
+}
+
+/// Keep record paths readable: cut long slugs at a word boundary.
+fn capped_slug(slug: &str) -> &str {
+    const MAX: usize = 60;
+    if slug.len() <= MAX {
+        return slug;
+    }
+    let head = &slug[..MAX];
+    head.rsplit_once('-')
+        .map_or(head, |(words, _)| words)
+        .trim_end_matches('-')
 }

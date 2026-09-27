@@ -14,6 +14,10 @@ pub enum Error {
     NotFound(String),
     #[error("{0}")]
     Conflict(String),
+    /// A write outside the writer's mode or scope: allocating or committing from a
+    /// run worktree, or touching any record other than that worktree's reserved R.
+    #[error("{0}")]
+    Refused(String),
     #[error("{0}")]
     Internal(String),
     #[error(transparent)]

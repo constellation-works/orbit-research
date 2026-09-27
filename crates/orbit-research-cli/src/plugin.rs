@@ -31,6 +31,7 @@ fn error_code(error: &Error) -> &'static str {
         Error::InvalidInput(_) => "invalid_request",
         Error::NotFound(_) => "record_not_found",
         Error::Conflict(_) => "conflict",
+        Error::Refused(_) => "refused",
         Error::Invalid(_) => "corpus_unavailable",
         Error::Internal(_) => "internal",
         Error::Io(_) => "io_error",

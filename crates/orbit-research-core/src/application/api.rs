@@ -1,8 +1,13 @@
 //! Shared application entry points. Protocol strings are parsed only at the edge.
 use super::{Operation, request::*};
 use crate::{Error, Result};
+use orbit_research_store::{
+    edit::{self, Assessment, Edit},
+    writer::{WriteMode, WriteOutcome},
+};
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 pub use crate::runtime::Application;
@@ -71,25 +76,127 @@ pub(super) fn check(app: &Application, _: Empty) -> Result<Value> {
     })?)
 }
 
+/// Refuse when the caller expected the other writer mode.
+fn require_mode(app: &Application, expected: Option<Mode>) -> Result<()> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let expected = match expected {
+        Mode::Primary => WriteMode::Primary,
+        Mode::Worktree => WriteMode::Worktree,
+    };
+    let detected = app.corpus.store.write_mode()?;
+    if detected != expected {
+        return Err(Error::Refused(format!(
+            "Expected {expected} mode, but this checkout writes in {detected} mode"
+        )));
+    }
+    Ok(())
+}
+
 pub(super) fn create(app: &Application, input: Create) -> Result<Value> {
-    Ok(serde_json::to_value(app.corpus.reserve(
+    require_mode(app, input.mode)?;
+    let kind = input.kind.as_str();
+    if let Some(status) = &input.status {
+        let initial = orbit_research_store::initial_status(kind);
+        if status != initial {
+            return Err(Error::InvalidInput(format!(
+                "New {kind} records start as {initial}"
+            )));
+        }
+    }
+    let reservation = app.corpus.reserve(
         &input.request_key,
-        input.kind.as_str(),
+        kind,
         &input.title,
         &input.body,
         input.tags,
         input.derived_from,
-    )?)?)
+    )?;
+    Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)
+}
+
+pub(super) fn capture(app: &Application, input: Capture) -> Result<Value> {
+    require_mode(app, input.mode)?;
+    let text = input.text.trim();
+    let title = text
+        .lines()
+        .map(|line| line.trim_start_matches('#').trim())
+        .find(|line| !line.is_empty())
+        .ok_or_else(|| Error::InvalidInput("Capture text is required".into()))?;
+    let key = match input.request_key {
+        Some(key) => key,
+        None => format!(
+            "capture-{:x}",
+            Sha256::digest(serde_json::to_vec(&json!([text, input.tags]))?)
+        ),
+    };
+    let reservation = app
+        .corpus
+        .reserve(&key, "Q", title, text, input.tags, vec![])?;
+    Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)
 }
 
 pub(super) fn revise_question(app: &Application, input: ReviseQuestion) -> Result<Value> {
-    Ok(serde_json::to_value(app.corpus.revise_question(
+    require_mode(app, input.mode)?;
+    let reservation = app.corpus.revise_question(
         &input.id,
         &input.expected_blob,
         &input.title,
         &input.body,
         input.tags,
+    )?;
+    Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)
+}
+
+pub(super) fn revise(app: &Application, input: Revise) -> Result<Value> {
+    require_mode(app, input.mode)?;
+    let revision = Edit {
+        title: input.title,
+        body: input.body,
+        tags: input.tags,
+        status: input.status,
+        tests: input.tests,
+        orbit: input.orbit.map(|orbit| edit::OrbitLink {
+            task: orbit.task,
+            run: orbit.run,
+        }),
+        manifest: input.manifest,
+    };
+    Ok(serde_json::to_value(app.corpus.store.revise(
+        &input.id,
+        &input.expected_blob,
+        &revision,
     )?)?)
+}
+
+/// The verdict is the caller's explicit judgement. Acceptance proves only that
+/// the result was delivered and validated; it never supplies or strengthens one.
+pub(super) fn assess(app: &Application, input: Assess) -> Result<Value> {
+    require_mode(app, input.mode)?;
+    let assessment = Assessment {
+        research: input.research,
+        revision: input.revision,
+        verdict: input.verdict.as_str().into(),
+        strength: input.strength.as_str().into(),
+        note: input.note,
+    };
+    let reservation = app.corpus.store.assess(
+        &input.id,
+        &input.expected_blob,
+        &assessment,
+        |research| match app.acceptance.acceptance(research)? {
+            Some(acceptance) if acceptance.research_id == research => Ok(()),
+            Some(acceptance) => Err(Error::Invalid(format!(
+                "Acceptance lookup for {research} returned evidence for {}",
+                acceptance.research_id
+            ))),
+            None => Err(Error::Invalid(format!(
+                "{research} has no acceptance record; accept the delivered result before assessing it"
+            ))),
+        },
+    )?;
+    Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)
 }
 
 pub(super) fn investigation(app: &Application, input: Investigation) -> Result<Value> {

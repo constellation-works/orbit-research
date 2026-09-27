@@ -43,6 +43,30 @@ in a work plan.
 
 ## Writes and recovery
 
+Every record write goes through the `orbit-research` writer in one of two modes,
+detected from the checkout and reported as `mode` in each result. Primary mode
+(the primary checkout) is the guarded writer below: clean tree, exclusive lock,
+durable intent, expected blobs and a commit. Only primary mode allocates IDs;
+`create --kind R --status planned` is the reservation, and `capture` records a
+question from text and tags alone. Worktree mode (a linked run worktree) writes
+only the run's reserved R — its README and `data/manifest.json` — after checking
+them against the owner schema and the rest of the corpus. It never allocates IDs
+and never commits; the run's commit step publishes the files. The reserved R
+must already exist at the worktree's HEAD as a `planned` or `running` stub, and
+the worktree's first write binds it to that R. Allocation, commits, and writes to
+any other record refuse with a typed refusal. A caller may assert the mode it
+expects; a mismatch refuses.
+
+`revise` edits Q/H/T in primary mode under an expected blob. Identity, path,
+lineage and assessments stay frozen. A hypothesis title or body change bumps its
+`revision` and reopens its status; earlier assessments stay on their revision.
+`assess` appends `{date, research, revision, verdict, strength, note}` to a
+hypothesis. It refuses a revision the hypothesis never had, a citation that is
+not an R, and an R without acceptance evidence. Entries are never rewritten or
+reordered. For the current revision, status follows the owner schema's
+`verdict_status`, except that a dropped hypothesis stays dropped. The verdict is
+always the author's; neither execution success nor acceptance supplies it.
+
 Creation requires a durable request key. Reusing a key with identical content returns
 the same reservation; changed content refuses. Allocation, stub commit and recovery
 are serialized across cooperating writers through the Git common directory. Workers
@@ -96,8 +120,8 @@ unpublished or cross-item receipts refuse with an actionable reason.
 
 ## Common operations
 
-Expose validated reads, Q/H/T/R creation, guarded question edit, contribution/synthesis
-planning and local request correlation through Core. CLI/MCP share semantics and
+Expose validated reads, Q/H/T/R creation, capture, guarded revision, assessment,
+contribution/synthesis planning and local request correlation through Core. CLI/MCP share semantics and
 failure behavior. Read and planning operations never dispatch implicitly. Tool schemas
 disallow unrecognized fields; corpus scope is fixed during process composition.
 Machine stdout contains protocol/output only. Task linking, dispatch, status,

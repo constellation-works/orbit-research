@@ -1,4 +1,9 @@
-use crate::corpus::Corpus;
+use crate::{
+    Error,
+    corpus::Corpus,
+    edit::{Assessment, Edit},
+    writer::WriteOutcome,
+};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -10,7 +15,7 @@ use tempfile::TempDir;
 
 const SCHEMA: &[u8] = include_bytes!("fixtures/schema.json");
 
-fn git(root: &Path, args: &[&str]) -> String {
+pub(super) fn git(root: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -26,7 +31,7 @@ fn git(root: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-fn fixture() -> TempDir {
+pub(super) fn fixture() -> TempDir {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path();
     fs::create_dir(root.join("_scripts")).unwrap();
@@ -734,4 +739,180 @@ fn malformed_intent_is_reported_and_preserved_without_reallocation() {
     assert!(error.to_string().contains(path.to_str().unwrap()));
     assert_eq!(fs::read(&path).unwrap(), b"{\"request_digest\":");
     assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), first.commit);
+}
+
+const HYPOTHESIS: &str = "---\nid: H001\ntitle: Claim\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nrevision: 1\nassessments: []\n---\n\n## The claim\n\nOriginal statement.\n";
+
+/// A hypothesis and a delivered research result that tests it.
+fn hypothesis_fixture() -> TempDir {
+    let temp = revision_fixture();
+    fs::write(temp.path().join("hypotheses/H001-claim.md"), HYPOTHESIS).unwrap();
+    let research = temp.path().join("research/R001-study");
+    fs::create_dir_all(research.join("data")).unwrap();
+    fs::write(
+        research.join("README.md"),
+        "---\nid: R001\ntitle: Study\nstatus: done\ntags: []\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\ntests: [H001]\n---\n\n## Result\n\nThe run succeeded but its controls failed.\n",
+    )
+    .unwrap();
+    fs::write(research.join("data/manifest.json"), "{\"inputs\":[]}\n").unwrap();
+    git(temp.path(), &["add", "."]);
+    git(temp.path(), &["commit", "-q", "-m", "hypothesis fixture"]);
+    temp
+}
+
+fn blob(corpus: &Corpus, id: &str) -> String {
+    corpus
+        .snapshot()
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap()
+        .git_blob
+}
+
+fn metadata(corpus: &Corpus, id: &str) -> serde_json::Value {
+    corpus
+        .snapshot()
+        .unwrap()
+        .records
+        .into_iter()
+        .find(|r| r.id == id)
+        .unwrap()
+        .metadata
+}
+
+fn statement(body: &str) -> Edit {
+    Edit {
+        body: Some(body.into()),
+        ..Edit::default()
+    }
+}
+
+fn assessment(verdict: &str) -> Assessment {
+    Assessment {
+        research: "R001".into(),
+        revision: 1,
+        verdict: verdict.into(),
+        strength: "suggestive".into(),
+        note: Some("controls failed".into()),
+    }
+}
+
+#[test]
+fn primary_revise_commits_a_hypothesis_revision_bump() {
+    let temp = hypothesis_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let outcome = corpus
+        .revise(
+            "H001",
+            &blob(&corpus, "H001"),
+            &statement("## The claim\n\nSharper."),
+        )
+        .unwrap();
+    let WriteOutcome::Primary(reservation) = outcome else {
+        panic!("primary checkout must write in primary mode");
+    };
+    assert_eq!(reservation.commit, git(temp.path(), &["rev-parse", "HEAD"]));
+    assert_eq!(metadata(&corpus, "H001")["revision"], 2);
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn stale_revise_refuses_untouched_and_identical_retry_adopts() {
+    let temp = hypothesis_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let old = blob(&corpus, "H001");
+    let first = corpus.revise("H001", &old, &statement("First.")).unwrap();
+    let head = git(temp.path(), &["rev-parse", "HEAD"]);
+    let before = fs::read(temp.path().join("hypotheses/H001-claim.md")).unwrap();
+
+    let error = corpus
+        .revise("H001", &old, &statement("Second."))
+        .unwrap_err();
+    assert!(matches!(error, Error::Conflict(_)), "{error}");
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head);
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+    assert_eq!(
+        fs::read(temp.path().join("hypotheses/H001-claim.md")).unwrap(),
+        before
+    );
+
+    let retried = corpus.revise("H001", &old, &statement("First.")).unwrap();
+    assert_eq!(
+        serde_json::to_value(&retried).unwrap(),
+        serde_json::to_value(&first).unwrap()
+    );
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head);
+}
+
+#[test]
+fn primary_revise_leaves_research_results_to_their_run() {
+    let temp = hypothesis_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let error = corpus
+        .revise("R001", &blob(&corpus, "R001"), &statement("Rewritten."))
+        .unwrap_err();
+    assert!(matches!(error, Error::Refused(_)), "{error}");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn assess_requires_acceptance_and_appends_in_order() {
+    let temp = hypothesis_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let head = git(temp.path(), &["rev-parse", "HEAD"]);
+    let error = corpus
+        .assess(
+            "H001",
+            &blob(&corpus, "H001"),
+            &assessment("supports"),
+            |id| Err(Error::Invalid(format!("{id} has no acceptance record"))),
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("no acceptance record"),
+        "{error}"
+    );
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head);
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+
+    corpus
+        .assess(
+            "H001",
+            &blob(&corpus, "H001"),
+            &assessment("inconclusive"),
+            |_| Ok(()),
+        )
+        .unwrap();
+    let first = metadata(&corpus, "H001")["assessments"][0].clone();
+    corpus
+        .assess(
+            "H001",
+            &blob(&corpus, "H001"),
+            &assessment("refutes"),
+            |_| Ok(()),
+        )
+        .unwrap();
+    let after = metadata(&corpus, "H001");
+    let entries = after["assessments"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0], first);
+    assert_eq!(entries[0]["verdict"], "inconclusive");
+    assert_eq!(entries[1]["verdict"], "refutes");
+    assert_eq!(after["status"], "refuted");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn assess_refuses_a_revision_the_hypothesis_never_had() {
+    let temp = hypothesis_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let mut future = assessment("supports");
+    future.revision = 2;
+    let error = corpus
+        .assess("H001", &blob(&corpus, "H001"), &future, |_| Ok(()))
+        .unwrap_err();
+    assert!(error.to_string().contains("has no revision 2"), "{error}");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
 }
