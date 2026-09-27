@@ -73,12 +73,7 @@ pub fn init(path: &Path) -> Result<Value> {
 }
 
 fn has_head(path: &Path) -> Result<bool> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(["rev-parse", "--verify", "HEAD"])
-        .output()?;
-    Ok(output.status.success())
+    crate::git::read::has_head(path)
 }
 
 fn commit_scaffold(path: &Path) -> Result<()> {

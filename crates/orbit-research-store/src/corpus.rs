@@ -67,13 +67,13 @@ impl Corpus {
 
     /// Validated working-tree view. `revision` is its base HEAD, not a content promise.
     pub fn snapshot(&self) -> Result<Snapshot> {
-        let revision = self.git(&["rev-parse", "HEAD"])?;
+        let revision = self.head_commit()?;
         self.read_snapshot(&self.contract, &revision, None)
     }
 
     /// Immutable records and owner schema from one pinned commit, for work plans.
     pub fn committed_snapshot(&self) -> Result<Snapshot> {
-        let revision = self.git(&["rev-parse", "--verify", "HEAD^{commit}"])?;
+        let revision = self.head_commit()?;
         let schema =
             serde_json::from_slice(&self.committed_bytes(&revision, "_scripts/schema.json")?)?;
         let paths = self.committed_paths(&revision)?;

@@ -78,7 +78,12 @@ application dispatch; it does not own the MCP transport.
 `corpus.rs` coordinates validated working-tree and committed reads. `record.rs`
 owns canonical Markdown parsing/rendering, filename rules and record scaffolds.
 `validation.rs` compiles owner schemas and validates references, numbering and
-lineage. `git.rs` owns Git identity, byte reads and command-status interpretation.
+lineage. `git/` owns Git identity: `git/read.rs` resolves refs, commits, trees
+and blobs in-process (loose and packed refs, detached HEAD) with no
+subprocess, backing every read and validation path; `git/mod.rs` keeps the
+`git`/`git_bytes` process boundary and command-status interpretation, used
+only by the primary-mode writer's commit/lock plumbing. A reader cannot reach
+a spawning function without leaving `read.rs`.
 `writer.rs` owns the common checkout lock and durable create/revision transaction.
 Request correlation and initial workspace scaffolding remain in `request_log.rs`
 and `workspace.rs`.

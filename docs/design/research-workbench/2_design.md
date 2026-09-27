@@ -75,8 +75,12 @@ independent R items with derived_from links. Orbit owns worktree and task coordi
 canonical names; `validation.rs` owns the compiled owner contract and whole-corpus
 checks. Reference targets are validated across all records before lineage traversal,
 which shares its completed-node set rather than revisiting every ancestry chain.
-`git.rs` distinguishes a negative ancestry test from a failed Git command and keeps
-binary reads separate from trimmed command output.
+`git/read.rs` resolves refs, commits, trees and blobs in-process (via `gix`, no
+subprocess), so it distinguishes a negative ancestry test from an unresolvable
+revision without any Git command output to parse. `git/mod.rs` keeps the
+process boundary and its command-status interpretation, separating binary
+reads from trimmed command output, but only the primary-mode writer's
+commit/lock plumbing reaches it.
 
 `snapshot()` is a validated working-tree view for browsing and editing. Its
 `revision` is the base HEAD. `committed_snapshot()` resolves HEAD once, reads both
