@@ -1,0 +1,37 @@
+# The research_investigation job's delivery gate: the plugin's `validate`
+# tool, driven as a deterministic `plugin.tool_call` step.
+#
+# The step's `default_input` supplies `task_id` (the host attests it to the
+# tool as `context.task_id`) and `input.path` (the run worktree). The tool
+# replies `ok:false` on any finding, which fails the step; the job gives this
+# step no recovery activity, so an invalid record fails the run before commit.
+#
+# `orbit.research.validate` is the tool's registered name for the verified
+# first-party install (`origin: orbit`). `plugin.tool_call` resolves only the
+# exact registered name.
+schemaVersion: 2
+kind: Activity
+metadata:
+  name: research_validate
+spec:
+  type: deterministic
+  description: >
+    Validate the research record a run wrote in its worktree before the run
+    commits it, failing the step on any finding.
+  input_schema_json:
+    type: object
+    required: [task_id, input]
+    properties:
+      task_id:
+        type: string
+      input:
+        type: object
+        required: [path]
+        properties:
+          path:
+            type: string
+          research_id:
+            type: string
+  action: plugin.tool_call
+  config:
+    tool: orbit.research.validate

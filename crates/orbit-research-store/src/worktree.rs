@@ -22,7 +22,7 @@ pub struct WorktreeWrite {
 }
 
 /// Names the one reserved R this worktree writes, set by its first write.
-const BINDING: &str = "orbit-research-reserved";
+pub(crate) const BINDING: &str = "orbit-research-reserved";
 
 impl Corpus {
     pub(crate) fn write_reserved(

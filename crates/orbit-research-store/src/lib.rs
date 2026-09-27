@@ -1,5 +1,6 @@
 //! Canonical corpus and request-log persistence. No transports or runtime.
 pub mod corpus;
+pub mod delivery;
 pub mod edit;
 pub mod request_log;
 #[cfg(test)]

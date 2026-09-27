@@ -4,7 +4,12 @@
 //! reply. All research operations delegate to Core, as MCP does; this
 //! transport speaks the plugin envelope instead of JSON-RPC and always exits
 //! `0`, carrying failure in `ok:false` rather than a process exit code.
-use orbit_research_core::{Error, Result, api::Application, application::Operation};
+use orbit_research_core::{
+    Error, Research, Result,
+    api::Application,
+    application::Operation,
+    delivery::{DeliveryReport, Expected},
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -227,6 +232,77 @@ fn link_output(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Valu
     }
 }
 
+// `validate`'s own input contract. Not a Core `Operation`: every operation
+// opens the bound workspace, and `validate` must read only the checkout it is
+// given, because a job step's `context.workspace_root` is the primary checkout
+// even while the run's work sits in its worktree. A plain comment for the same
+// schema-description reason as `LinkInput`.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ValidateInput {
+    #[schemars(length(min = 1))]
+    path: String,
+    #[schemars(regex(pattern = "^R[0-9]{3}$"))]
+    research_id: Option<String>,
+}
+
+fn validate(input: Value, task: &str, run: &str) -> Result<DeliveryReport> {
+    let input: ValidateInput =
+        serde_json::from_value(input).map_err(|error| Error::InvalidInput(error.to_string()))?;
+    let path = Path::new(&input.path);
+    if !path.is_absolute() {
+        return Err(Error::InvalidInput(format!(
+            "path must be an absolute checkout path: {}",
+            input.path
+        )));
+    }
+    Research::open(path)?.validate_delivery(&Expected {
+        research_id: input.research_id.as_deref(),
+        task,
+        run,
+    })
+}
+
+/// The delivery gate. Any finding is `ok:false`: Orbit fails a
+/// `plugin.tool_call` step only on `ok:false`, never on `valid:false` output.
+/// The first finding's reason is the error code; the message lists them all.
+fn validate_output(request: &Value, input: Value) -> Value {
+    let context = |field: &str| {
+        request
+            .pointer(&format!("/context/{field}"))
+            .and_then(Value::as_str)
+    };
+    let (Some(task), Some(run)) = (context("task_id"), context("job_run_id")) else {
+        return error_envelope(
+            "run_context_required",
+            "validate checks a run's delivery and needs the run's task_id and job_run_id context",
+        );
+    };
+    match validate(input, task, run) {
+        Ok(report) if report.valid() => json!({
+            "ok": true,
+            "output": {
+                "valid": true,
+                "research_id": report.research_id,
+                "path": report.path,
+                "blob": report.blob,
+                "revision": report.revision,
+                "unverified_inputs": report.unverified_inputs,
+            },
+        }),
+        Ok(report) => error_envelope(
+            report.findings[0].reason.as_str(),
+            report
+                .findings
+                .iter()
+                .map(|finding| format!("{}: {}", finding.reason.as_str(), finding.message))
+                .collect::<Vec<_>>()
+                .join("; "),
+        ),
+        Err(error) => error_envelope(error_code(&error), error.to_string()),
+    }
+}
+
 fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     let request: Value = match serde_json::from_slice(request_bytes) {
         Ok(request) => request,
@@ -242,6 +318,10 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     };
     if verb(tool) == "version" {
         return version_output();
+    }
+    if verb(tool) == "validate" {
+        let input = request.get("input").cloned().unwrap_or(json!({}));
+        return validate_output(&request, input);
     }
     let workspace_root = request
         .pointer("/context/workspace_root")
