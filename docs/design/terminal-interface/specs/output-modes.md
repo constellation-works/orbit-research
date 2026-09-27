@@ -15,8 +15,8 @@ TTY or formatting decision. See [payload decision](../4_decisions.md#presentatio
 
 ## 1. Resolution
 
-Precedence: explicit `--format auto|table|json|ndjson`, then
-`ORBIT_RESEARCH_FORMAT`, then `auto`. Auto resolves to table on stdout TTY and
+Precedence: `--json` (shorthand for `--format json`), then explicit
+`--format auto|table|json|ndjson`, then `ORBIT_RESEARCH_FORMAT`, then `auto`. Auto resolves to table on stdout TTY and
 plain otherwise. Width and color are resolved only in `output/sink.rs`.
 
 | Mode | Record list | Other result |

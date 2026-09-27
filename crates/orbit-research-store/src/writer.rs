@@ -1,7 +1,15 @@
-//! Serialized writes with durable intents shared by allocation and question revision.
-use crate::{Error, Result, corpus::Corpus, record};
+//! Serialized primary-mode writes with durable intents shared by allocation,
+//! revision and assessment, plus the mode every write runs in.
+use crate::{
+    Error, Result,
+    corpus::Corpus,
+    edit::{self, Assessment, Edit},
+    record,
+    worktree::WorktreeWrite,
+};
 use fs2::FileExt;
 pub use orbit_research_common::Reservation;
+use orbit_research_common::{Record, Snapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -32,6 +40,35 @@ struct ReservationIntent {
     files: Vec<WriteFile>,
 }
 
+/// Where a write runs, detected from the checkout's Git directories.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WriteMode {
+    /// The primary checkout: allocates IDs and commits under the writer lock.
+    Primary,
+    /// A linked run worktree: writes only its reserved R and never commits.
+    Worktree,
+}
+
+impl std::fmt::Display for WriteMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Primary => "primary",
+            Self::Worktree => "worktree",
+        })
+    }
+}
+
+/// A write result tagged with the mode that produced it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum WriteOutcome {
+    /// Committed on the primary checkout.
+    Primary(Reservation),
+    /// Written in a run worktree and left for the run's commit step.
+    Worktree(WorktreeWrite),
+}
+
 struct Writer<'a> {
     corpus: &'a Corpus,
     state: PathBuf,
@@ -57,7 +94,7 @@ impl Corpus {
         if !matches!(kind, "Q" | "H" | "T" | "R") {
             return Err(Error::Invalid("Record kind must be Q, H, T or R".into()));
         }
-        let title = checked_title(title)?;
+        let title = edit::checked_title(title)?;
         self.git(&["rev-parse", "HEAD"])?;
         let writer = Writer::open(self)?;
         let key = digest(request_key.as_bytes());
@@ -110,7 +147,8 @@ impl Corpus {
         writer.finish(&key, intent)
     }
 
-    /// The expected blob and complete request identify a retry, including a failed commit.
+    /// Revise a question. Kept for the `revise_question` operation; its retry
+    /// identity predates `revise` and stays unchanged for in-flight intents.
     pub fn revise_question(
         &self,
         id: &str,
@@ -119,8 +157,7 @@ impl Corpus {
         body: &str,
         tags: Vec<String>,
     ) -> Result<Reservation> {
-        let title = checked_title(title)?;
-        let writer = Writer::open(self)?;
+        edit::checked_title(title)?;
         let request_digest = digest(&serde_json::to_vec(&json!([
             id,
             expected_blob,
@@ -128,7 +165,106 @@ impl Corpus {
             body,
             tags
         ]))?);
-        let key = format!("revision-{request_digest}");
+        let edit = Edit {
+            title: Some(title.into()),
+            body: Some(body.into()),
+            tags: Some(tags),
+            ..Edit::default()
+        };
+        self.rewrite(
+            format!("revision-{request_digest}"),
+            request_digest,
+            id,
+            expected_blob,
+            |_, record| {
+                if record.kind != "Q" {
+                    return Err(Error::Invalid(
+                        "Only existing questions are editable".into(),
+                    ));
+                }
+                edit::revise(&self.contract, record, &edit, &record::utc_date()?)
+            },
+        )
+    }
+
+    /// Primary mode revises Q/H/T and commits; worktree mode writes only the
+    /// worktree's reserved R and leaves it uncommitted.
+    pub fn revise(&self, id: &str, expected_blob: &str, edit: &Edit) -> Result<WriteOutcome> {
+        if self.write_mode()? == WriteMode::Worktree {
+            return Ok(WriteOutcome::Worktree(self.write_reserved(
+                id,
+                expected_blob,
+                edit,
+            )?));
+        }
+        let request_digest = digest(&serde_json::to_vec(&json!([
+            "revise",
+            id,
+            expected_blob,
+            edit
+        ]))?);
+        let reservation = self.rewrite(
+            format!("revision-{request_digest}"),
+            request_digest,
+            id,
+            expected_blob,
+            |_, record| {
+                if record.kind == "R" {
+                    return Err(Error::Refused(
+                        "Research results are written by their run in worktree mode; primary-mode revise covers Q, H and T".into(),
+                    ));
+                }
+                edit::revise(&self.contract, record, edit, &record::utc_date()?)
+            },
+        )?;
+        Ok(WriteOutcome::Primary(reservation))
+    }
+
+    /// Append an assessment to a hypothesis (primary mode only). `accepted`
+    /// refuses research results without acceptance evidence.
+    pub fn assess(
+        &self,
+        id: &str,
+        expected_blob: &str,
+        assessment: &Assessment,
+        accepted: impl FnOnce(&str) -> Result<()>,
+    ) -> Result<Reservation> {
+        let request_digest = digest(&serde_json::to_vec(&json!([
+            "assess",
+            id,
+            expected_blob,
+            assessment
+        ]))?);
+        self.rewrite(
+            format!("assessment-{request_digest}"),
+            request_digest,
+            id,
+            expected_blob,
+            |snapshot, record| {
+                let text = edit::assess(
+                    &self.contract,
+                    &snapshot.records,
+                    record,
+                    assessment,
+                    &record::utc_date()?,
+                )?;
+                accepted(&assessment.research)?;
+                Ok(text)
+            },
+        )
+    }
+
+    /// Rewrite one existing record under its expected blob. The key covers the
+    /// complete request, so an identical retry resumes or adopts the first result.
+    fn rewrite(
+        &self,
+        key: String,
+        request_digest: String,
+        id: &str,
+        expected_blob: &str,
+        render: impl FnOnce(&Snapshot, &Record) -> Result<String>,
+    ) -> Result<Reservation> {
+        let writer = Writer::open(self)?;
         let intent = match writer.load(&key, &request_digest)? {
             Some(intent) => intent,
             None => {
@@ -137,35 +273,23 @@ impl Corpus {
                 let record = snapshot
                     .records
                     .iter()
-                    .find(|r| r.id == id && r.kind == "Q")
-                    .ok_or_else(|| Error::Invalid("Only existing questions are editable".into()))?;
+                    .find(|r| r.id == id)
+                    .ok_or_else(|| Error::NotFound(format!("Unknown research record id: {id}")))?;
                 if record.git_blob != expected_blob {
-                    return Err(Error::Conflict(
-                        "Question changed since it was opened; reload before editing".into(),
-                    ));
+                    // Render first so a wrong-kind request reports that, not staleness.
+                    render(&snapshot, record)?;
+                    return Err(Error::Conflict(format!(
+                        "{id} changed since it was opened; reload before editing"
+                    )));
                 }
                 let before = fs::read_to_string(self.root().join(&record.path))?;
                 if self.hash_bytes(before.as_bytes())? != expected_blob {
-                    return Err(Error::Conflict(
-                        "Question changed while preparing revision".into(),
-                    ));
+                    return Err(Error::Conflict(format!(
+                        "{id} changed while preparing revision"
+                    )));
                 }
-                let filename = Path::new(&record.path)
-                    .file_stem()
-                    .and_then(|s| s.to_str())
-                    .ok_or_else(|| Error::Invalid("Invalid question filename".into()))?;
-                let mut metadata = record.metadata.clone();
-                metadata["slug"] = json!(
-                    filename
-                        .split_once('-')
-                        .ok_or_else(|| Error::Invalid("Missing frozen slug".into()))?
-                        .1
-                );
-                metadata["title"] = json!(title);
-                metadata["tags"] = json!(tags);
-                metadata["updated"] = json!(record::utc_date()?);
-                self.contract.validate(&metadata, &record.path)?;
-                let text = record::render(&metadata, &format!("{body}\n"))?;
+                let text = render(&snapshot, record)?;
+                edit::check_records(&self.contract, &snapshot.records, &record.path, &text)?;
                 let mut intent = ReservationIntent {
                     request_digest,
                     id: id.into(),
@@ -223,31 +347,16 @@ impl ReservationIntent {
 
 impl<'a> Writer<'a> {
     fn open(corpus: &'a Corpus) -> Result<Self> {
-        let common = PathBuf::from(corpus.git(&[
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-common-dir",
-        ])?);
-        let own = PathBuf::from(corpus.git(&["rev-parse", "--absolute-git-dir"])?);
-        if own.canonicalize()? != common.canonicalize()? {
-            return Err(Error::Invalid("Writes require the primary integration checkout; reserve IDs before dispatching a worktree".into()));
+        let (own, common) = corpus.git_dirs()?;
+        if own != common {
+            return Err(Error::Refused(
+                "ID allocation and commits require the primary integration checkout; this linked worktree is in worktree mode, which writes only its reserved research record (reserve IDs before dispatching a worktree)".into(),
+            ));
         }
         let state = common.join("orbit-research-writer");
         fs::create_dir_all(&state)?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(state.join("lock"))?;
-        lock.lock_exclusive()?;
-        let schema: serde_json::Value =
-            serde_json::from_slice(&fs::read(corpus.root().join("_scripts/schema.json"))?)?;
-        if schema != *corpus.schema() {
-            return Err(Error::Invalid(
-                "Owner schema changed; reopen the corpus before writing".into(),
-            ));
-        }
+        let lock = exclusive_lock(&state.join("lock"))?;
+        corpus.require_open_schema()?;
         Ok(Self {
             corpus,
             state,
@@ -359,27 +468,8 @@ impl<'a> Writer<'a> {
     }
 
     fn check_file(&self, file: &WriteFile) -> Result<()> {
-        let relative = Path::new(&file.path);
-        if relative.is_absolute()
-            || relative
-                .components()
-                .any(|c| !matches!(c, std::path::Component::Normal(_)))
-        {
-            return Err(Error::Invalid("Invalid write path".into()));
-        }
-        let mut path = self.corpus.root().to_owned();
-        for component in relative.components() {
-            path.push(component);
-            match fs::symlink_metadata(&path) {
-                Ok(meta) if meta.file_type().is_symlink() => {
-                    return Err(Error::Invalid("Write path contains a symlink".into()));
-                }
-                Ok(_) => (),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
-                Err(e) => return Err(e.into()),
-            }
-        }
-        let path = self.corpus.root().join(relative);
+        refuse_unsafe_path(self.corpus.root(), &file.path)?;
+        let path = self.corpus.root().join(&file.path);
         match fs::read(&path) {
             Ok(bytes)
                 if bytes == file.text.as_bytes()
@@ -492,12 +582,75 @@ impl<'a> Writer<'a> {
     }
 }
 
-fn checked_title(title: &str) -> Result<&str> {
-    let title = title.trim();
-    if title.is_empty() {
-        return Err(Error::Invalid("Title is required".into()));
+impl Corpus {
+    /// Primary checkout or linked run worktree; every write runs in exactly one.
+    pub fn write_mode(&self) -> Result<WriteMode> {
+        let (own, common) = self.git_dirs()?;
+        Ok(if own == common {
+            WriteMode::Primary
+        } else {
+            WriteMode::Worktree
+        })
     }
-    Ok(title)
+
+    /// This checkout's own Git directory and the repository's common one.
+    pub(crate) fn git_dirs(&self) -> Result<(PathBuf, PathBuf)> {
+        let common = PathBuf::from(self.git(&[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-common-dir",
+        ])?);
+        let own = PathBuf::from(self.git(&["rev-parse", "--absolute-git-dir"])?);
+        Ok((own.canonicalize()?, common.canonicalize()?))
+    }
+
+    /// Writers reuse the compiled owner contract; a changed schema needs a reopen.
+    pub(crate) fn require_open_schema(&self) -> Result<()> {
+        let schema: serde_json::Value =
+            serde_json::from_slice(&fs::read(self.root().join("_scripts/schema.json"))?)?;
+        if schema != *self.schema() {
+            return Err(Error::Invalid(
+                "Owner schema changed; reopen the corpus before writing".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn exclusive_lock(path: &Path) -> Result<File> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)?;
+    lock.lock_exclusive()?;
+    Ok(lock)
+}
+
+/// Refuse absolute, traversing or symlinked write paths below the corpus root.
+pub(crate) fn refuse_unsafe_path(root: &Path, relative: &str) -> Result<()> {
+    let relative = Path::new(relative);
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(Error::Invalid("Invalid write path".into()));
+    }
+    let mut path = root.to_owned();
+    for component in relative.components() {
+        path.push(component);
+        match fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(Error::Invalid("Write path contains a symlink".into()));
+            }
+            Ok(_) => (),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(())
 }
 
 fn digest(bytes: &[u8]) -> String {
@@ -505,7 +658,7 @@ fn digest(bytes: &[u8]) -> String {
 }
 
 /// Persist complete bytes before publishing the name. Sync directory entries where supported.
-fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+pub(crate) fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| Error::Invalid("Missing parent directory".into()))?;
@@ -531,7 +684,7 @@ fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
     Ok(())
 }
 
-fn safe_create_dirs(root: &std::path::Path, target: &std::path::Path) -> Result<()> {
+pub(crate) fn safe_create_dirs(root: &std::path::Path, target: &std::path::Path) -> Result<()> {
     let relative = target
         .strip_prefix(root)
         .map_err(|_| Error::Invalid("Write outside corpus".into()))?;

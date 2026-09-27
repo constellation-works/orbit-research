@@ -93,7 +93,25 @@ operations! {
         "research.create",
         Create,
         create,
-        "Reserve and commit a canonical Q/H/T/R record on the integration checkout. Retain request_key across retries; never allocate IDs in worker worktrees. Does not dispatch any agent."
+        "Reserve and commit a canonical Q/H/T/R record on the primary checkout (primary mode). An R starts planned: that is the reservation. Retain request_key across retries; refused in a run worktree. Does not dispatch any agent."
+    ),
+    Capture => (
+        "research.capture",
+        Capture,
+        capture,
+        "Capture a new question from text and tags alone and commit it on the primary checkout. No task is needed. An identical retry returns the same question."
+    ),
+    Revise => (
+        "research.revise",
+        Revise,
+        revise,
+        "Revise a record only if expected_blob still matches. Primary mode commits Q/H/T edits; a hypothesis statement change bumps its revision. Worktree mode writes only the run's reserved R (README and data/manifest.json) and does not commit. The result names the mode."
+    ),
+    Assess => (
+        "research.assess",
+        Assess,
+        assess,
+        "Append one explicit verdict to a hypothesis's assessments against an existing revision and an accepted research record. Append-only; status follows the owner schema's verdict_status for the current revision. Execution success is never support. Primary mode only."
     ),
     ReviseQuestion => (
         "research.revise_question",

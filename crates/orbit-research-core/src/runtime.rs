@@ -1,10 +1,19 @@
 //! Process-scoped state shared by all application transports.
-use crate::{Reservation, Result, Snapshot};
+use crate::{Reservation, Result, Snapshot, application::acceptance::AcceptanceLookup};
 use orbit_research_store::corpus::Corpus;
 use std::path::Path;
 
 pub struct Application {
     pub(crate) corpus: Research,
+    pub(crate) acceptance: Box<dyn AcceptanceLookup>,
+}
+
+impl Application {
+    /// Replace the acceptance lookup `assess` consults.
+    pub fn with_acceptance(mut self, lookup: impl AcceptanceLookup + 'static) -> Self {
+        self.acceptance = Box::new(lookup);
+        self
+    }
 }
 
 pub struct Research {

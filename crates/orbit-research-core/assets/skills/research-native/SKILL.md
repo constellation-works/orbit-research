@@ -22,9 +22,24 @@ to browse the canonical snapshot and `research show` to read one record. For
 scripts, `--format json` or `--format ndjson` keeps the check result structured.
 
 Create a record with a stable request key. Reuse the same request key for an
-identical retry. Question revisions require the expected Git blob so concurrent
-changes fail safely. Preserve conflicting evidence, failed controls, limitations,
-and lineage; do not strengthen a conclusion from task or delivery state.
+identical retry. `research capture` records a question from text and tags alone.
+Revisions and assessments require the expected Git blob so concurrent changes
+fail safely.
+
+Writes run in one of two modes, reported as `mode` in every result. On the
+primary checkout (primary mode) the writer allocates IDs and commits; reserve an
+investigation with `research create --kind R --status planned` before dispatch.
+Inside a run worktree (worktree mode) use `research revise` only on the reserved
+R: it writes the README and `data/manifest.json` uncommitted, and allocation or
+any other record refuses. Pass `--mode` to refuse when the checkout is not the
+mode you expect.
+
+`research assess` appends an explicit verdict to a hypothesis against an existing
+revision and an accepted research result. A changed hypothesis statement gets a
+new revision; earlier verdicts stay on theirs. Failed controls are
+`inconclusive`, never `supports`. Preserve conflicting evidence, failed controls,
+limitations, and lineage; do not strengthen a conclusion from task or delivery
+state.
 
 Plan work before linking it to Orbit. Investigation plans own one research item.
 Contribution plans assign disjoint `code/<unit>/` and `artifacts/<unit>/` paths.

@@ -65,6 +65,12 @@ orbit-research-core/
     └── runtime.rs               # process-scoped Application and Research handles
 ```
 
+`application/acceptance.rs` defines the acceptance lookup `assess` consults
+before appending a verdict. The default lookup finds nothing, so `assess`
+refuses until acceptance storage (the plugin's `accept` tool, an Orbit task
+artifact) is wired; tests supply fixture lookups. Acceptance never supplies a
+verdict: the caller always states it.
+
 Transports invoke application use cases. Bootstrap fixes the corpus scope at
 startup; runtime contains its state. Application operations own research policy
 and local request correlation. Store remains responsible for filesystem and Git
@@ -94,9 +100,15 @@ subprocess, backing every read and validation path; `git/mod.rs` keeps the
 `git`/`git_bytes` process boundary and command-status interpretation, used
 only by the primary-mode writer's commit/lock plumbing. A reader cannot reach
 a spawning function without leaving `read.rs`.
-`writer.rs` owns the common checkout lock and durable create/revision transaction.
-Request correlation and initial workspace scaffolding remain in `request_log.rs`
-and `workspace.rs`.
+`writer.rs` owns write-mode detection, the common checkout lock and the durable
+primary-mode transaction behind create, capture, revise and assess.
+`worktree.rs` owns worktree mode: in a linked run worktree it writes only the
+reserved R (README and `data/manifest.json`), never allocates IDs and never
+commits. `edit.rs` owns the record edit policy (frozen identity and lineage,
+hypothesis revision bumps, append-only assessments, `verdict_status`) and the
+whole-corpus record checks; it reads neither Git nor the clock, so later
+validation can reuse it. Request correlation and initial workspace scaffolding
+remain in `request_log.rs` and `workspace.rs`.
 
 Work planning uses `Corpus::committed_snapshot`: schema and records are read from
 one pinned commit. Browsing uses `snapshot`, a working-tree view whose revision is
@@ -104,7 +116,15 @@ its base HEAD, not a promise that its files are committed. Both hashes for a rec
 come from the same byte buffer. Writers reuse the compiled owner contract and
 refuse a changed schema until the handle is reopened.
 
-Creation and revision persist a complete intent before changing canonical files.
+Every write runs in one mode, detected from the checkout and reported as `mode`
+in its result. Primary mode is the primary checkout: it allocates IDs and commits.
+Worktree mode is a linked run worktree: the reserved R must already exist at the
+worktree's HEAD as a `planned` or `running` stub, the first write binds the
+worktree to that R, and the run's own commit step publishes the files.
+Allocation, commits and any other record refuse there with `Error::Refused`.
+Callers may assert a mode; a mismatch refuses.
+
+Primary-mode creation and revision persist a complete intent before changing canonical files.
 An identical retry resumes that intent, checks exact file bytes and refuses
 conflicting edits. Atomic intent replacement and synced temporary file contents
 protect the recovery record. Unix also syncs the containing directory after

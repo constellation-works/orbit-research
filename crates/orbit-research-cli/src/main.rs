@@ -57,7 +57,11 @@ fn fail(error: Invalid, code: u8, sink: &OutputSink) -> ExitCode {
 }
 
 fn run(cli: Cli) -> ExitCode {
-    let sink = OutputSink::from_process(cli.format);
+    let sink = OutputSink::from_process(if cli.json {
+        output::OutputMode::Json
+    } else {
+        cli.format
+    });
     if let Command::Mcp { corpus } = &cli.command {
         let application = match compose(corpus) {
             Ok(application) => application,
@@ -110,7 +114,7 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             operation: WorkspaceOperation::Init { path },
         } => Ok((command::workspace::initialize(&path)?, 0)),
         Command::Research { operation } => {
-            let (corpus, operation, input) = command::research::prepare(operation)?;
+            let (corpus, operation, input) = command::research::prepare(*operation)?;
             Ok((
                 compose(&corpus)?
                     .execute(operation, input)

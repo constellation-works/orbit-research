@@ -1,11 +1,12 @@
 //! Assemble application state without starting an execution engine.
-use crate::{Research, Result, runtime::Application};
+use crate::{Research, Result, application::acceptance::NoAcceptanceStore, runtime::Application};
 use std::path::Path;
 
 impl Application {
     pub fn local(root: &Path) -> Result<Self> {
         Ok(Self {
             corpus: Research::open(root)?,
+            acceptance: Box::new(NoAcceptanceStore),
         })
     }
 }

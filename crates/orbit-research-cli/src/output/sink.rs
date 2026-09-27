@@ -80,6 +80,9 @@ pub(crate) fn error_format(args: &[std::ffi::OsString]) -> OutputMode {
         if arg == "--" {
             break;
         }
+        if arg == "--json" {
+            return OutputMode::Json;
+        }
         if arg == "--format" {
             requested = args.next().and_then(|s| s.to_str());
         } else if let Some(value) = arg.to_str().and_then(|s| s.strip_prefix("--format=")) {

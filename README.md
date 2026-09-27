@@ -6,7 +6,10 @@ directly; scientific records stay in the selected knowledgebase.
 
 The workbench is being converted into an Orbit plugin (see the constellation
 `operations/research/orbit-research-plugin.md` spec). Local corpus operations
-(capture, list, show, check, create, revise, planning) are available. `plugin.yaml`
+(capture, list, show, check, create, revise, assess, planning) are available.
+Writes run in primary mode on the primary checkout (allocate IDs and commit) or
+in worktree mode inside a linked run worktree (write only the reserved R, never
+commit); every write result reports its `mode`. `plugin.yaml`
 (repo root) exposes `list`, `show`, `check` and `version` as sandboxed, read-only
 Orbit plugin tools (`fs.read: {{workspace}}` only, no `unsandboxed` grant, no
 `requires.programs`) served by `orbit-research orbit-tool`; see
