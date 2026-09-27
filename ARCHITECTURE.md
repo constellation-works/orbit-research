@@ -41,9 +41,19 @@ workspace leaf; no workspace crate dependency is permitted.
   never a request-supplied path, matching the MCP transport's fixed-scope rule above. `version`
   is the one exception: it answers from `orbit_research_core::VERSION` without opening a corpus,
   so it still answers when the bound workspace holds none. `plugin.yaml` (repo root) declares
-  `list`, `show`, `check` and `version` as sandboxed, read-only tools with `fs.read: {{workspace}}`
-  only; their input schemas in `schemas/*.request.json` are copies of the registry's own derived
-  schemas, checked for drift by `crates/orbit-research-cli/tests/plugin_schemas.rs`.
+  `list`, `show`, `check`, `version` and `plan` as sandboxed, read-only tools with
+  `fs.read: {{workspace}}` only; their input schemas in `schemas/*.request.json` are copies of
+  the registry's own derived schemas, checked for drift by
+  `crates/orbit-research-cli/tests/plugin_schemas.rs`. `link` is the one mutating tool: it has no
+  `Operation` of its own (Core never shells out to Orbit), and `src/plugin.rs` alone reaches the
+  `orbit.task.add`/`orbit.task.list` callbacks declared under `permissions.orbit_tools`, by
+  spawning `orbit tool run` the same way a person would — never a `requires.programs` grant,
+  which fails every deterministic `plugin.tool_call` step. Its `TaskHost` trait is production-real
+  (`OrbitCliTaskHost`, one subprocess per callback) or a test fake driving
+  `serve_plugin_tool_call_with_host` directly, since the conformance harness's workspace is always
+  empty and cannot exercise a live callback; `schemas/link.request.json`'s drift check lives next
+  to that fake in `src/tests/plugin.rs`, the only place both the schema and its Rust type are
+  in scope.
 
 The workspace contains exactly four crates: Common, Store, Core and CLI. The
 former contract/owner/import/index packages, their legacy JSON command

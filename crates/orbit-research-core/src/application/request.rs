@@ -131,32 +131,30 @@ pub(super) enum Mode {
     Worktree,
 }
 
+/// One tool, three drafting shapes. `shape` selects the variant; each carries
+/// only the fields that shape needs.
 #[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Investigation {
-    #[schemars(length(min = 1))]
-    pub(super) research_id: String,
-    #[schemars(length(min = 1))]
-    pub(super) objective: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Contribution {
-    #[schemars(length(min = 1))]
-    pub(super) research_id: String,
-    #[schemars(length(min = 1))]
-    pub(super) unit: String,
-    #[schemars(length(min = 1))]
-    pub(super) objective: String,
-}
-
-#[derive(Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Synthesis {
-    #[schemars(length(min = 1))]
-    pub(super) research_id: String,
-    pub(super) units: Vec<String>,
+#[serde(tag = "shape", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum Plan {
+    Investigation {
+        #[schemars(length(min = 1))]
+        research_id: String,
+        #[schemars(length(min = 1))]
+        objective: String,
+    },
+    Contribution {
+        #[schemars(length(min = 1))]
+        research_id: String,
+        #[schemars(length(min = 1))]
+        unit: String,
+        #[schemars(length(min = 1))]
+        objective: String,
+    },
+    Synthesis {
+        #[schemars(length(min = 1))]
+        research_id: String,
+        units: Vec<String>,
+    },
 }
 
 #[derive(Deserialize, JsonSchema)]

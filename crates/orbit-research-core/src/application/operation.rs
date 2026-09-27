@@ -119,23 +119,11 @@ operations! {
         revise_question,
         "Commit a question revision only if expected_blob still matches. Frozen path and lineage are preserved; requires clean primary checkout."
     ),
-    PlanInvestigation => (
-        "research.plan_investigation",
-        Investigation,
-        investigation,
-        "Plan a single task owning one reserved research item, including its canonical result and evidence. Does not dispatch."
-    ),
-    PlanContribution => (
-        "research.plan_contribution",
-        Contribution,
-        contribution,
-        "Plan disjoint code and artifact paths for one contribution to an existing research item. Use returned context_files on the Orbit task; shared summary is read-only."
-    ),
-    PlanSynthesis => (
-        "research.plan_synthesis",
-        Synthesis,
-        synthesis,
-        "Plan a follow-up Orbit task to reconcile contributions into the shared research README and input manifest. Schedule after contributing tasks deliver."
+    Plan => (
+        "research.plan",
+        Plan,
+        plan,
+        "Draft an Orbit task (title, description, acceptance_criteria, context_files naming the reserved research item) for a Q/H: investigation (one task owns a whole reserved research item), contribution (disjoint per-unit code/artifacts paths) or synthesis (reconciling completed contributions). Read-only; does not create or dispatch anything."
     ),
 }
 

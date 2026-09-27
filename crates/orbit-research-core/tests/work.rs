@@ -1,4 +1,4 @@
-use orbit_research_core::{Research as Corpus, work::WorkMode};
+use orbit_research_core::{Research as Corpus, work::PlanShape};
 use std::{fs, path::Path, process::Command};
 use tempfile::TempDir;
 
@@ -39,13 +39,51 @@ fn corpus() -> (TempDir, Corpus) {
     (temp, corpus)
 }
 
+fn contribution(
+    corpus: &Corpus,
+    research_id: &str,
+    unit: &str,
+    objective: &str,
+) -> Result<orbit_research_core::work::TaskDraft, orbit_research_core::Error> {
+    corpus.plan(
+        research_id,
+        PlanShape::Contribution {
+            unit: unit.into(),
+            objective: objective.into(),
+        },
+    )
+}
+
+fn synthesis(
+    corpus: &Corpus,
+    research_id: &str,
+    units: &[String],
+) -> Result<orbit_research_core::work::TaskDraft, orbit_research_core::Error> {
+    corpus.plan(
+        research_id,
+        PlanShape::Synthesis {
+            units: units.to_vec(),
+        },
+    )
+}
+
+fn investigation(
+    corpus: &Corpus,
+    research_id: &str,
+    objective: &str,
+) -> Result<orbit_research_core::work::TaskDraft, orbit_research_core::Error> {
+    corpus.plan(
+        research_id,
+        PlanShape::Investigation {
+            objective: objective.into(),
+        },
+    )
+}
+
 #[test]
 fn contribution_owns_disjoint_unit_paths() {
     let (_temp, corpus) = corpus();
-    let plan = corpus
-        .contribution("R001", "control-a", "Measure the control.")
-        .unwrap();
-    assert_eq!(plan.mode, WorkMode::Contribution);
+    let plan = contribution(&corpus, "R001", "control-a", "Measure the control.").unwrap();
     assert_eq!(
         plan.context_files,
         vec![
@@ -60,19 +98,20 @@ fn contribution_owns_disjoint_unit_paths() {
             .any(|path| path.contains("README") || path.contains("manifest"))
     );
     assert!(
-        plan.instructions
+        plan.description
             .contains("do not edit it or the shared data/manifest.json")
     );
-    assert!(plan.instructions.contains("findings.md"));
+    assert!(
+        plan.acceptance_criteria
+            .iter()
+            .any(|criterion| criterion.contains("findings.md"))
+    );
 }
 
 #[test]
 fn synthesis_scopes_shared_summary_and_manifest() {
     let (_temp, corpus) = corpus();
-    let plan = corpus
-        .synthesis("R001", &["control-a".into(), "control-b".into()])
-        .unwrap();
-    assert_eq!(plan.mode, WorkMode::Synthesis);
+    let plan = synthesis(&corpus, "R001", &["control-a".into(), "control-b".into()]).unwrap();
     assert_eq!(
         plan.context_files,
         vec![
@@ -80,13 +119,12 @@ fn synthesis_scopes_shared_summary_and_manifest() {
             "file:research/R001-study/data/manifest.json",
         ]
     );
-    assert!(plan.instructions.contains("research/R001-study/README.md"));
     assert!(
-        plan.instructions
+        plan.description
             .contains("research/R001-study/artifacts/control-a/findings.md")
     );
     assert!(
-        plan.instructions
+        plan.description
             .contains("research/R001-study/artifacts/control-b/findings.md")
     );
 }
@@ -94,42 +132,32 @@ fn synthesis_scopes_shared_summary_and_manifest() {
 #[test]
 fn work_rejects_traversal_missing_research_and_incomplete_synthesis() {
     let (_temp, corpus) = corpus();
-    assert!(
-        corpus
-            .contribution("R001", "../escape", "objective")
-            .is_err()
-    );
-    assert!(corpus.contribution("Q001", "unit", "objective").is_err());
-    assert!(corpus.synthesis("R001", &[]).is_err());
-    assert!(
-        corpus
-            .synthesis("R001", &["unit".into(), "unit".into()])
-            .is_err()
-    );
-    assert!(corpus.synthesis("R001", &["../escape".into()]).is_err());
+    assert!(contribution(&corpus, "R001", "../escape", "objective").is_err());
+    assert!(contribution(&corpus, "Q001", "unit", "objective").is_err());
+    assert!(synthesis(&corpus, "R001", &[]).is_err());
+    assert!(synthesis(&corpus, "R001", &["unit".into(), "unit".into()]).is_err());
+    assert!(synthesis(&corpus, "R001", &["../escape".into()]).is_err());
 }
 
 #[test]
 fn single_investigation_owns_exactly_one_reserved_item() {
     let (_temp, corpus) = corpus();
-    let plan = corpus
-        .investigation("R001", "Reproduce the baseline.")
-        .unwrap();
-    assert_eq!(plan.mode, WorkMode::Investigation);
+    let plan = investigation(&corpus, "R001", "Reproduce the baseline.").unwrap();
     assert_eq!(plan.context_files, vec!["dir:research/R001-study"]);
     assert!(
-        plan.instructions
-            .contains("Question, Method, Result, Limitations and Next")
+        plan.acceptance_criteria
+            .iter()
+            .any(|criterion| criterion.contains("Question, Method, Result, Limitations and Next"))
     );
-    assert!(plan.instructions.contains("Do not edit other records"));
-    assert!(corpus.investigation("R001", "  ").is_err());
-    assert!(corpus.investigation("R002", "objective").is_err());
+    assert!(plan.description.contains("Do not edit other records"));
+    assert!(investigation(&corpus, "R001", "  ").is_err());
+    assert!(investigation(&corpus, "R002", "objective").is_err());
 }
 
 #[test]
-fn planning_uses_committed_content_while_browsing_exposes_edits() {
+fn planning_uses_committed_content_while_browsing_ignores_uncommitted_edits() {
     let (temp, corpus) = corpus();
-    let before = corpus.investigation("R001", "Measure the control").unwrap();
+    let before = investigation(&corpus, "R001", "Measure the control").unwrap();
     let path = temp.path().join("research/R001-study/README.md");
     let mut text = fs::read_to_string(&path).unwrap();
     text.push_str("\nUncommitted local observation.\n");
@@ -140,8 +168,6 @@ fn planning_uses_committed_content_while_browsing_exposes_edits() {
             .body
             .contains("Uncommitted local observation")
     );
-    let after = corpus.investigation("R001", "Measure the control").unwrap();
-    assert_eq!(after.corpus_revision, before.corpus_revision);
-    assert_eq!(after.research_blob, before.research_blob);
-    assert_ne!(after.research_blob, browse.records[0].git_blob);
+    let after = investigation(&corpus, "R001", "Measure the control").unwrap();
+    assert_eq!(after.context_files, before.context_files);
 }

@@ -14,7 +14,9 @@ orbit-research-core = { path = "../orbit-research-core" }
 clap.workspace = true
 libc.workspace = true
 unicode-width.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+schemars.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -27,6 +27,7 @@ spec:
     fs:
       read: ["{{workspace}}"]
     network: none
+    orbit_tools: [orbit.task.add, orbit.task.list]
 
   tools:
     - name: list
@@ -57,5 +58,24 @@ spec:
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/version.request.json }
+    - name: plan
+      description: >-
+        Draft an Orbit task (title, description, acceptance_criteria,
+        context_files naming the reserved research item) for a Q/H:
+        investigation, contribution or synthesis. Read-only; does not
+        create or dispatch anything.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/plan.request.json }
+    - name: link
+      description: >-
+        Create the Orbit task from a plan via the orbit.task.add callback,
+        tagged research-request:<key> with context_files naming the
+        reserved research item. Idempotent by request key: an identical
+        retry adopts the one task already tagged with that key instead of
+        creating another.
+      execution_kind: mutating
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/link.request.json }
 
   tests: [tests/conformance/*.yaml]

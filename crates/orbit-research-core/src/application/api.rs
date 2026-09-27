@@ -22,6 +22,26 @@ impl Application {
     pub fn execute(&self, operation: Operation, input: Value) -> Result<Value> {
         operation.execute(self, input)
     }
+
+    /// Record (or recall) intent to link a reserved research item to an
+    /// Orbit task. Not an `Operation`: only a transport that can reach Orbit
+    /// (the plugin's `link` tool) calls this, never Core itself.
+    pub fn link_intent(
+        &self,
+        request_key: &str,
+        research_id: &str,
+    ) -> Result<super::operations::LinkPreparation> {
+        self.corpus.link_intent(request_key, research_id)
+    }
+
+    /// Record the Orbit task adopted or created for a prior `link_intent`.
+    pub fn link_confirm(
+        &self,
+        request_key: &str,
+        task_id: &str,
+    ) -> Result<super::operations::Link> {
+        self.corpus.link_confirm(request_key, task_id)
+    }
 }
 
 pub fn call(root: &Path, name: &str, input: Value) -> Result<Value> {
@@ -199,23 +219,19 @@ pub(super) fn assess(app: &Application, input: Assess) -> Result<Value> {
     Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)
 }
 
-pub(super) fn investigation(app: &Application, input: Investigation) -> Result<Value> {
-    Ok(serde_json::to_value(
-        app.corpus
-            .investigation(&input.research_id, &input.objective)?,
-    )?)
-}
-
-pub(super) fn contribution(app: &Application, input: Contribution) -> Result<Value> {
-    Ok(serde_json::to_value(app.corpus.contribution(
-        &input.research_id,
-        &input.unit,
-        &input.objective,
-    )?)?)
-}
-
-pub(super) fn synthesis(app: &Application, input: Synthesis) -> Result<Value> {
-    Ok(serde_json::to_value(
-        app.corpus.synthesis(&input.research_id, &input.units)?,
-    )?)
+pub(super) fn plan(app: &Application, input: Plan) -> Result<Value> {
+    use crate::work::PlanShape;
+    let (research_id, shape) = match input {
+        Plan::Investigation {
+            research_id,
+            objective,
+        } => (research_id, PlanShape::Investigation { objective }),
+        Plan::Contribution {
+            research_id,
+            unit,
+            objective,
+        } => (research_id, PlanShape::Contribution { unit, objective }),
+        Plan::Synthesis { research_id, units } => (research_id, PlanShape::Synthesis { units }),
+    };
+    Ok(serde_json::to_value(app.corpus.plan(&research_id, shape)?)?)
 }
