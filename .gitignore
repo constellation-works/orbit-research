@@ -10,3 +10,5 @@ build/
 .env
 # Orbit per-user state — not a repository artifact.
 .orbit/
+# A release executable bundled beside the plugin launcher (scripts/bundle-plugin-binary.sh).
+bin/orbit-research.bin

@@ -1,0 +1,17 @@
+# `version` is corpus-independent (see src/plugin.rs), so it is the only tool
+# whose real success can be exercised here: `orbit plugin test` always runs
+# against an empty, non-Git temporary workspace with no seeding mechanism
+# (orbit-core/src/application/plugin/conformance.rs), so list/show/check can
+# only ever open that workspace as an absent corpus. Their real success and
+# the "unknown record id" refusal are covered against a real git-backed
+# fixture by `cargo test -p orbit-research-cli` (src/tests/plugin.rs), which
+# calls the same `serve_plugin_tool_call` entry point this backend serves.
+schemaVersion: 1
+kind: PluginTest
+tests:
+  - name: version_reports_the_core_crate_version
+    tool: version
+    input: {}
+    expect:
+      output:
+        core_version: 0.1.0

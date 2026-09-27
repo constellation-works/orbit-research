@@ -42,6 +42,9 @@ pub(crate) enum Command {
         #[arg(long)]
         corpus: PathBuf,
     },
+    /// Serve one Orbit plugin tool call over the sandboxed `exec` backend protocol
+    /// (one stdin JSON request, one stdout JSON reply). Not for interactive use.
+    OrbitTool,
     /// Print the packaged native workflow instructions.
     Resource {
         /// Packaged workflow resource version.

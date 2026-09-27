@@ -1,0 +1,12 @@
+# See list.yaml: the conformance workspace is never a valid corpus, so this
+# pins the deterministic refusal. Real validation success is covered by
+# `cargo test -p orbit-research-cli` (src/tests/plugin.rs).
+schemaVersion: 1
+kind: PluginTest
+tests:
+  - name: check_refuses_when_the_workspace_has_no_corpus
+    tool: check
+    input: {}
+    expect:
+      error:
+        code: corpus_unavailable

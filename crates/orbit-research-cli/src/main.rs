@@ -8,12 +8,13 @@ use serde_json::Value;
 
 use crate::command::application::compose;
 use crate::output::{Invalid, OutputSink};
-use crate::parse::{Cli, Command, ResearchOperation, WorkspaceOperation};
+use crate::parse::{Cli, Command, WorkspaceOperation};
 
 mod command;
 mod mcp;
 mod output;
 mod parse;
+mod plugin;
 #[cfg(test)]
 mod tests;
 
@@ -74,6 +75,15 @@ fn run(cli: Cli) -> ExitCode {
             }
         };
     }
+    if let Command::OrbitTool = &cli.command {
+        return match plugin::serve_plugin_tool_call(io::stdin().lock(), io::stdout().lock()) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     match execute(cli) {
         Ok((value, code)) => {
             let rendered = output::render(
@@ -95,15 +105,10 @@ fn run(cli: Cli) -> ExitCode {
 fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
     match cli.command {
         Command::Mcp { .. } => Err("MCP must run as a stdio session".to_owned().into()),
+        Command::OrbitTool => Err("orbit-tool must run as a stdio session".to_owned().into()),
         Command::Workspace {
             operation: WorkspaceOperation::Init { path },
         } => Ok((command::workspace::initialize(&path)?, 0)),
-        Command::Research {
-            operation: ResearchOperation::Show { corpus, id },
-        } => {
-            let application = compose(&corpus)?;
-            Ok((command::research::show(&application, &id)?, 0))
-        }
         Command::Research { operation } => {
             let (corpus, operation, input) = command::research::prepare(operation)?;
             Ok((

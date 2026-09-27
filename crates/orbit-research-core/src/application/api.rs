@@ -1,6 +1,6 @@
 //! Shared application entry points. Protocol strings are parsed only at the edge.
 use super::{Operation, request::*};
-use crate::Result;
+use crate::{Error, Result};
 use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
@@ -41,6 +41,16 @@ pub(super) fn work_links(app: &Application, _: Empty) -> Result<Value> {
 
 pub(super) fn list(app: &Application, _: Empty) -> Result<Value> {
     Ok(serde_json::to_value(app.corpus.snapshot()?)?)
+}
+
+pub(super) fn show(app: &Application, input: Show) -> Result<Value> {
+    let snapshot = app.corpus.snapshot()?;
+    let record = snapshot
+        .records
+        .into_iter()
+        .find(|record| record.id == input.id)
+        .ok_or_else(|| Error::NotFound(format!("Unknown research record id: {}", input.id)))?;
+    Ok(serde_json::to_value(record)?)
 }
 
 #[derive(Serialize)]

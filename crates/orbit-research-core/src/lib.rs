@@ -11,3 +11,7 @@ pub use application::{api, operations, work};
 
 /// Packaged research guidance exposed through the CLI resource command.
 pub const RESEARCH_NATIVE_SKILL: &str = include_str!("../assets/skills/research-native/SKILL.md");
+
+/// This crate's own version, reported by the plugin `version` tool. Corpus-independent:
+/// callers needing a health signal when the corpus itself cannot open still get an answer.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

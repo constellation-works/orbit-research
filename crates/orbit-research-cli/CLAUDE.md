@@ -5,12 +5,18 @@ in `src/parse.rs`, output policy in `src/output/`, and research/workspace comman
 surfaces under `src/command/`. Core owns corpus validation and application policy;
 the CLI must not add alternate stores or tool arguments. Stdout is protocol data
 and stderr is diagnostics. `src/mcp.rs` owns bounded stdio JSON-RPC transport;
-tool definitions and application dispatch remain in Core.
+`src/plugin.rs` owns the sandboxed Orbit plugin `exec` backend transport (the
+`orbit-tool` subcommand: one stdin JSON request, one stdout JSON reply). Both
+transports translate a wire protocol; tool definitions and application dispatch
+remain in Core.
 
-Parser and MCP tests live under `src/tests/`, renderer tests under `src/output/tests/`; golden output fixtures live
-under `src/snapshots/`. Composed subprocess tests stay under crate-root `tests/`.
-Shared research skills are packaged under Core’s `assets/skills/` and exposed by
-CLI. This crate has no packaged tool templates.
+Parser, MCP and plugin-transport tests live under `src/tests/`, renderer tests
+under `src/output/tests/`; golden output fixtures live under `src/snapshots/`.
+Composed subprocess tests and the plugin schema/registry parity check stay
+under crate-root `tests/`. Shared research skills are packaged under Core’s
+`assets/skills/` and exposed by CLI. This crate has no packaged tool templates;
+the repo-root `plugin.yaml` and `schemas/*.request.json` are the Orbit plugin
+manifest, not a CLI asset.
 
 Orbit's audit_middleware.rs depends on its runtime and persistent audit store.
 Do not copy that dependency into this app. Research mutations retain Git and

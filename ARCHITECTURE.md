@@ -34,6 +34,16 @@ workspace leaf; no workspace crate dependency is permitted.
 - **CLI’s MCP transport** owns stdio JSON-RPC transport and delegates tool contracts/operations
   to the application layer. Its corpus scope is fixed at startup; tool arguments cannot switch
   it to a different filesystem root.
+- **CLI’s plugin transport** (`src/plugin.rs`, the `orbit-tool` subcommand) owns the sandboxed
+  Orbit plugin `exec` backend protocol: one stdin JSON request, one stdout JSON reply, never a
+  nonzero exit for a refused call. It resolves each call's tool verb to a Core `Operation` and
+  opens `Application::local` against `context.workspace_root` — the plugin's bound workspace,
+  never a request-supplied path, matching the MCP transport's fixed-scope rule above. `version`
+  is the one exception: it answers from `orbit_research_core::VERSION` without opening a corpus,
+  so it still answers when the bound workspace holds none. `plugin.yaml` (repo root) declares
+  `list`, `show`, `check` and `version` as sandboxed, read-only tools with `fs.read: {{workspace}}`
+  only; their input schemas in `schemas/*.request.json` are copies of the registry's own derived
+  schemas, checked for drift by `crates/orbit-research-cli/tests/plugin_schemas.rs`.
 
 The workspace contains exactly four crates: Common, Store, Core and CLI. The
 former contract/owner/import/index packages, their legacy JSON command
