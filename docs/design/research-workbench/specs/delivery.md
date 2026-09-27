@@ -10,6 +10,11 @@ tags: [research-workbench]
 
 # Delegation and integration gates
 
+> **Partially superseded (2026-09-27):** the "Execution integration" (Orbit CLI
+> adapter) and "Dashboard" rows below describe surfaces since removed. See the
+> constellation `operations/research/orbit-research-plugin.md` spec. Kept for
+> history.
+
 Astra owns architecture, shared contracts, integration and final evidence. Implementers
 own only their assigned files, read these contracts first, and surface incompatible
 contract changes before editing adjacent layers. Do not use passing fixture tests as

@@ -1,13 +1,10 @@
 //! Process-scoped state shared by all application transports.
-use crate::{Reservation, Result, Snapshot, adapter::orbit::OrbitBackend};
+use crate::{Reservation, Result, Snapshot};
 use orbit_research_store::corpus::Corpus;
 use std::path::Path;
 
-/// Orbit authority and publication target are fixed at startup.
 pub struct Application {
     pub(crate) corpus: Research,
-    pub(crate) orbit: Option<OrbitBackend>,
-    pub(crate) publication_ref: String,
 }
 
 pub struct Research {

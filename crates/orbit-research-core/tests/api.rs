@@ -100,48 +100,7 @@ fn local_capture_and_work_plans_need_no_backend() {
 }
 
 #[test]
-fn unconfigured_backend_operations_fail_before_request_log_or_task_mutation() {
-    let (temp, app) = fixture();
-    let error = app
-        .call("research.backend", json!({}))
-        .unwrap_err()
-        .to_string();
-    assert!(error.contains("Orbit backend is not configured"), "{error}");
-
-    for (operation, input) in [
-        (
-            "research.link_work",
-            json!({
-                "request_key":"link-r1",
-                "title":"A task",
-                "crew":"luna",
-                "plan": {
-                    "research_id":"R001",
-                    "corpus_revision":"missing",
-                    "research_blob":"missing",
-                    "mode":"investigation",
-                    "context_files":["dir:research/R001-study"],
-                    "instructions":"objective"
-                }
-            }),
-        ),
-        (
-            "research.dispatch",
-            json!({"request_key":"missing","base":"main"}),
-        ),
-        ("research.cancel", json!({"request_key":"missing"})),
-    ] {
-        let error = app.call(operation, input).unwrap_err().to_string();
-        assert!(
-            error.contains("Orbit backend is not configured"),
-            "{operation}: {error}"
-        );
-    }
-    assert!(!temp.path().join(".git/orbit-research-operations").exists());
-}
-
-#[test]
-fn operation_inputs_cannot_replace_fixed_root_or_backend_scope() {
+fn operation_inputs_cannot_replace_fixed_root_or_declare_unknown_fields() {
     let (_temp, app) = fixture();
     let cases = [
         (
@@ -151,14 +110,6 @@ fn operation_inputs_cannot_replace_fixed_root_or_backend_scope() {
         (
             "research.plan_investigation",
             json!({"research_id":"R001","objective":"objective","backend":"other"}),
-        ),
-        (
-            "research.dispatch",
-            json!({"request_key":"r","base":"main","task":"T1","run":"R1"}),
-        ),
-        (
-            "research.cancel",
-            json!({"request_key":"r","task":"T1","run":"R1"}),
         ),
     ];
     for (operation, input) in cases {

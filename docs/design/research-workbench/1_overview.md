@@ -10,6 +10,13 @@ tags: [research-workbench]
 
 # Research workbench
 
+> **Partially superseded (2026-09-27):** the standalone dashboard, the Orbit CLI
+> adapter (`backend`/`work_status`/`promote`/`dispatch`/`cancel`) and the agent-
+> supplied receipt model described below are removed. Orbit owns execution
+> through its own native commands, and `link`/`validate`/`accept` return as
+> plugin tools in later slices. See the constellation
+> `operations/research/orbit-research-plugin.md` spec. Kept for history.
+
 A separate local application for managing scientific questions and investigations.
 Orbit owns execution; the corpus owns scientific knowledge. A successful run never
 establishes scientific support.

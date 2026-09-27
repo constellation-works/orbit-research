@@ -70,7 +70,7 @@ fn write_response<W: Write>(writer: &mut W, value: Value) -> Result<()> {
 }
 
 /// Serve MCP against one process-scoped Core application. The application owns
-/// the fixed corpus and optional backend; request arguments cannot replace it.
+/// the fixed corpus; request arguments cannot replace it.
 pub(crate) fn serve_mcp_application(
     application: &Application,
     mut reader: impl BufRead,

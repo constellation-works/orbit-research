@@ -1,5 +1,5 @@
 use super::super::{Operation, api};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::collections::HashSet;
 
 fn schema(operation: Operation) -> jsonschema::JSONSchema {
@@ -54,24 +54,4 @@ fn create_schema_tracks_defaults_kinds_and_required_fields() {
     invalid["title"] = json!("Question");
     invalid["root"] = json!("/another/owner");
     assert!(!schema.is_valid(&invalid));
-}
-
-#[test]
-fn linked_plan_schema_is_derived_from_the_actual_work_plan() {
-    let schema = schema(Operation::LinkWork);
-    let mut request = json!({
-        "request_key": "link-1", "title": "Measure", "crew": "luna",
-        "plan": {
-            "research_id": "R001", "corpus_revision": "revision",
-            "research_blob": "blob", "mode": "contribution",
-            "context_files": ["dir:research/R001-measure/code/unit"],
-            "instructions": "Measure the baseline."
-        }
-    });
-    assert!(schema.is_valid(&request));
-    request["plan"]["mode"] = json!("invented");
-    assert!(!schema.is_valid(&request));
-    request["plan"]["mode"] = json!("contribution");
-    request["plan"]["authority"] = Value::Bool(true);
-    assert!(!schema.is_valid(&request));
 }

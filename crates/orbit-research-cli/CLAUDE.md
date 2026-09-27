@@ -2,7 +2,7 @@
 
 The CLI is the composition boundary for the research application. Keep parsing
 in `src/parse.rs`, output policy in `src/output/`, and research/workspace command
-surfaces under `src/command/`. Core owns corpus validation and backend authority;
+surfaces under `src/command/`. Core owns corpus validation and application policy;
 the CLI must not add alternate stores or tool arguments. Stdout is protocol data
 and stderr is diagnostics. `src/mcp.rs` owns bounded stdio JSON-RPC transport;
 tool definitions and application dispatch remain in Core.

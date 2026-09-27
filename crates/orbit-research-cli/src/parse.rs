@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
     name = "orbit-research",
     version,
     about = "Capture questions, organize research, and coordinate work through Orbit.",
-    after_help = "Start here:\n  orbit-research workspace init ./observatory\n  orbit-research research list --corpus ./observatory\n  orbit-research serve --corpus ./observatory\n\nUse --format json for scripts. Run <COMMAND> --help for details."
+    after_help = "Start here:\n  orbit-research workspace init ./observatory\n  orbit-research research list --corpus ./observatory\n\nUse --format json for scripts. Run <COMMAND> --help for details."
 )]
 pub(crate) struct Cli {
     /// Output format: tables in a terminal, plain text in pipes by default.
@@ -20,9 +20,6 @@ pub(crate) struct Cli {
         default_value = "auto"
     )]
     pub(crate) format: OutputMode,
-    /// Optional process-scoped Orbit backend configuration JSON.
-    #[arg(long = "backend-config", global = true)]
-    pub(crate) backend_config: Option<PathBuf>,
     #[command(subcommand)]
     pub(crate) command: Command,
 }
@@ -38,15 +35,6 @@ pub(crate) enum Command {
     Research {
         #[command(subcommand)]
         operation: ResearchOperation,
-    },
-    /// Serve the local research dashboard.
-    Serve {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Loopback port for the dashboard.
-        #[arg(long, default_value_t = 4318)]
-        port: u16,
     },
     /// Serve research tools over MCP stdio for one explicitly selected corpus.
     Mcp {
@@ -73,81 +61,6 @@ pub(crate) enum WorkspaceOperation {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum ResearchOperation {
-    /// Inspect the configured Orbit backend and compatibility.
-    Backend {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-    },
-    /// Read fresh Orbit task/run evidence for a linked request.
-    Status {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Stable request key; reuse it when retrying the same operation.
-        #[arg(long)]
-        request_key: String,
-    },
-    /// Create an Orbit task from a validated work plan without dispatching it.
-    Link {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Path to a JSON work plan returned by a planning command.
-        #[arg(long)]
-        plan: PathBuf,
-        /// Stable request key; reuse it when retrying the same operation.
-        #[arg(long)]
-        request_key: String,
-        /// Title of the record or work item.
-        #[arg(long)]
-        title: String,
-        /// Orbit crew assigned to the work.
-        #[arg(long)]
-        crew: String,
-    },
-    /// Explicitly approve a linked task for execution.
-    Promote {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Stable request key; reuse it when retrying the same operation.
-        #[arg(long)]
-        request_key: String,
-    },
-    /// Explicitly dispatch an approved linked task.
-    Dispatch {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Stable request key; reuse it when retrying the same operation.
-        #[arg(long)]
-        request_key: String,
-        /// Git branch to start the Orbit task from.
-        #[arg(long)]
-        base: String,
-    },
-    /// Cancel the run currently correlated with a linked task.
-    Cancel {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Stable request key; reuse it when retrying the same operation.
-        #[arg(long)]
-        request_key: String,
-    },
-    /// Validate a persisted Orbit result receipt for a linked task.
-    ValidateResult {
-        /// Path to the canonical research corpus.
-        #[arg(long)]
-        corpus: PathBuf,
-        /// Stable request key; reuse it when retrying the same operation.
-        #[arg(long)]
-        request_key: String,
-        /// Path to the persisted Orbit result receipt.
-        #[arg(long)]
-        receipt_path: PathBuf,
-    },
     /// List research records and their canonical file paths.
     List {
         /// Path to the canonical research corpus.

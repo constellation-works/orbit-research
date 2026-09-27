@@ -16,60 +16,6 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
         ResearchOperation::Show { .. } => {
             Err("Record detail uses the read-only show handler".into())
         }
-        ResearchOperation::Backend { corpus } => Ok((corpus, Operation::Backend, json!({}))),
-        ResearchOperation::Status {
-            corpus,
-            request_key,
-        } => Ok((
-            corpus,
-            Operation::WorkStatus,
-            json!({"request_key": request_key}),
-        )),
-        ResearchOperation::Link {
-            corpus,
-            plan,
-            request_key,
-            title,
-            crew,
-        } => Ok((
-            corpus,
-            Operation::LinkWork,
-            json!({"request_key":request_key,"title":title,"crew":crew,"plan":read_json(&plan)?}),
-        )),
-        ResearchOperation::Promote {
-            corpus,
-            request_key,
-        } => Ok((
-            corpus,
-            Operation::Promote,
-            json!({"request_key": request_key}),
-        )),
-        ResearchOperation::Dispatch {
-            corpus,
-            request_key,
-            base,
-        } => Ok((
-            corpus,
-            Operation::Dispatch,
-            json!({"request_key":request_key,"base":base}),
-        )),
-        ResearchOperation::Cancel {
-            corpus,
-            request_key,
-        } => Ok((
-            corpus,
-            Operation::Cancel,
-            json!({"request_key": request_key}),
-        )),
-        ResearchOperation::ValidateResult {
-            corpus,
-            request_key,
-            receipt_path,
-        } => Ok((
-            corpus,
-            Operation::ValidateResult,
-            json!({"request_key":request_key,"receipt_path":receipt_path}),
-        )),
         ResearchOperation::List { corpus } => Ok((corpus, Operation::List, json!({}))),
         ResearchOperation::Check { corpus } => Ok((corpus, Operation::Check, json!({}))),
         ResearchOperation::Create {
@@ -121,11 +67,6 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
             json!({"research_id":research_id,"units":units}),
         )),
     }
-}
-
-fn read_json(path: &std::path::Path) -> Result<Value, String> {
-    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    serde_json::from_slice(&bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// Select a detail view from Core's validated snapshot; no alternate reader.

@@ -32,14 +32,11 @@ Synthesis plans reconcile completed contributions into the shared research READM
 and input manifest. Use the returned context files and instructions unchanged when
 linking work.
 
-Backend actions are explicit. Inspect compatibility, link a validated plan with a
-stable request key, promote it, then dispatch it. Read fresh status rather than
-treating cached work links as run state. Cancellation applies only to the currently
-correlated run. Validate the result receipt before accepting published records or
-artifacts; receipt validation confirms identity and provenance, not scientific
-support.
+Orbit owns task creation, dispatch, status and cancellation directly through its
+own native commands (`orbit run job`, `orbit run show`, `orbit task update`,
+`orbit run cancel`); this app no longer shells out to an Orbit CLI adapter to
+drive them. Use the returned plan's context files and instructions unchanged
+when creating the Orbit task.
 
 Use the MCP tools or equivalent `orbit-research research` subcommands. Always
-select the corpus explicitly. Do not infer backend authority from the current
-directory, and do not dispatch when the configured backend is unavailable or
-incompatible.
+select the corpus explicitly.

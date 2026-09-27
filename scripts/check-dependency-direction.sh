@@ -11,8 +11,7 @@ allowed = {
     "orbit-research-common": set(),
     "orbit-research-store": {"orbit-research-common"},
     "orbit-research-core": {"orbit-research-common", "orbit-research-store"},
-    "orbit-research-web": {"orbit-research-core"},
-    "orbit-research-cli": {"orbit-research-core", "orbit-research-web"},
+    "orbit-research-cli": {"orbit-research-core"},
 }
 packages = json.loads(os.environ["ORBIT_RESEARCH_CARGO_METADATA"])["packages"]
 graph = {p["name"]: {d["name"] for d in p["dependencies"]} for p in packages}

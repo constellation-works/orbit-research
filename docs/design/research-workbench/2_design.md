@@ -15,17 +15,23 @@ related_artifacts: [DANI-10590]
 
 # Research Application — Design
 
+> **Partially superseded (2026-09-27):** `orbit-research-web` and the Orbit CLI
+> adapter (`Core -> external Orbit CLI`) described below are removed; Core no
+> longer owns backend admission, execution correlation or receipt acceptance.
+> See [ARCHITECTURE.md](../../../ARCHITECTURE.md) for the current four-crate
+> graph and the constellation `operations/research/orbit-research-plugin.md`
+> spec for the superseding design. Sections 2–5 (concurrency, Store boundaries
+> and write transaction) are unaffected and still current.
+
 This document describes application and persistence ownership. [DANI-10590]
 separates Store mechanics and makes snapshot and recovery semantics explicit.
 
-## 1. Crate Boundaries
+## 1. Crate Boundaries (superseded — see the note above)
 
 ```text
-CLI (composition) -> Web -> Core -> Store
+CLI (composition) -> Core -> Store
                  -> CLI MCP transport -> Core
-                 --------> Core
 Core -> Common <- Store (workspace leaf)
-Core -> external Orbit CLI -> Orbit tasks/runs/artifacts
 Store -> owner Markdown/Git + local request log
 ```
 
@@ -33,9 +39,8 @@ Store -> owner Markdown/Git + local request log
 |---|---|---|
 | orbit-research-common | passive shared record/reservation types and typed errors | I/O, configuration loading, application decisions, workspace dependencies |
 | orbit-research-store | schema validation, Git identity, canonical files, writer lock, reservation intents and request correlations | agent execution, task policy, HTTP/JSON-RPC |
-| orbit-research-core | application use cases, work scope, backend admission, execution correlation, receipt acceptance, backend config | browser rendering, CLI formatting, duplicate scientific storage |
+| orbit-research-core | application use cases, work scope, local request correlation | browser rendering, CLI formatting, duplicate scientific storage, Orbit subprocesses |
 | orbit-research-cli | args, configuration composition, central output renderer, stdio MCP transport, process lifetime | direct scientific file mutations |
-| orbit-research-web | loopback HTTP, session protection, dashboard | Orbit subprocesses, scientific acceptance rules |
 
 Core is the common operation boundary. Typed request/response contracts belong here;
 transport adapters deserialize, call and render. Store contains durable atomicity and
@@ -45,16 +50,14 @@ crate for each module or import any Orbit implementation crate. Dependency check
 executable in scripts/check-dependency-direction.sh; ARCHITECTURE.md is the root map.
 
 CLI owns the bounded stdio MCP transport; its startup corpus scope cannot be changed
-by tool arguments. BackendConfig and BackendSettings live in Core config, while
-Common remains the Store/Core leaf for scientific types and errors.
+by tool arguments. Common remains the Store/Core leaf for scientific types and errors.
 
-Core modules: corpus use cases, work planning, backend compatibility/CLI adapter,
-operations/correlation, receipt validation, and shared API contracts. Store modules:
+Core modules: corpus use cases, work planning, and request correlation. Store modules:
 corpus reader, record codec/scaffolds, validation, Git access, guarded writer,
 request log and workspace scaffold. Module roots contain declarations and exports.
 
 There are no separate contract/owner/import/index crates or retained legacy JSON
-command paths. Common holds passive research records and errors; Core owns backend configuration; Store
+command paths. Common holds passive research records and errors; Store
 persists Markdown and operational request logs; Core owns application policy.
 
 ## 2. Concurrency

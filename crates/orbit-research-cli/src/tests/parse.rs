@@ -1,33 +1,23 @@
-use crate::parse::{Cli, Command, ResearchOperation};
+use crate::parse::Cli;
 use clap::Parser;
 
 #[test]
-fn backend_config_is_global_and_routes_explicit_work_commands() {
-    let cli = Cli::try_parse_from([
-        "orbit-research",
-        "--backend-config",
-        "/tmp/backend.json",
-        "research",
-        "dispatch",
-        "--corpus",
-        "/tmp/corpus",
-        "--request-key",
-        "req-1",
-        "--base",
-        "agent-main",
-    ])
-    .expect("global backend configuration should parse");
-    assert_eq!(
-        cli.backend_config
-            .as_deref()
-            .expect("configured backend path")
-            .to_str(),
-        Some("/tmp/backend.json")
+fn removed_backend_surfaces_are_rejected_as_unknown() {
+    assert!(
+        Cli::try_parse_from(["orbit-research", "--backend-config", "/tmp/backend.json"]).is_err()
     );
-    assert!(matches!(
-        cli.command,
-        Command::Research {
-            operation: ResearchOperation::Dispatch { .. }
-        }
-    ));
+    for subcommand in ["backend", "status", "link", "promote", "dispatch", "cancel"] {
+        assert!(
+            Cli::try_parse_from([
+                "orbit-research",
+                "research",
+                subcommand,
+                "--corpus",
+                "/tmp/corpus",
+            ])
+            .is_err(),
+            "research {subcommand} should be rejected as unknown"
+        );
+    }
+    assert!(Cli::try_parse_from(["orbit-research", "serve", "--corpus", "/tmp/corpus"]).is_err());
 }

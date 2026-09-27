@@ -4,7 +4,6 @@ members = [
     "crates/orbit-research-common",
     "crates/orbit-research-store",
     "crates/orbit-research-core",
-    "crates/orbit-research-web",
     "crates/orbit-research-cli",
 ]
 
@@ -17,7 +16,6 @@ license = "MIT"
 schemars = "0.8.22"
 serde_yaml = "0.9"
 fs2 = "0.4"
-tiny_http = "0.12"
 libc = "0.2"
 unicode-width = "0.2"
 clap = { version = "4.5", features = ["derive", "env"] }
