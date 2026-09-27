@@ -15,13 +15,16 @@ pub struct RequestLog {
 
 impl Corpus {
     pub fn request_log(&self) -> Result<RequestLog> {
-        let root = PathBuf::from(self.git(&[
+        let common_dir = PathBuf::from(self.git(&[
             "rev-parse",
             "--path-format=absolute",
             "--git-common-dir",
-        ])?)
-        .join("orbit-research-operations");
+        ])?);
+        let root = common_dir.join("orbit-research-operations");
         fs::create_dir_all(&root)?;
+        // The log directory itself may be new. Its parent must be durable too.
+        #[cfg(unix)]
+        File::open(&common_dir)?.sync_all()?;
         let lock = OpenOptions::new()
             .create(true)
             .truncate(false)
@@ -55,6 +58,10 @@ impl RequestLog {
         temp.as_file().sync_all()?;
         temp.persist(self.path(key)?)
             .map_err(|e| Error::Io(e.error))?;
+        // A successful save is the boundary before non-idempotent Orbit work.
+        // Persisting the file does not sync its new directory entry on Unix.
+        #[cfg(unix)]
+        File::open(&self.root)?.sync_all()?;
         Ok(())
     }
 

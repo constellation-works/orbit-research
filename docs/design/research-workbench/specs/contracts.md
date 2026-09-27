@@ -103,10 +103,14 @@ not establish it. Preserve caller restrictions; never use unsandboxed agent invo
 as a fallback. Mac QA must exercise the selected managed job including cargo/PTY and
 provider requirements, or document a narrower job that does not need those facilities.
 
-Task linking stores correlation before submission. Retry queries the exact correlation
-and adopts exactly one match; zero after an unknown outcome or multiple matches is an
-explicit unresolved state. Dispatch observes existing task/run correlation before any
-new submission. Status reads are fresh Orbit observations with timestamp/source.
+Task linking stores correlation before submission. On Unix, a successful request-log
+save syncs the published entry's directory, including the log directory's own
+parent when it was newly created, before Orbit task creation can begin. Retry
+queries the exact Orbit correlation even when the local intent entry is absent,
+and adopts exactly one match; zero after an unknown outcome or multiple matches
+is an explicit unresolved state. Dispatch observes existing task/run correlation
+before any new submission. Status reads are fresh Orbit observations with
+timestamp/source.
 Cancellation is explicit and scoped to the linked run.
 
 ## Result acceptance

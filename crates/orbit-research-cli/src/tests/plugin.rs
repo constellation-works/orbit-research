@@ -375,6 +375,40 @@ fn link_creates_exactly_one_task_and_an_identical_retry_adopts_it() {
 }
 
 #[test]
+fn link_adopts_correlated_task_when_local_intent_is_missing() {
+    let temp = reserved_corpus();
+    let host = FakeTaskHost::default();
+    let input = json!({
+        "research_id": "R001",
+        "request_key": "lost-intent",
+        "title": "Investigate R001",
+    });
+
+    let first = call_with_host(&envelope("link", input.clone(), Some(temp.path())), &host);
+    assert_eq!(first["ok"], true, "{first:?}");
+    let task_id = first["output"]["task_id"].as_str().expect("task id");
+
+    // Model an uncertain submission followed by loss of the local log entry.
+    let log_dir = temp.path().join(".git/orbit-research-operations");
+    let entries: Vec<_> = fs::read_dir(log_dir)
+        .expect("request log")
+        .map(|entry| entry.expect("log entry").path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "json")
+        })
+        .collect();
+    assert_eq!(entries.len(), 1, "one link intent was saved");
+    fs::remove_file(&entries[0]).expect("simulate missing local intent");
+
+    let retry = call_with_host(&envelope("link", input, Some(temp.path())), &host);
+    assert_eq!(retry["ok"], true, "{retry:?}");
+    assert_eq!(retry["output"]["created"], false);
+    assert_eq!(retry["output"]["task_id"], task_id);
+    assert_eq!(host.tasks.lock().expect("lock").len(), 1);
+}
+
+#[test]
 fn link_refuses_when_the_research_item_is_not_reserved() {
     let temp = corpus();
     let host = FakeTaskHost::default();
