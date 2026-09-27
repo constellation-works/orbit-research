@@ -7,7 +7,7 @@ Core owns research application policy and composition. Follow the repository
 - `bootstrap.rs`: local assembly and workspace initialization delegation.
 - `runtime.rs`: process-scoped handles; no scheduler or execution engine.
 - `assets/`: bundled data, including research guidance under `skills/`. The
-  plugin's job and activities live in the repo-root `jobs/` and `activities/`,
+  plugin's job and activities live in `.orbit-plugin/definitions/jobs/` and `.orbit-plugin/definitions/activities/`,
   not here.
 
 Use local research types. Do not import Orbit utilities, types or implementation

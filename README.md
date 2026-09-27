@@ -4,19 +4,19 @@ A local research workbench for canonical Observatory Markdown records, with a
 CLI and MCP interface. Orbit owns execution tasks, crews, runs and delivery
 directly; scientific records stay in the selected knowledgebase.
 
-The workbench is being converted into an Orbit plugin (see the constellation
+The workbench also ships as an Orbit plugin (see the constellation
 `operations/research/orbit-research-plugin.md` spec). Local corpus operations
 (capture, list, show, check, create, revise, assess, planning) are available.
 Writes run in primary mode on the primary checkout (allocate IDs and commit) or
 in worktree mode inside a linked run worktree (write only the reserved R, never
-commit); every write result reports its `mode`. `plugin.yaml`
-(repo root) exposes `list`, `show`, `check`, `version`, `plan` and `validate` as
+commit); every write result reports its `mode`. `.orbit-plugin/plugin.yaml`
+(plugin root) exposes `list`, `show`, `check`, `version`, `plan` and `validate` as
 sandboxed, read-only Orbit plugin tools and `link`/`accept` as the two
 mutating tools (`fs.read: {{workspace}}`, a scratch `fs.write` for `accept`'s
 own staged artifact, no `unsandboxed` grant, no `requires.programs`), served
 by `orbit-research orbit-tool`; see
 [the plugin transport note](ARCHITECTURE.md). The plugin also ships the
-`research_investigation` job (`jobs/`, `activities/`): start one investigation
+`research_investigation` job (under `.orbit-plugin/definitions/`): start one investigation
 with `orbit run job research_investigation --input task=<task-id>`. The run
 works in its own worktree, and the `validate` step fails it before commit when
 the written record is invalid. Research views become read-only Orbit plugin
@@ -37,6 +37,15 @@ make test
 `INSTALL_BIN_DIR` for another destination or use `INSTALL_PROFILE=debug` for a
 development build. `CARGO_TARGET_DIR` is respected. `BUILD_BUDGET` optionally names
 a command wrapper accepting `-- COMMAND ...`; its default (`env`) runs Cargo directly.
+
+The source plugin root is `.orbit-plugin/`. Before `orbit plugin add .`, run
+`cargo build --release -p orbit-research-cli --locked`, then
+`scripts/bundle-plugin-binary.sh --binary target/release/orbit-research`.
+The script copies the executable into `.orbit-plugin/bin/orbit-research.bin`; that ignored
+binary travels with the plugin root when Orbit installs it. The launcher uses
+only that adjacent binary. Regenerate request schemas with
+`scripts/generate-plugin-schemas.sh`; the Cargo drift checks read the generated
+files in `.orbit-plugin/schemas/`.
 
 ## Design and structure
 

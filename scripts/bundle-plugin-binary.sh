@@ -2,8 +2,8 @@
 set -eu
 
 # Place a compatible orbit-research executable at <plugin-root>/bin/orbit-research.bin,
-# where the plugin launcher selects it ahead of PATH. The plugin root is either
-# this checkout (the default) or an installed tree printed as "Install path" by
+# where the plugin launcher finds it. The plugin root is either
+# this checkout's .orbit-plugin/ (the default) or an installed tree printed as "Install path" by
 # `orbit plugin show research`. The binary is copied, never linked: Orbit refuses
 # a plugin tree that contains a symbolic link.
 
@@ -23,7 +23,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$plugin_root" ]; then
-    plugin_root=$(dirname "$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)")
+    plugin_root="$(CDPATH= cd -- "$(dirname -- "$0")/../.orbit-plugin" && pwd -P)"
 fi
 [ -d "$plugin_root" ] || { echo "plugin root is not a directory: $plugin_root" >&2; exit 2; }
 plugin_root=$(CDPATH= cd -- "$plugin_root" && pwd -P)
