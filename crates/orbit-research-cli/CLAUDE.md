@@ -15,7 +15,7 @@ under `src/output/tests/`; golden output fixtures live under `src/snapshots/`.
 Composed subprocess tests and the plugin schema/registry parity check stay
 under crate-root `tests/`. Shared research skills are packaged under Core’s
 `assets/skills/` and exposed by CLI. This crate has no packaged tool templates;
-the repo-root `plugin.yaml`, `schemas/*.request.json`, `jobs/` and `activities/`
+`.orbit-plugin/plugin.yaml`, `.orbit-plugin/schemas/*.request.json` and `.orbit-plugin/definitions/{jobs,activities}/`
 are the Orbit plugin manifest and definitions, not CLI assets.
 `tests/research_job.rs` drives the plugin job step by step against this binary.
 

@@ -334,12 +334,23 @@ fn plan_drafts_an_investigation_task_for_the_reserved_item() {
 fn link_input_schema_matches_the_committed_schema() {
     let generated =
         serde_json::to_value(schemars::schema_for!(LinkInput)).expect("serialize schema");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/link.request.json");
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.orbit-plugin/schemas/link.request.json");
+    if std::env::var_os("ORBIT_RESEARCH_WRITE_SCHEMAS").is_some() {
+        fs::write(
+            &path,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&generated).expect("serialize schema")
+            ),
+        )
+        .expect("write schema");
+    }
     let committed: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read schema"))
         .expect("parse schema");
     assert_eq!(
         committed, generated,
-        "schemas/link.request.json has drifted from plugin.rs's LinkInput; regenerate it"
+        ".orbit-plugin/schemas/link.request.json has drifted from plugin.rs's LinkInput; regenerate it"
     );
 }
 
@@ -469,12 +480,23 @@ fn link_refuses_when_a_recorded_intent_has_no_matching_task() {
 fn validate_input_schema_matches_the_committed_schema() {
     let generated =
         serde_json::to_value(schemars::schema_for!(ValidateInput)).expect("serialize schema");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/validate.request.json");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.orbit-plugin/schemas/validate.request.json");
+    if std::env::var_os("ORBIT_RESEARCH_WRITE_SCHEMAS").is_some() {
+        fs::write(
+            &path,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&generated).expect("serialize schema")
+            ),
+        )
+        .expect("write schema");
+    }
     let committed: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read schema"))
         .expect("parse schema");
     assert_eq!(
         committed, generated,
-        "schemas/validate.request.json has drifted from plugin.rs's ValidateInput; regenerate it"
+        ".orbit-plugin/schemas/validate.request.json has drifted from plugin.rs's ValidateInput; regenerate it"
     );
 }
 
@@ -482,12 +504,23 @@ fn validate_input_schema_matches_the_committed_schema() {
 fn accept_input_schema_matches_the_committed_schema() {
     let generated =
         serde_json::to_value(schemars::schema_for!(AcceptInput)).expect("serialize schema");
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/accept.request.json");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../.orbit-plugin/schemas/accept.request.json");
+    if std::env::var_os("ORBIT_RESEARCH_WRITE_SCHEMAS").is_some() {
+        fs::write(
+            &path,
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&generated).expect("serialize schema")
+            ),
+        )
+        .expect("write schema");
+    }
     let committed: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read schema"))
         .expect("parse schema");
     assert_eq!(
         committed, generated,
-        "schemas/accept.request.json has drifted from plugin.rs's AcceptInput; regenerate it"
+        ".orbit-plugin/schemas/accept.request.json has drifted from plugin.rs's AcceptInput; regenerate it"
     );
 }
 

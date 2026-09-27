@@ -1,7 +1,7 @@
 //! The plugin's `research_investigation` job, driven step by step with no
 //! live provider and no Orbit installation.
 //!
-//! A small interpreter walks `jobs/research_investigation.yaml` in order,
+//! A small interpreter walks `.orbit-plugin/definitions/jobs/research_investigation.yaml` in order,
 //! renders each step's `default_input` the way Orbit's job executor does
 //! (`{{ input.* }}`, `{{ steps.<id>.output.* }}`), and stops the run at the
 //! first failed step. Shipped activities get scripted stand-ins over real Git;
@@ -46,11 +46,11 @@ fn yaml(path: &str) -> Value {
 }
 
 fn job() -> Value {
-    yaml("jobs/research_investigation.yaml")
+    yaml(".orbit-plugin/definitions/jobs/research_investigation.yaml")
 }
 
 fn activity(name: &str) -> Value {
-    yaml(&format!("activities/{name}.yaml"))
+    yaml(&format!(".orbit-plugin/definitions/activities/{name}.yaml"))
 }
 
 fn command(program: &str) -> Command {
@@ -531,7 +531,7 @@ fn the_job_gates_commit_on_validate_with_no_recovery() {
             .as_str()
             .and_then(|t| t.strip_prefix("activity:"))
             .expect("activity target");
-        let own = repo_file(&format!("activities/{name}.yaml")).is_file();
+        let own = repo_file(&format!(".orbit-plugin/definitions/activities/{name}.yaml")).is_file();
         assert!(
             own || SHIPPED.contains(&name),
             "{name} is neither this plugin's activity nor a shipped one"
@@ -544,7 +544,7 @@ fn the_job_gates_commit_on_validate_with_no_recovery() {
 
 #[test]
 fn the_validate_activity_calls_the_manifest_read_only_validate_tool() {
-    let manifest = yaml("plugin.yaml");
+    let manifest = yaml(".orbit-plugin/plugin.yaml");
     let spec = &activity("research_validate")["spec"];
     let tool = spec["config"]["tool"].as_str().expect("config.tool");
     // `origin: orbit` registers every tool as `orbit.<name>.<verb>`.

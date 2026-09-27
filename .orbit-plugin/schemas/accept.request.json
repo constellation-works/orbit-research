@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "properties": {
+    "research_id": {
+      "pattern": "^R[0-9]{3}$",
+      "type": "string"
+    },
+    "task_id": {
+      "minLength": 1,
+      "type": "string"
+    }
+  },
+  "required": [
+    "research_id",
+    "task_id"
+  ],
+  "title": "AcceptInput",
+  "type": "object"
+}

@@ -112,7 +112,7 @@ spec:
       input_schema: { $ref: schemas/accept.request.json }
 
   definitions:
-    activities: [activities/*.yaml]
-    jobs: [jobs/*.yaml]
+    activities: [definitions/activities/*.yaml]
+    jobs: [definitions/jobs/*.yaml]
 
   tests: [tests/conformance/*.yaml]

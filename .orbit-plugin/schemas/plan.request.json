@@ -1,89 +1,89 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Plan",
   "description": "One tool, three drafting shapes. `shape` selects the variant; each carries only the fields that shape needs.",
   "oneOf": [
     {
-      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "research_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "shape": {
+          "enum": [
+            "investigation"
+          ],
+          "type": "string"
+        }
+      },
       "required": [
         "objective",
         "research_id",
         "shape"
       ],
-      "properties": {
-        "objective": {
-          "type": "string",
-          "minLength": 1
-        },
-        "research_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "shape": {
-          "type": "string",
-          "enum": [
-            "investigation"
-          ]
-        }
-      },
-      "additionalProperties": false
+      "type": "object"
     },
     {
-      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "objective": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "research_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "shape": {
+          "enum": [
+            "contribution"
+          ],
+          "type": "string"
+        },
+        "unit": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
       "required": [
         "objective",
         "research_id",
         "shape",
         "unit"
       ],
-      "properties": {
-        "objective": {
-          "type": "string",
-          "minLength": 1
-        },
-        "research_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "shape": {
-          "type": "string",
-          "enum": [
-            "contribution"
-          ]
-        },
-        "unit": {
-          "type": "string",
-          "minLength": 1
-        }
-      },
-      "additionalProperties": false
+      "type": "object"
     },
     {
-      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "research_id": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "shape": {
+          "enum": [
+            "synthesis"
+          ],
+          "type": "string"
+        },
+        "units": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
       "required": [
         "research_id",
         "shape",
         "units"
       ],
-      "properties": {
-        "research_id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "shape": {
-          "type": "string",
-          "enum": [
-            "synthesis"
-          ]
-        },
-        "units": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": false
+      "type": "object"
     }
-  ]
+  ],
+  "title": "Plan"
 }

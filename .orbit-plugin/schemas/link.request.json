@@ -1,37 +1,37 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "LinkInput",
-  "type": "object",
-  "required": [
-    "request_key",
-    "research_id",
-    "title"
-  ],
+  "additionalProperties": false,
   "properties": {
     "acceptance_criteria": {
       "default": [],
-      "type": "array",
       "items": {
         "type": "string"
-      }
+      },
+      "type": "array"
     },
     "description": {
       "default": "",
       "type": "string"
     },
     "request_key": {
-      "type": "string",
       "maxLength": 256,
-      "minLength": 1
+      "minLength": 1,
+      "type": "string"
     },
     "research_id": {
-      "type": "string",
-      "pattern": "^R[0-9]{3}$"
+      "pattern": "^R[0-9]{3}$",
+      "type": "string"
     },
     "title": {
-      "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "type": "string"
     }
   },
-  "additionalProperties": false
+  "required": [
+    "request_key",
+    "research_id",
+    "title"
+  ],
+  "title": "LinkInput",
+  "type": "object"
 }
