@@ -90,6 +90,11 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
+/// A reserved R stub's Method, Result, Limitations and Next text. Delivery
+/// validation treats a section still holding one of these as unwritten.
+pub(crate) const RESEARCH_PLACEHOLDERS: [&str; 4] =
+    ["Pending.", "Pending.", "Not yet run.", "Await dispatch."];
+
 /// The status every new record of `kind` starts in.
 pub fn initial_status(kind: &str) -> &'static str {
     match kind {
@@ -167,8 +172,9 @@ pub(crate) fn scaffold(
             "# {id} — {title}\n\n## What it says\n\n{body}\n\n## Where it stops\n\nScope and limitations remain to be specified.\n"
         )
     } else {
+        let [method, result, limitations, next] = RESEARCH_PLACEHOLDERS;
         format!(
-            "# {id} — {title}\n\n## Question\n\n{body}\n\n## Method\n\nPending.\n\n## Result\n\nPending.\n\n## Limitations\n\nNot yet run.\n\n## Next\n\nAwait dispatch.\n"
+            "# {id} — {title}\n\n## Question\n\n{body}\n\n## Method\n\n{method}\n\n## Result\n\n{result}\n\n## Limitations\n\n{limitations}\n\n## Next\n\n{next}\n"
         )
     };
     let text = render(&meta, &format!("\n{body}"))?;

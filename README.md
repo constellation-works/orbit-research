@@ -10,13 +10,17 @@ The workbench is being converted into an Orbit plugin (see the constellation
 Writes run in primary mode on the primary checkout (allocate IDs and commit) or
 in worktree mode inside a linked run worktree (write only the reserved R, never
 commit); every write result reports its `mode`. `plugin.yaml`
-(repo root) exposes `list`, `show`, `check` and `version` as sandboxed, read-only
-Orbit plugin tools (`fs.read: {{workspace}}` only, no `unsandboxed` grant, no
-`requires.programs`) served by `orbit-research orbit-tool`; see
-[the plugin transport note](ARCHITECTURE.md). Research views become read-only
-Orbit plugin panels rather than a standalone dashboard; task creation, dispatch
-and acceptance land through the plugin's `plan`/`link`/`validate`/`accept` tools
-in later slices.
+(repo root) exposes `list`, `show`, `check`, `version`, `plan` and `validate` as
+sandboxed, read-only Orbit plugin tools and `link` as the one mutating tool
+(`fs.read: {{workspace}}` only, no `unsandboxed` grant, no `requires.programs`),
+served by `orbit-research orbit-tool`; see
+[the plugin transport note](ARCHITECTURE.md). The plugin also ships the
+`research_investigation` job (`jobs/`, `activities/`): start one investigation
+with `orbit run job research_investigation --input task=<task-id>`. The run
+works in its own worktree, and the `validate` step fails it before commit when
+the written record is invalid. Research views become read-only Orbit plugin
+panels rather than a standalone dashboard; acceptance lands through the
+plugin's `accept` tool in a later slice.
 
 ## Build and validate
 

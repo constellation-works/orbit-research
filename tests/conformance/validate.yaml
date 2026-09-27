@@ -1,0 +1,14 @@
+# The conformance harness sends no run context (`context.task_id` and
+# `context.job_run_id` are always null), so this pins that refusal. Each
+# failure reason, the valid record and the input-path-only rule are covered by
+# `cargo test -p orbit-research-cli` (src/tests/plugin.rs and
+# tests/research_job.rs) against real git-backed run worktrees.
+schemaVersion: 1
+kind: PluginTest
+tests:
+  - name: validate_refuses_outside_a_job_run
+    tool: validate
+    input: {"path": "{{workspace}}"}
+    expect:
+      error:
+        code: run_context_required

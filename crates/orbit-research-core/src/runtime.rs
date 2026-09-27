@@ -1,6 +1,9 @@
 //! Process-scoped state shared by all application transports.
 use crate::{Reservation, Result, Snapshot, application::acceptance::AcceptanceLookup};
-use orbit_research_store::corpus::Corpus;
+use orbit_research_store::{
+    corpus::Corpus,
+    delivery::{DeliveryReport, Expected},
+};
 use std::path::Path;
 
 pub struct Application {
@@ -33,6 +36,12 @@ impl Research {
 
     pub fn snapshot(&self) -> Result<Snapshot> {
         self.store.snapshot()
+    }
+
+    /// The delivery gate: check one research record in this checkout (a run
+    /// worktree or the primary) against the checkout's HEAD. Read-only.
+    pub fn validate_delivery(&self, expected: &Expected<'_>) -> Result<DeliveryReport> {
+        self.store.validate_delivery(expected)
     }
 
     pub fn reserve(

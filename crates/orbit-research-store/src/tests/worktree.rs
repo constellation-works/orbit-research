@@ -10,13 +10,13 @@ use std::{fs, path::PathBuf};
 use tempfile::TempDir;
 
 /// A primary corpus with Q001 and two reserved R stubs, plus a linked run worktree.
-struct Run {
-    primary: TempDir,
+pub(super) struct Run {
+    pub(super) primary: TempDir,
     _parent: TempDir,
-    linked: PathBuf,
+    pub(super) linked: PathBuf,
 }
 
-fn run() -> Run {
+pub(super) fn run() -> Run {
     let primary = fixture();
     for directory in ["questions", "hypotheses", "theories", "research"] {
         fs::write(primary.path().join(directory).join(".gitkeep"), "").unwrap();
@@ -54,7 +54,7 @@ fn run() -> Run {
     }
 }
 
-fn blob(corpus: &Corpus, id: &str) -> String {
+pub(super) fn blob(corpus: &Corpus, id: &str) -> String {
     corpus
         .snapshot()
         .unwrap()
@@ -65,7 +65,7 @@ fn blob(corpus: &Corpus, id: &str) -> String {
         .git_blob
 }
 
-fn result() -> Edit {
+pub(super) fn result() -> Edit {
     Edit {
         body: Some("## Question\n\nWhy?\n\n## Method\n\nRan it.\n\n## Result\n\nControls failed.\n\n## Limitations\n\nOne run.\n\n## Next\n\nRepeat.".into()),
         status: Some("done".into()),

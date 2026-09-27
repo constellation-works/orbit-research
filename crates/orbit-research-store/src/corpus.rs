@@ -13,6 +13,16 @@ use std::{
 
 pub use orbit_research_common::{Record, Snapshot};
 
+/// A record's location in an owner directory, named but not yet read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RecordEntry {
+    pub(crate) id: String,
+    pub(crate) kind: String,
+    pub(crate) slug: String,
+    /// Corpus-relative `/` path of the record's Markdown file.
+    pub(crate) path: String,
+}
+
 pub struct Corpus {
     root: PathBuf,
     pub(crate) contract: Contract,
@@ -91,7 +101,36 @@ impl Corpus {
         revision: &str,
         committed: Option<&[String]>,
     ) -> Result<Snapshot> {
-        let mut records = BTreeMap::new();
+        let records = self.read_records(contract, revision, committed)?;
+        validate_records(&records)?;
+        let tags = records
+            .values()
+            .flat_map(|r| {
+                r.metadata["tags"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        Ok(Snapshot {
+            revision: revision.to_owned(),
+            records: records.into_values().collect(),
+            tags,
+        })
+    }
+
+    /// Every record entry named in the owner directories (working tree, or the
+    /// `committed` paths of one revision), without reading its contents.
+    pub(crate) fn record_entries(
+        &self,
+        contract: &Contract,
+        committed: Option<&[String]>,
+    ) -> Result<Vec<RecordEntry>> {
+        let mut entries = Vec::new();
         let kinds = contract.schema["x-observatory"]["kinds"]
             .as_object()
             .ok_or_else(|| Error::Invalid("Missing record kinds".into()))?;
@@ -115,86 +154,101 @@ impl Corpus {
                 if !name.starts_with(kind) {
                     continue;
                 }
-                let (expected_id, slug) =
-                    parse_record_name(kind, &name, spec["layout"] == "directory")?;
+                let (id, slug) = parse_record_name(kind, &name, spec["layout"] == "directory")?;
                 let relative = if spec["layout"] == "directory" {
                     Path::new(directory).join(&name).join("README.md")
                 } else {
                     Path::new(directory).join(&name)
                 };
-                let git_path = relative
+                let path = relative
                     .components()
                     .map(|component| component.as_os_str().to_string_lossy())
                     .collect::<Vec<_>>()
                     .join("/");
-                let bytes = if committed.is_some() {
-                    self.committed_bytes(revision, &git_path)?
-                } else {
-                    fs::read(self.safe_path(&relative)?)?
-                };
-                let text = std::str::from_utf8(&bytes)
-                    .map_err(|_| Error::Invalid(format!("{} is not UTF-8", relative.display())))?;
-                let (metadata, body) = parse(text)?;
-                contract.validate(&metadata, &git_path)?;
-                let id = metadata["id"]
-                    .as_str()
-                    .ok_or_else(|| Error::Invalid("Missing id".into()))?
-                    .to_owned();
-                if id != expected_id {
-                    return Err(Error::Invalid(format!(
-                        "Record ID/path mismatch: {}",
-                        relative.display()
-                    )));
-                }
-                if metadata["slug"]
-                    .as_str()
-                    .is_some_and(|declared| declared != slug)
-                    || metadata["slug"].is_null()
-                        && metadata["title"]
-                            .as_str()
-                            .is_some_and(|title| kebab(title) != slug)
-                {
-                    return Err(Error::Invalid(format!(
-                        "Record slug/path mismatch: {}",
-                        relative.display()
-                    )));
-                }
-                let record = Record {
-                    id: id.clone(),
+                entries.push(RecordEntry {
+                    id,
                     kind: kind.clone(),
-                    path: git_path,
-                    metadata,
-                    body,
-                    content_sha256: format!("{:x}", Sha256::digest(&bytes)),
-                    git_blob: self.hash_bytes(&bytes)?,
-                };
-                if records.insert(id.clone(), record).is_some() {
-                    return Err(Error::Invalid(format!("Duplicate record ID: {id}")));
-                }
+                    slug,
+                    path,
+                });
             }
         }
-        validate_records(&records)?;
-        let tags = records
-            .values()
-            .flat_map(|r| {
-                r.metadata["tags"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-            })
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        Ok(Snapshot {
-            revision: revision.to_owned(),
-            records: records.into_values().collect(),
-            tags,
+        Ok(entries)
+    }
+
+    /// Parse and schema-check every record, without whole-corpus graph checks.
+    pub(crate) fn read_records(
+        &self,
+        contract: &Contract,
+        revision: &str,
+        committed: Option<&[String]>,
+    ) -> Result<BTreeMap<String, Record>> {
+        let mut records = BTreeMap::new();
+        for entry in self.record_entries(contract, committed)? {
+            let bytes = if committed.is_some() {
+                self.committed_bytes(revision, &entry.path)?
+            } else {
+                self.working_bytes(&entry.path)?
+            };
+            let record = self.decode_record(contract, &entry, &bytes)?;
+            if records.insert(record.id.clone(), record).is_some() {
+                return Err(Error::Invalid(format!("Duplicate record ID: {}", entry.id)));
+            }
+        }
+        Ok(records)
+    }
+
+    /// One record from its bytes: frontmatter, owner schema, ID and frozen slug.
+    pub(crate) fn decode_record(
+        &self,
+        contract: &Contract,
+        entry: &RecordEntry,
+        bytes: &[u8],
+    ) -> Result<Record> {
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| Error::Invalid(format!("{} is not UTF-8", entry.path)))?;
+        let (metadata, body) = parse(text)?;
+        contract.validate(&metadata, &entry.path)?;
+        let id = metadata["id"]
+            .as_str()
+            .ok_or_else(|| Error::Invalid("Missing id".into()))?
+            .to_owned();
+        if id != entry.id {
+            return Err(Error::Invalid(format!(
+                "Record ID/path mismatch: {}",
+                entry.path
+            )));
+        }
+        if metadata["slug"]
+            .as_str()
+            .is_some_and(|declared| declared != entry.slug)
+            || metadata["slug"].is_null()
+                && metadata["title"]
+                    .as_str()
+                    .is_some_and(|title| kebab(title) != entry.slug)
+        {
+            return Err(Error::Invalid(format!(
+                "Record slug/path mismatch: {}",
+                entry.path
+            )));
+        }
+        Ok(Record {
+            id,
+            kind: entry.kind.clone(),
+            path: entry.path.clone(),
+            metadata,
+            body,
+            content_sha256: format!("{:x}", Sha256::digest(bytes)),
+            git_blob: self.hash_bytes(bytes)?,
         })
     }
 
-    fn safe_path(&self, relative: &Path) -> Result<PathBuf> {
+    /// Working-tree bytes at a corpus-relative `/` path, refusing traversal and symlinks.
+    pub(crate) fn working_bytes(&self, path: &str) -> Result<Vec<u8>> {
+        Ok(fs::read(self.safe_path(Path::new(path))?)?)
+    }
+
+    pub(crate) fn safe_path(&self, relative: &Path) -> Result<PathBuf> {
         if relative.is_absolute()
             || relative
                 .components()

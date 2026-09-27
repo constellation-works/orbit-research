@@ -5,8 +5,8 @@ an independent application. It no longer shells out to an Orbit CLI adapter to
 drive execution: Orbit owns tasks, crews, runs and delivery natively, and this
 app coordinates only through local request correlation. See the plugin
 conversion spec (constellation `operations/research/orbit-research-plugin.md`)
-for the superseding `plan`/`link`/`validate`/`accept` design, which lands in
-later slices.
+for the `plan`/`link`/`validate`/`accept` design. `accept` lands in a later
+slice.
 
 ```text
 orbit-research-cli ── orbit-research-core
@@ -54,6 +54,22 @@ workspace leaf; no workspace crate dependency is permitted.
   empty and cannot exercise a live callback; `schemas/link.request.json`'s drift check lives next
   to that fake in `src/tests/plugin.rs`, the only place both the schema and its Rust type are
   in scope.
+- **The delivery gate** is the plugin's `validate` tool. It is read-only, and it is the one tool that
+  never opens `context.workspace_root`. A job step's bound workspace is the primary checkout even
+  inside a run, so `validate` opens only the checkout named by its `path` input (`Research::open`,
+  then Store's `Corpus::validate_delivery`). Like `link`, it has no `Operation`: its expectations
+  (`orbit.task`/`orbit.run`) come from the host-attested `context.task_id`/`context.job_run_id`,
+  not from caller input. Any finding replies `ok:false`, because Orbit fails a `plugin.tool_call`
+  step only on `ok:false`. `schemas/validate.request.json` is drift-checked in `src/tests/plugin.rs`.
+  Its replies are pinned in `src/snapshots/plugin-validate.json`.
+- **Plugin definitions** live at the repo root, declared under `spec.definitions`:
+  `jobs/research_investigation.yaml` and `activities/research_{investigate,validate}.yaml`. The job
+  runs shipped `worktree_setup` → the `research_investigate` agent → `research_validate`, a
+  deterministic `plugin.tool_call` on `orbit.research.validate` with no recovery activity → shipped
+  `git_commit` → `git_merge` → `update_task` to `review`. A plugin job may reference only its own
+  activities or shipped ones. `crates/orbit-research-cli/tests/research_job.rs` walks the job with
+  scripted stand-ins for the shipped activities over real Git, a scripted agent running this
+  binary's worktree-mode writer, and the real `orbit-tool` backend for the validate step.
 
 The workspace contains exactly four crates: Common, Store, Core and CLI. The
 former contract/owner/import/index packages, their legacy JSON command
@@ -91,9 +107,9 @@ Packaged files live under each owning crate’s `assets/` directory: Core owns
 `skills/`, and Store owns `schema.json`. Do not introduce a parallel `resources/`
 directory.
 
-Core owns bundled skills; CLI exposes them through its resource command. Future
-research routines, auto-tasks, activities and jobs can live under Core assets and
-be scaffolded into `.orbit/`. They are not implemented or enabled by this layout.
+Core owns bundled skills; CLI exposes them through its resource command. The
+plugin's job and activities are Orbit plugin definitions at the repo root
+(`jobs/`, `activities/`), not Core assets. No routines or auto-tasks are shipped.
 
 CLI `src/mcp.rs` owns stdio protocol framing and session handling, with sibling
 tests in `src/tests/mcp.rs`. Core owns the shared operation registry, schemas and
@@ -117,8 +133,12 @@ reserved R (README and `data/manifest.json`), never allocates IDs and never
 commits. `edit.rs` owns the record edit policy (frozen identity and lineage,
 hypothesis revision bumps, append-only assessments, `verdict_status`) and the
 whole-corpus record checks; it reads neither Git nor the clock, so later
-validation can reuse it. Request correlation and initial workspace scaffolding
-remain in `request_log.rs` and `workspace.rs`.
+validation can reuse it. `delivery.rs` owns the delivery gate: it checks one
+research record in a checkout's working tree against that checkout's HEAD and
+returns typed findings. Any finding fails the gate. It reads Git in-process
+(including a linked worktree's own Git directory, for the writer's binding) and
+writes nothing, so the sandboxed plugin can run it. Request correlation and
+initial workspace scaffolding remain in `request_log.rs` and `workspace.rs`.
 
 Work planning uses `Corpus::committed_snapshot`: schema and records are read from
 one pinned commit. Browsing uses `snapshot`, a working-tree view whose revision is

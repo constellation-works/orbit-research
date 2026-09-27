@@ -53,5 +53,13 @@ own native commands (`orbit run job`, `orbit run show`, `orbit task update`,
 drive them. Use the returned plan's context files and instructions unchanged
 when creating the Orbit task.
 
+Run an investigation with `orbit run job research_investigation --input
+task=<task-id>`. Its agent writes the reserved R in worktree mode, recording the
+run's task and run IDs with `--orbit-task` and `--orbit-run`. The plugin's
+`validate` step then fails the run before commit if a README section is missing
+or still a placeholder, the provenance names another run, a local input no
+longer matches its manifest digest, a reference is dangling, or the worktree
+allocated an ID or changed any other record.
+
 Use the MCP tools or equivalent `orbit-research research` subcommands. Always
 select the corpus explicitly.

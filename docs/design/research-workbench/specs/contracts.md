@@ -13,9 +13,10 @@ tags: [research-workbench]
 > **Partially superseded (2026-09-27):** the "Orbit backend" and "Result
 > acceptance" sections below describe the CLI adapter and agent-supplied
 > receipt model, both removed. Orbit owns dispatch/status/cancel through its
-> own native commands; `validate`/`accept` return as plugin tools in later
-> slices. See the constellation `operations/research/orbit-research-plugin.md`
-> spec. The canonical corpus and writes/recovery sections are unaffected.
+> own native commands. `validate` is the plugin's delivery gate (see "Delivery
+> gate" below); `accept` returns as a plugin tool in a later slice. See the
+> constellation `operations/research/orbit-research-plugin.md` spec. The
+> canonical corpus and writes/recovery sections are unaffected.
 
 ## Why This Exists
 
@@ -128,6 +129,43 @@ fields; corpus scope is fixed during process composition. Machine stdout contain
 protocol/output only. Task linking is the plugin's own `link` tool: it stores
 correlation before submission through the `orbit.task.add`/`orbit.task.list`
 callbacks, and Core itself never shells out to Orbit. Dispatch, status,
-cancellation and result acceptance move to Orbit-native commands and the plugin's
-`validate`/`accept` tools (later slices; see the constellation
-`operations/research/orbit-research-plugin.md` spec).
+cancellation move to Orbit-native commands. The plugin's `validate` tool gates
+delivery; result acceptance moves to its `accept` tool (a later slice; see the
+constellation `operations/research/orbit-research-plugin.md` spec).
+
+## Delivery gate
+
+The plugin's `research_investigation` job runs `worktree_setup`, the
+`research_investigate` agent, `validate`, `git_commit`, `git_merge` and
+`update_task` to `review`. `validate` runs as a deterministic
+`plugin.tool_call` with no recovery activity, so an invalid record fails the run
+before commit.
+
+`validate` reads only the checkout named by its `path` input, never the bound
+workspace. A job step's `context.workspace_root` is the primary checkout even
+while the run's work is in its worktree. The record is the optional
+`research_id` input, or else the one the worktree-mode writer bound the worktree
+to. The record must name `context.task_id` and `context.job_run_id` in
+`orbit.task` and `orbit.run`; without that run context the call refuses with
+`run_context_required`. Against the checkout's HEAD, the gate requires:
+
+- the record parses and passes the owner schema, ID and slug rules;
+- the owner's README sections (`## Question`, `## Method`, `## Result`,
+  `## Limitations`, `## Next`) are present in order, each non-empty and not
+  still holding the reserved stub's text;
+- `data/manifest.json` passes the owner schema;
+- every input with a declared `sha256` whose bytes are at `data/<name>` matches
+  that digest and any declared `size`. Absent bytes, which are never committed,
+  are reported as `unverified_inputs` and do not fail the gate;
+- every reference target exists in the checkout;
+- no record path is absent from HEAD (no allocated ID), no other record changed
+  or disappeared, and the whole corpus passes the checker's rules.
+
+Any finding replies `ok:false`. The error code is the first finding's reason
+(`research_unbound`, `record_invalid`, `section_missing`,
+`section_placeholder`, `orbit_task_mismatch`, `orbit_run_mismatch`,
+`manifest_invalid`, `artifact_digest_mismatch`, `dangling_lineage`,
+`id_allocated`, `other_record_changed` or `corpus_invalid`), and the message
+lists every finding. Orbit fails a step only on `ok:false`, not on
+`valid:false` output. The gate reads Git in-process and spawns nothing, so it
+runs under the plugin sandbox.

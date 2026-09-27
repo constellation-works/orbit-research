@@ -174,9 +174,15 @@ pub(crate) fn assess(
     record::render(&metadata, &record.body)
 }
 
-/// Canonical `data/manifest.json` bytes, checked against the owner schema's
-/// `data_manifest` definition when it exports one.
+/// Canonical `data/manifest.json` bytes, checked against the owner schema.
 pub(crate) fn manifest_text(contract: &Contract, manifest: &Value) -> Result<String> {
+    check_manifest(contract, manifest)?;
+    Ok(format!("{}\n", serde_json::to_string_pretty(manifest)?))
+}
+
+/// Check a `data/manifest.json` value against the owner schema's
+/// `data_manifest` definition when it exports one.
+pub(crate) fn check_manifest(contract: &Contract, manifest: &Value) -> Result<()> {
     if contract.schema["$defs"]["data_manifest"].is_object() {
         let mut schema = contract.schema.clone();
         if let Some(root) = schema.as_object_mut() {
@@ -198,7 +204,7 @@ pub(crate) fn manifest_text(contract: &Contract, manifest: &Value) -> Result<Str
             "data/manifest.json must list its inputs".into(),
         ));
     }
-    Ok(format!("{}\n", serde_json::to_string_pretty(manifest)?))
+    Ok(())
 }
 
 /// Check proposed record bytes against the owner schema and the rest of the

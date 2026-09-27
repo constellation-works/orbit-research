@@ -1,0 +1,81 @@
+# One research investigation, delivered in local ship mode:
+#
+#   orbit run job research_investigation --input task=<task-id>
+#
+# The task comes from `link`, so its context_files name a reserved research
+# record (R) that is already committed on `base_branch`.
+#
+# Failure semantics:
+# - `validate` has no recovery activity: an invalid record fails the run
+#   before `commit`, and the worktree keeps the agent's files for inspection.
+# - The task moves to review only after the record commits and merges.
+# - Orbit reaps this job's worktree on its scheduled worktree GC sweep, not at
+#   delivery. Local test runs remove their own worktrees.
+schemaVersion: 2
+kind: Job
+metadata:
+  name: research_investigation
+spec:
+  state: enabled
+  owns_task_worktree: true
+  kind: workflow
+  max_active_runs: 4
+  default_input:
+    task: ""
+    base_branch: main
+    base_sync: local
+
+  steps:
+    - id: worktree
+      target: activity:worktree_setup
+      retry:
+        max_attempts: 4
+        initial_backoff_ms: 200
+        backoff_cap_ms: 2000
+        backoff_strategy: exponential
+      default_input:
+        task_id: "{{ input.task }}"
+        base: "{{ input.base_branch }}"
+        base_sync: "{{ input.base_sync }}"
+        landing_mode: local
+
+    - id: investigate
+      target: activity:research_investigate
+      default_input:
+        task_id: "{{ input.task }}"
+        workspace_path: "{{ steps.worktree.output.workspace_path }}"
+        repo_root: "{{ steps.worktree.output.workspace_path }}"
+        job_run_id: "{{ steps.worktree.output.job_run_id }}"
+
+    - id: validate
+      target: activity:research_validate
+      default_input:
+        task_id: "{{ input.task }}"
+        input:
+          path: "{{ steps.worktree.output.workspace_path }}"
+
+    - id: commit
+      recovery_activity: step_failure_recovery
+      target: activity:git_commit
+      default_input:
+        job_run_id: "{{ steps.worktree.output.job_run_id }}"
+        scope: all
+        workspace_path: "{{ steps.worktree.output.workspace_path }}"
+        base_ref: "{{ steps.worktree.output.base_ref }}"
+        base_sha: "{{ steps.worktree.output.base_sha }}"
+
+    - id: merge
+      recovery_activity: step_failure_recovery
+      target: activity:git_merge
+      default_input:
+        job_run_id: "{{ steps.worktree.output.job_run_id }}"
+        base: "{{ input.base_branch }}"
+        base_sync: local
+        strategy: fast_forward
+        workspace_path: "{{ steps.worktree.output.workspace_path }}"
+
+    - id: mark_review
+      target: activity:update_task
+      default_input:
+        task_id: "{{ input.task }}"
+        status: review

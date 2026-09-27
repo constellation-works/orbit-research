@@ -1,0 +1,143 @@
+# The research_investigation job's agent step: one bounded investigation of a
+# reserved research record (R), written in the run worktree with the
+# worktree-mode writer. The job's `validate`, commit, merge and review steps
+# follow; this step never commits or moves the task.
+schemaVersion: 2
+kind: Activity
+metadata:
+  name: research_investigate
+spec:
+  type: agent_loop
+  description: >
+    Investigate one reserved research record in the run worktree and write its
+    README, code, artifacts and data manifest with the worktree-mode writer,
+    under the scientific safeguards. Leaves commit and delivery to the job.
+  input_schema_json:
+    type: object
+    required: [task_id, workspace_path, job_run_id]
+    properties:
+      task_id:
+        type: string
+      workspace_path:
+        type: string
+      repo_root:
+        type: string
+      job_run_id:
+        type: string
+  output_schema_json:
+    type: object
+    properties:
+      summary:
+        type: string
+      research_id:
+        type: string
+      skipped_reason:
+        type: string
+  instruction: |
+    You are investigating one reserved research record (R) for an Orbit task,
+    inside that task's run worktree. The job that runs you validates the
+    record, commits it, merges it and moves the task to review. Do not commit,
+    push, merge or change the task's status yourself.
+
+    Scientific safeguards
+
+    - Execution success is not support. A run that completes, a script that
+      exits 0 or a plot that renders is not evidence for the hypothesis. The
+      Result section reports what the evidence shows, including evidence
+      against the hypothesis.
+    - Failed controls mean inconclusive. If a control, baseline or sanity
+      check fails, the result is inconclusive: say so in Result and
+      Limitations, and claim neither support nor refutation. A result with
+      failed controls is still a valid, deliverable research record.
+    - No H/T edits. Never edit a hypothesis or theory, or any record other
+      than the reserved R, and never append an assessment. Verdicts are a
+      human `assess` step after acceptance. The worktree-mode writer refuses
+      other records, and the job's validate step fails any other changed
+      record.
+
+    Task and checkout
+
+    1. Inspect the injected task. If `task.terminal` is true, change nothing
+       and return success with `skipped_reason: "task_terminal"`.
+    2. `input.workspace_path` is the run worktree and the corpus root. Before
+       any write, check that `pwd -P` and `git rev-parse --show-toplevel`
+       resolve to it; otherwise write nothing and fail with
+       `worktree_mismatch`.
+    3. The task's `context_files` name the reserved record as
+       `dir:research/R###-slug`. Read it with
+       `orbit-research --json research show --corpus <workspace_path> --id <R###>`
+       and read the questions and hypotheses it derives from or tests. The
+       stub must already exist at the worktree's HEAD. Never allocate an ID:
+       do not run `research create` or `research capture`, and do not add
+       record directories.
+
+    Investigation
+
+    4. Do the bounded work the task describes and nothing broader. Put code
+       under `research/<R###-slug>/code/` and outputs under
+       `research/<R###-slug>/artifacts/`. Input bytes go under
+       `research/<R###-slug>/data/`; they stay git-ignored, and only
+       `data/manifest.json` is committed.
+    5. Write the record with the worktree-mode writer, which writes only this
+       R and never commits:
+
+           orbit-research --json research revise --corpus <workspace_path> \
+             --mode worktree --id <R###> --expected-blob <git_blob from show> \
+             --status done --orbit-task <input.task_id> \
+             --orbit-run <input.job_run_id> \
+             --body-file <body.md> --manifest-file <manifest.json>
+
+       Keep `body.md` and `manifest.json` drafts under `.orbit/tmp/`. The body
+       has exactly the sections `## Question`, `## Method`, `## Result`,
+       `## Limitations` and `## Next`, in that order, each with real content;
+       none may keep the stub's placeholder text. The manifest lists every
+       input with `name`, `source`, `sha256`, `size` and `fetch` (or a
+       `shared` pointer to a `_data/<name>` manifest). A declared `sha256` and
+       `size` must match the bytes at `data/<name>`. `orbit.task` and
+       `orbit.run` must be exactly `input.task_id` and `input.job_run_id`.
+       On a conflict, re-read the record for its current `git_blob` and retry.
+    6. The commit step refuses untracked paths without exact intent. For each
+       new file under `code/` or `artifacts/`, append its exact `file:`
+       selector with `orbit.task.update` (`allow_missing_context: true`). A
+       directory selector does not count. Leave scratch only under
+       `.orbit/tmp/`.
+    7. Run `orbit-research research check --corpus <workspace_path>` as a
+       self-check. The job's validate step is the authoritative gate.
+
+    Handoff
+
+    8. Persist an `execution_summary` with `orbit.task.update`: the question,
+       method, result, how the safeguards applied, files written, and checks
+       run as passed, failed or not run.
+    9. Return a short summary and the research ID.
+  tools:
+    - orbit.task.*
+    - orbit.friction.*
+    - orbit.search
+    - proc.spawn
+  proc_allowed_programs:
+    - orbit-research
+    - orbit
+    - git
+    - rg
+    - bash
+    - sh
+    - cat
+    - ls
+    - find
+    - sed
+    - awk
+    - grep
+    - jq
+    - head
+    - tail
+    - wc
+    - shasum
+    - sha256sum
+    - curl
+    - python
+    - python3
+    - uv
+    - pytest
+  on_denial: terminate
+  wall_clock_timeout_seconds: 10800

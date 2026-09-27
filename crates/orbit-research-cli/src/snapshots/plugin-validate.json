@@ -1,0 +1,59 @@
+{
+  "dangling_lineage": {
+    "error": {
+      "code": "dangling_lineage",
+      "message": "dangling_lineage: R001 derived_from references missing Q009",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "id_allocated_in_worktree": {
+    "error": {
+      "code": "id_allocated",
+      "message": "id_allocated: R002 (research/R002-stray/README.md) is not in the checkout's HEAD; only primary-mode create allocates IDs",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "missing_section": {
+    "error": {
+      "code": "section_missing",
+      "message": "section_missing: research/R001-study/README.md: sections must be exactly `## Question`, `## Method`, `## Result`, `## Limitations`, `## Next` in that order; found Question, Method, Result, Next",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "placeholder_section": {
+    "error": {
+      "code": "section_placeholder",
+      "message": "section_placeholder: research/R001-study/README.md: `## Method` still empty or holding the reserved stub's text",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "tampered_artifact_digest": {
+    "error": {
+      "code": "artifact_digest_mismatch",
+      "message": "artifact_digest_mismatch: research/R001-study/data/input.csv: sha256 is 8baab0330389def9ec921e89f5d0f28e41e6b80ce9de95e046df431dfec66925; the manifest declares 492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "valid": {
+    "ok": true,
+    "output": {
+      "path": "research/R001-study/README.md",
+      "research_id": "R001",
+      "unverified_inputs": [],
+      "valid": true
+    }
+  },
+  "wrong_run_id": {
+    "error": {
+      "code": "orbit_run_mismatch",
+      "message": "orbit_run_mismatch: R001 orbit.run is `run-1`; expected `run-2`",
+      "retryable": false
+    },
+    "ok": false
+  }
+}

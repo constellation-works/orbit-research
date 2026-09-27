@@ -6,7 +6,9 @@ metadata:
   description: >-
     Read-only access to the orbit-research canonical Q/H/T/R corpus: a
     validated snapshot, single-record detail and corpus health, generated
-    from the shared operation registry rather than hand-duplicated schemas.
+    from the shared operation registry rather than hand-duplicated schemas;
+    task drafting and linking; and the research_investigation job with its
+    validate delivery gate.
   publisher: constellation-works
   origin: orbit
   homepage: https://github.com/constellation-works/orbit-research
@@ -77,5 +79,19 @@ spec:
       execution_kind: mutating
       mcp_scope: workspace
       input_schema: { $ref: schemas/link.request.json }
+    - name: validate
+      description: >-
+        Check the research record a run wrote at a checkout path (step input,
+        not the bound workspace): owner schema, five written README sections,
+        orbit.task/orbit.run naming this run, manifest digests matching local
+        input bytes, existing lineage targets, and no ID allocated or other
+        record changed. Fails the call on any finding. Read-only.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/validate.request.json }
+
+  definitions:
+    activities: [activities/*.yaml]
+    jobs: [jobs/*.yaml]
 
   tests: [tests/conformance/*.yaml]
