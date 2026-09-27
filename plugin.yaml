@@ -7,8 +7,9 @@ metadata:
     Read-only access to the orbit-research canonical Q/H/T/R corpus: a
     validated snapshot, single-record detail and corpus health, generated
     from the shared operation registry rather than hand-duplicated schemas;
-    task drafting and linking; and the research_investigation job with its
-    validate delivery gate.
+    task drafting and linking; the research_investigation job with its
+    validate delivery gate; and accept, which persists acceptance evidence
+    once delivery lands.
   publisher: constellation-works
   origin: orbit
   homepage: https://github.com/constellation-works/orbit-research
@@ -28,8 +29,16 @@ spec:
   permissions:
     fs:
       read: ["{{workspace}}"]
+      write: ["{{workspace}}/.orbit-research-tmp"]
     network: none
-    orbit_tools: [orbit.task.add, orbit.task.list]
+    orbit_tools:
+      [
+        orbit.task.add,
+        orbit.task.list,
+        orbit.task.show,
+        orbit.task.artifact.get,
+        orbit.task.artifact.put,
+      ]
 
   tools:
     - name: list
@@ -89,6 +98,18 @@ spec:
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/validate.request.json }
+    - name: accept
+      description: >-
+        After delivery lands on the named task (status review or done):
+        re-run validate at the published commit on the bound workspace, then
+        persist research-acceptance.json (record id, blob, commit, artifact
+        digests, run id) as a task artifact. Idempotent: a matching retry
+        returns the stored evidence without writing again. Refuses before
+        delivery lands, for a failed or non-terminal run, on a validate
+        finding, or on a stored-evidence mismatch.
+      execution_kind: mutating
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/accept.request.json }
 
   definitions:
     activities: [activities/*.yaml]

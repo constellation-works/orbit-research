@@ -97,6 +97,11 @@ pub struct DeliveryReport {
     /// Manifest inputs with a declared digest whose bytes are not in the
     /// checkout (data bytes are never committed), so were not verified.
     pub unverified_inputs: Vec<String>,
+    /// sha256 of each locally-verified manifest input's actual bytes, by
+    /// name. A shared input (pointed at `_data/`) carries no entry here: its
+    /// own manifest owns that evidence. `accept` persists this alongside the
+    /// record id, blob, commit and run id.
+    pub artifact_digests: BTreeMap<String, String>,
 }
 
 impl DeliveryReport {
@@ -118,6 +123,7 @@ impl Corpus {
             revision: head.revision.clone(),
             findings: Vec::new(),
             unverified_inputs: Vec::new(),
+            artifact_digests: BTreeMap::new(),
         };
         let Some(id) = self.delivered_id(expected, &mut report)? else {
             return Ok(report);
@@ -298,6 +304,9 @@ impl Corpus {
                 }
             };
             let actual = format!("{:x}", Sha256::digest(&bytes));
+            report
+                .artifact_digests
+                .insert(name.to_owned(), actual.clone());
             if !actual.eq_ignore_ascii_case(declared) {
                 report.fail(
                     Reason::ArtifactDigestMismatch,

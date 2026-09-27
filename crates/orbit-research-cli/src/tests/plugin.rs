@@ -7,11 +7,12 @@
 //! same `serve_plugin_tool_call` entry point the `orbit-tool` subcommand
 //! serves stdin/stdout through.
 use super::super::plugin::{
-    LinkInput, TaskHost, TaskRef, ValidateInput, serve_plugin_tool_call,
+    AcceptInput, LinkInput, TaskHost, TaskRef, TaskState, ValidateInput, serve_plugin_tool_call,
     serve_plugin_tool_call_with_host,
 };
 use orbit_research_core::{Error, Result};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::sync::Mutex;
 use std::{fs, io::Cursor, path::Path, process::Command};
 use tempfile::TempDir;
@@ -92,6 +93,10 @@ struct FakeTaskHost {
     tasks: Mutex<Vec<(String, String)>>,
     next_id: Mutex<u32>,
     fail_create: Mutex<bool>,
+    /// Task id -> (status, job_run_id), as `accept` reads via `orbit.task.show`.
+    task_states: Mutex<BTreeMap<String, (String, Option<String>)>>,
+    /// (task id, artifact path) -> stored content, as `orbit.task.artifact.put` records.
+    artifacts: Mutex<BTreeMap<(String, String), Value>>,
 }
 
 impl FakeTaskHost {
@@ -106,6 +111,23 @@ impl FakeTaskHost {
             .lock()
             .expect("lock")
             .push((tag.into(), id.into()));
+    }
+
+    /// Set the task state `accept` gates on: `status` and the delivering
+    /// run's id.
+    fn seed_task_state(&self, id: &str, status: &str, job_run_id: Option<&str>) {
+        self.task_states
+            .lock()
+            .expect("lock")
+            .insert(id.into(), (status.into(), job_run_id.map(String::from)));
+    }
+
+    /// Pre-store a task artifact, as if a prior call had recorded it.
+    fn seed_artifact(&self, id: &str, path: &str, content: Value) {
+        self.artifacts
+            .lock()
+            .expect("lock")
+            .insert((id.into(), path.into()), content);
     }
 }
 
@@ -138,6 +160,38 @@ impl TaskHost for FakeTaskHost {
         let id = format!("TEST-{next}");
         self.seed(tag, &id);
         Ok(TaskRef { id })
+    }
+
+    fn task_state(&self, id: &str) -> Result<TaskState> {
+        let (status, job_run_id) = self
+            .task_states
+            .lock()
+            .expect("lock")
+            .get(id)
+            .cloned()
+            .ok_or_else(|| Error::NotFound(format!("no such task: {id}")))?;
+        Ok(TaskState { status, job_run_id })
+    }
+
+    fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>> {
+        Ok(self
+            .artifacts
+            .lock()
+            .expect("lock")
+            .get(&(id.to_owned(), path.to_owned()))
+            .cloned())
+    }
+
+    fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()> {
+        let bytes = fs::read(source_path)?;
+        let content: Value = serde_json::from_slice(&bytes).map_err(|error| {
+            Error::Internal(format!("staged {path} is not valid JSON: {error}"))
+        })?;
+        self.artifacts
+            .lock()
+            .expect("lock")
+            .insert((id.to_owned(), path.to_owned()), content);
+        Ok(())
     }
 }
 
@@ -390,6 +444,19 @@ fn validate_input_schema_matches_the_committed_schema() {
     );
 }
 
+#[test]
+fn accept_input_schema_matches_the_committed_schema() {
+    let generated =
+        serde_json::to_value(schemars::schema_for!(AcceptInput)).expect("serialize schema");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schemas/accept.request.json");
+    let committed: Value = serde_json::from_str(&fs::read_to_string(&path).expect("read schema"))
+        .expect("parse schema");
+    assert_eq!(
+        committed, generated,
+        "schemas/accept.request.json has drifted from plugin.rs's AcceptInput; regenerate it"
+    );
+}
+
 /// A primary corpus with reserved `R001` and a linked run worktree whose
 /// worktree-mode writer wrote a complete R001 for `task-1`/`run-1`, with one
 /// local input pinned by digest.
@@ -470,6 +537,41 @@ impl Delivered {
                 "job_run_id": run,
             },
         }))
+    }
+
+    /// Commit the worktree's write and fast-forward-merge it into the
+    /// primary checkout, as the job's `git_commit`/`git_merge` steps do:
+    /// `accept` reads the published commit off the primary checkout, never
+    /// the run worktree.
+    fn merge_into_primary(&self) {
+        let git = |args: &[&str]| {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(&self.worktree)
+                .args(args)
+                .output()
+                .expect("run fixture Git");
+            assert!(
+                output.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8_lossy(&output.stdout).trim().to_owned()
+        };
+        git(&["add", "-A"]);
+        git(&["commit", "-q", "-m", "Deliver R001"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(self.primary.path())
+            .args(["merge", "-q", "--ff-only", &head])
+            .output()
+            .expect("run fixture Git");
+        assert!(
+            output.status.success(),
+            "git merge: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
 
@@ -582,4 +684,148 @@ fn validate_refuses_without_a_run_context_or_an_absolute_path() {
         "context": {"task_id": "task-1", "job_run_id": "run-1"},
     }));
     assert_eq!(reply["error"]["code"], "invalid_request", "{reply:?}");
+}
+
+/// Call `accept` bound to `primary` as the workspace, as the host resolves it
+/// for any workspace-scoped mutating tool.
+fn call_accept(primary: &Path, task_id: &str, research_id: &str, host: &dyn TaskHost) -> Value {
+    call_with_host(
+        &envelope(
+            "accept",
+            json!({"task_id": task_id, "research_id": research_id}),
+            Some(primary),
+        ),
+        host,
+    )
+}
+
+/// Stable golden form: strip the published commit and blob, which vary by
+/// fixture run (the commit hash and the README blob, which embeds today's
+/// date).
+fn accept_golden_form(mut reply: Value) -> Value {
+    if let Some(output) = reply.get_mut("output").and_then(Value::as_object_mut) {
+        output.remove("commit");
+        output.remove("blob");
+    }
+    reply
+}
+
+#[test]
+fn accept_goldens_cover_success_idempotent_retry_and_each_refusal() {
+    let mut replies = serde_json::Map::new();
+
+    // Success: delivery landed on the base branch and the task is `review`.
+    {
+        let delivered = delivered();
+        delivered.merge_into_primary();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "review", Some("run-1"));
+        let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        assert_eq!(reply["output"]["recorded"], true, "{reply:?}");
+        replies.insert("success".into(), accept_golden_form(reply));
+    }
+
+    // Idempotent retry: the same call again finds the stored evidence and
+    // writes no second artifact.
+    {
+        let delivered = delivered();
+        delivered.merge_into_primary();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "review", Some("run-1"));
+        call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        let retry = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        assert_eq!(retry["output"]["recorded"], false, "{retry:?}");
+        assert_eq!(
+            host.artifacts.lock().expect("lock").len(),
+            1,
+            "an identical retry must not write a second artifact"
+        );
+        replies.insert("idempotent_retry".into(), accept_golden_form(retry));
+    }
+
+    // Refused: the run is non-terminal (still in progress).
+    {
+        let delivered = delivered();
+        delivered.merge_into_primary();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "in-progress", Some("run-1"));
+        let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        replies.insert("run_not_terminal".into(), accept_golden_form(reply));
+    }
+
+    // Refused: the run failed (the task never reached review; it's blocked).
+    {
+        let delivered = delivered();
+        delivered.merge_into_primary();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "blocked", Some("run-1"));
+        let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        replies.insert("run_failed".into(), accept_golden_form(reply));
+    }
+
+    // Refused: before delivery lands, the primary checkout still holds only
+    // the reserved stub, which fails validate.
+    {
+        let delivered = delivered();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "review", Some("run-1"));
+        let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        replies.insert("before_delivery_lands".into(), accept_golden_form(reply));
+    }
+
+    // Refused: delivery landed, but the published commit itself fails
+    // validate (a placeholder section slipped past the run's own gate).
+    {
+        let delivered = delivered();
+        delivered.edit(README, "Ran it.", "Pending.");
+        delivered.merge_into_primary();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "review", Some("run-1"));
+        let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        replies.insert(
+            "validate_fails_at_published_commit".into(),
+            accept_golden_form(reply),
+        );
+    }
+
+    // Refused: a different acceptance is already stored for this task.
+    {
+        let delivered = delivered();
+        delivered.merge_into_primary();
+        let host = FakeTaskHost::default();
+        host.seed_task_state("task-1", "review", Some("run-1"));
+        host.seed_artifact(
+            "task-1",
+            "research-acceptance.json",
+            json!({
+                "research_id": "R001",
+                "commit": "0".repeat(40),
+                "blob": "0".repeat(40),
+                "run_id": "run-0",
+                "artifact_digests": {},
+            }),
+        );
+        let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+        replies.insert("stored_evidence_mismatch".into(), accept_golden_form(reply));
+    }
+
+    let actual = serde_json::to_string_pretty(&Value::Object(replies)).expect("golden JSON") + "\n";
+    let golden = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/snapshots/plugin-accept.json");
+    if std::env::var_os("UPDATE_GOLDENS").is_some() {
+        fs::write(&golden, &actual).expect("write golden");
+    }
+    assert_eq!(
+        actual,
+        fs::read_to_string(&golden).expect("read golden"),
+        "accept replies drifted from src/snapshots/plugin-accept.json; rerun with UPDATE_GOLDENS=1 and review the diff"
+    );
+}
+
+#[test]
+fn accept_refuses_an_unknown_task() {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let host = FakeTaskHost::default();
+    let reply = call_accept(delivered.primary.path(), "task-unknown", "R001", &host);
+    assert_eq!(reply["ok"], false, "{reply:?}");
 }

@@ -563,10 +563,11 @@ fn the_validate_activity_calls_the_manifest_read_only_validate_tool() {
     assert_eq!(declared["execution_kind"], "read_only");
     // The sandbox constraints this job relies on: no unsandboxed backend and
     // no `requires.programs`, which would fail every deterministic
-    // `plugin.tool_call` step.
+    // `plugin.tool_call` step. `accept`'s own scratch write root
+    // (`.orbit-research-tmp`, never workspace metadata) does not affect this:
+    // it is unrelated to `validate`'s read-only step.
     assert_eq!(manifest["spec"]["backend"]["sandbox"], "default");
     assert!(manifest["spec"]["requires"].get("programs").is_none());
-    assert!(manifest["spec"]["permissions"]["fs"].get("write").is_none());
 }
 
 #[test]

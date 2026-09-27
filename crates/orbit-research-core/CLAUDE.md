@@ -18,4 +18,7 @@ Orbit owns execution, dispatch and cancellation directly (`orbit run show`,
 `orbit task update`, `orbit run job`, `orbit run cancel`); this crate no longer
 shells out to an Orbit CLI adapter. See the plugin conversion spec
 (constellation `operations/research/orbit-research-plugin.md`) for the
-`plan`/`link`/`validate`/`accept` design. `accept` lands in a later slice.
+`plan`/`link`/`validate`/`accept` design. `accept` itself lives in the CLI's
+`src/plugin.rs`, alongside `link` and `validate`, since only that transport
+reaches Orbit's task callbacks; this crate owns only the `Acceptance` shape
+and lookup seam it persists to and reads from.
