@@ -7,12 +7,13 @@
 use orbit_research_core::{
     Error, Research, Result,
     api::Application,
-    application::Operation,
+    application::{Operation, acceptance::Acceptance},
     delivery::{DeliveryReport, Expected},
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -64,9 +65,20 @@ pub(crate) struct TaskRef {
     pub(crate) id: String,
 }
 
-/// The host callbacks `link` needs. Production calls spawn `orbit tool run`
-/// (the only way a sandboxed `exec` backend reaches Orbit); tests substitute
-/// an in-memory fake so goldens don't need a real Orbit installation.
+/// The task fields `accept` gates on: `orbit.task.show` projection of
+/// `status` and `job_run_id`. The delivering run's id comes from the task,
+/// never from the caller's own call context — `accept` targets an
+/// explicitly named task, which need not be the one the caller is running
+/// under.
+pub(crate) struct TaskState {
+    pub(crate) status: String,
+    pub(crate) job_run_id: Option<String>,
+}
+
+/// The host callbacks `link` and `accept` need. Production calls spawn
+/// `orbit tool run` (the only way a sandboxed `exec` backend reaches Orbit);
+/// tests substitute an in-memory fake so goldens don't need a real Orbit
+/// installation.
 pub(crate) trait TaskHost {
     fn list_by_tag(&self, workspace: &str, tag: &str) -> Result<Vec<TaskRef>>;
     fn create(
@@ -78,6 +90,15 @@ pub(crate) trait TaskHost {
         acceptance_criteria: &[String],
         context_files: &[String],
     ) -> Result<TaskRef>;
+    /// Current status and delivering run id for a task, via `orbit.task.show`.
+    fn task_state(&self, id: &str) -> Result<TaskState>;
+    /// The named task artifact's parsed JSON content, if it has been stored.
+    fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>>;
+    /// Store `source_path`'s bytes as the task artifact named `path`, via
+    /// `orbit.task.artifact.put`. `source_path` must resolve inside the
+    /// bound workspace: that callback reads real bytes off disk, never
+    /// inline content, outside the ssh-mcp spoke connector.
+    fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()>;
 }
 
 /// Spawns the host's own `orbit` binary, exactly as a person would run
@@ -156,6 +177,66 @@ impl TaskHost for OrbitCliTaskHost {
             .and_then(Value::as_str)
             .ok_or_else(|| Error::Internal("orbit.task.add did not return a task id".into()))?;
         Ok(TaskRef { id: id.into() })
+    }
+
+    fn task_state(&self, id: &str) -> Result<TaskState> {
+        let output = run_orbit_tool(
+            "orbit.task.show",
+            &json!({"id": id, "fields": ["status", "job_run_id"]}),
+        )?;
+        let status = output
+            .get("status")
+            .and_then(Value::as_str)
+            .ok_or_else(|| Error::Internal("orbit.task.show did not return status".into()))?
+            .to_owned();
+        let job_run_id = output
+            .get("job_run_id")
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        Ok(TaskState { status, job_run_id })
+    }
+
+    fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>> {
+        // `orbit.task.artifact.get` errors on a missing artifact; list first
+        // with `orbit.task.show` so a never-accepted task is `None`, not a
+        // spurious internal failure.
+        let listed = run_orbit_tool(
+            "orbit.task.show",
+            &json!({"id": id, "fields": ["artifacts"]}),
+        )?;
+        let artifacts = listed.get("artifacts").cloned().unwrap_or(listed);
+        let present = artifacts
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|artifact| artifact.get("path").and_then(Value::as_str) == Some(path));
+        if !present {
+            return Ok(None);
+        }
+        let output = run_orbit_tool("orbit.task.artifact.get", &json!({"id": id, "path": path}))?;
+        let content = output
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                Error::Internal(format!(
+                    "orbit.task.artifact.get did not return text content for {path}"
+                ))
+            })?;
+        serde_json::from_str(content)
+            .map(Some)
+            .map_err(|error| Error::Internal(format!("stored {path} is not valid JSON: {error}")))
+    }
+
+    fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()> {
+        run_orbit_tool(
+            "orbit.task.artifact.put",
+            &json!({
+                "id": id,
+                "source_path": source_path.to_string_lossy(),
+                "path": path,
+            }),
+        )?;
+        Ok(())
     }
 }
 
@@ -303,6 +384,157 @@ fn validate_output(request: &Value, input: Value) -> Value {
     }
 }
 
+// `accept`'s own input contract. Not a Core `Operation`: only this transport
+// reaches the `orbit.task.show`/`orbit.task.artifact.{get,put}` callbacks,
+// and Core never shells out to Orbit (see ARCHITECTURE.md). `task_id` is
+// explicit caller input, unlike `validate`'s host-attested `context.task_id`:
+// `accept` targets a specific already-delivered task, which need not be the
+// task the caller is running under. A plain comment for the same
+// schema-description reason as `LinkInput`.
+#[derive(Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AcceptInput {
+    #[schemars(length(min = 1))]
+    task_id: String,
+    #[schemars(regex(pattern = "^R[0-9]{3}$"))]
+    research_id: String,
+}
+
+const ACCEPTANCE_ARTIFACT_PATH: &str = "research-acceptance.json";
+/// Scratch write root for `accept`'s own staged artifact file, granted under
+/// `permissions.fs.write`. Never `.orbit`/`.git`: the sandbox refuses any
+/// write root that reaches workspace metadata.
+const ACCEPT_SCRATCH_DIR: &str = ".orbit-research-tmp";
+
+struct AcceptOutcome {
+    acceptance: Acceptance,
+    /// Whether this call wrote the artifact; `false` for an idempotent retry
+    /// that found matching evidence already stored.
+    recorded: bool,
+}
+
+/// Persist (or idempotently confirm) `research-acceptance.json` for a
+/// validated delivery. Only reachable once `accept_output` has confirmed the
+/// task is `review`/`done` and `validate_delivery` found nothing.
+fn accept_record(
+    workspace_root: &Path,
+    research_id: &str,
+    report: &DeliveryReport,
+    run: &str,
+    task: &str,
+    host: &dyn TaskHost,
+) -> Result<AcceptOutcome> {
+    let candidate = Acceptance {
+        research_id: research_id.to_owned(),
+        commit: report.revision.clone(),
+        blob: report.blob.clone().ok_or_else(|| {
+            Error::Internal("a delivery report with no findings always names a blob".into())
+        })?,
+        run_id: run.to_owned(),
+        artifact_digests: report.artifact_digests.clone(),
+    };
+    if let Some(existing) = host.get_artifact(task, ACCEPTANCE_ARTIFACT_PATH)? {
+        let existing: Acceptance = serde_json::from_value(existing).map_err(|error| {
+            Error::Internal(format!(
+                "{task}'s stored {ACCEPTANCE_ARTIFACT_PATH} is not valid: {error}"
+            ))
+        })?;
+        if existing == candidate {
+            return Ok(AcceptOutcome {
+                acceptance: existing,
+                recorded: false,
+            });
+        }
+        return Err(Error::Conflict(format!(
+            "{task} already carries {ACCEPTANCE_ARTIFACT_PATH} for a different commit or run; refusing to overwrite recorded acceptance"
+        )));
+    }
+    let scratch_dir = workspace_root.join(ACCEPT_SCRATCH_DIR);
+    fs::create_dir_all(&scratch_dir)?;
+    let scratch_file = scratch_dir.join(ACCEPTANCE_ARTIFACT_PATH);
+    fs::write(&scratch_file, serde_json::to_vec_pretty(&candidate)?)?;
+    let put = host.put_artifact(&scratch_file, task, ACCEPTANCE_ARTIFACT_PATH);
+    let _ = fs::remove_file(&scratch_file);
+    put?;
+    Ok(AcceptOutcome {
+        acceptance: candidate,
+        recorded: true,
+    })
+}
+
+/// After delivery lands: the task must be `review`/`done` (a failed or
+/// non-terminal run leaves it elsewhere), then `validate_delivery` re-checks
+/// the published commit on the bound workspace before anything is stored.
+fn accept_output(input: Value, workspace_root: &Path, host: &dyn TaskHost) -> Value {
+    let input: AcceptInput = match serde_json::from_value(input) {
+        Ok(input) => input,
+        Err(error) => return error_envelope("invalid_request", error.to_string()),
+    };
+    // Confirm the bound workspace is a real corpus before touching the host
+    // at all, the same fail-fast order `link` uses: a conformance sandbox's
+    // empty, non-Git workspace refuses here, deterministically, with no host
+    // callback involved.
+    if let Err(error) = Research::open(workspace_root) {
+        return error_envelope(error_code(&error), error.to_string());
+    }
+    let task = input.task_id.as_str();
+    let state = match host.task_state(task) {
+        Ok(state) => state,
+        Err(error) => return error_envelope(error_code(&error), error.to_string()),
+    };
+    if state.status != "review" && state.status != "done" {
+        return error_envelope(
+            "refused",
+            format!(
+                "Task {task} is `{}`, not `review` or `done`; accept only runs after a successful, terminal delivery",
+                state.status
+            ),
+        );
+    }
+    let Some(run) = state.job_run_id.as_deref() else {
+        return error_envelope(
+            "refused",
+            format!("Task {task} has no recorded run to accept"),
+        );
+    };
+    let report = match Research::open(workspace_root).and_then(|research| {
+        research.validate_delivery(&Expected {
+            research_id: Some(&input.research_id),
+            task,
+            run,
+        })
+    }) {
+        Ok(report) => report,
+        Err(error) => return error_envelope(error_code(&error), error.to_string()),
+    };
+    if !report.valid() {
+        return error_envelope(
+            report.findings[0].reason.as_str(),
+            report
+                .findings
+                .iter()
+                .map(|finding| format!("{}: {}", finding.reason.as_str(), finding.message))
+                .collect::<Vec<_>>()
+                .join("; "),
+        );
+    }
+    match accept_record(workspace_root, &input.research_id, &report, run, task, host) {
+        Ok(outcome) => json!({
+            "ok": true,
+            "output": {
+                "research_id": outcome.acceptance.research_id,
+                "task_id": task,
+                "commit": outcome.acceptance.commit,
+                "blob": outcome.acceptance.blob,
+                "run_id": outcome.acceptance.run_id,
+                "artifact_digests": outcome.acceptance.artifact_digests,
+                "recorded": outcome.recorded,
+            },
+        }),
+        Err(error) => error_envelope(error_code(&error), error.to_string()),
+    }
+}
+
 fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     let request: Value = match serde_json::from_slice(request_bytes) {
         Ok(request) => request,
@@ -334,6 +566,9 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     let input = if input.is_null() { json!({}) } else { input };
     if verb(tool) == "link" {
         return link_output(&workspace_root, input, host);
+    }
+    if verb(tool) == "accept" {
+        return accept_output(input, &workspace_root, host);
     }
     let Some(operation) = operation_for_verb(verb(tool)) else {
         return error_envelope(

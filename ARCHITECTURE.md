@@ -5,8 +5,7 @@ an independent application. It no longer shells out to an Orbit CLI adapter to
 drive execution: Orbit owns tasks, crews, runs and delivery natively, and this
 app coordinates only through local request correlation. See the plugin
 conversion spec (constellation `operations/research/orbit-research-plugin.md`)
-for the `plan`/`link`/`validate`/`accept` design. `accept` lands in a later
-slice.
+for the `plan`/`link`/`validate`/`accept` design.
 
 ```text
 orbit-research-cli ── orbit-research-core
@@ -62,6 +61,24 @@ workspace leaf; no workspace crate dependency is permitted.
   not from caller input. Any finding replies `ok:false`, because Orbit fails a `plugin.tool_call`
   step only on `ok:false`. `schemas/validate.request.json` is drift-checked in `src/tests/plugin.rs`.
   Its replies are pinned in `src/snapshots/plugin-validate.json`.
+- **`accept`** is the plugin's second mutating tool, invoked by an explicit `task_id` and
+  `research_id` (not host-attested context: a delivered task need not be the one the caller is
+  running under). It reads the task's `status`/`job_run_id` through `orbit.task.show`, refusing
+  unless `status` is `review` or `done`; re-runs `Corpus::validate_delivery` against the bound
+  workspace (the primary checkout, expected to already hold the published commit) with the task's
+  own `job_run_id` as the expected run; and, once that passes, persists `research-acceptance.json`
+  (record id, blob, commit, per-input artifact digests from `DeliveryReport::artifact_digests`, run
+  id) through `orbit.task.artifact.put`. A matching retry is idempotent (`orbit.task.artifact.get`
+  finds the same content and writes nothing new); a stored artifact with different content refuses
+  as a conflict. `orbit.task.artifact.put`'s callback reads real bytes off a `source_path` inside
+  the bound workspace, so `accept` stages the artifact under the workspace-relative
+  `.orbit-research-tmp/` scratch directory (its own `permissions.fs.write` grant, never `.orbit`/
+  `.git`) and removes the staged file after the callback returns. `schemas/accept.request.json` is
+  drift-checked and its goldens (success, idempotent retry, and each refusal) are pinned in
+  `src/tests/plugin.rs`/`src/snapshots/plugin-accept.json`, over the same in-memory `TaskHost` fake
+  used for `link`. `assess`'s `AcceptanceLookup` (`application/acceptance.rs`) deserializes directly
+  from this artifact's shape; `Application::local`'s default lookup still finds nothing until a
+  caller wires a real one.
 - **Plugin definitions** live at the repo root, declared under `spec.definitions`:
   `jobs/research_investigation.yaml` and `activities/research_{investigate,validate}.yaml`. The job
   runs shipped `worktree_setup` → the `research_investigate` agent → `research_validate`, a
@@ -92,10 +109,13 @@ orbit-research-core/
 ```
 
 `application/acceptance.rs` defines the acceptance lookup `assess` consults
-before appending a verdict. The default lookup finds nothing, so `assess`
-refuses until acceptance storage (the plugin's `accept` tool, an Orbit task
-artifact) is wired; tests supply fixture lookups. Acceptance never supplies a
-verdict: the caller always states it.
+before appending a verdict, and the `Acceptance` shape mirrors
+`research-acceptance.json`, the task artifact the plugin's `accept` tool
+persists, so a lookup backed by that artifact deserializes it directly. The
+default lookup (`Application::local`'s starting point) still finds nothing,
+so `assess` refuses until a caller wires a real one with `with_acceptance`;
+tests supply fixture lookups. Acceptance never supplies a verdict: the caller
+always states it.
 
 Transports invoke application use cases. Bootstrap fixes the corpus scope at
 startup; runtime contains its state. Application operations own research policy

@@ -1,0 +1,66 @@
+{
+  "before_delivery_lands": {
+    "error": {
+      "code": "section_placeholder",
+      "message": "section_placeholder: research/R001-study/README.md: `## Method`, `## Result`, `## Limitations`, `## Next` still empty or holding the reserved stub's text; orbit_task_mismatch: R001 has no orbit.task; expected `task-1`; orbit_run_mismatch: R001 has no orbit.run; expected `run-1`",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "idempotent_retry": {
+    "ok": true,
+    "output": {
+      "artifact_digests": {
+        "input.csv": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
+      },
+      "recorded": false,
+      "research_id": "R001",
+      "run_id": "run-1",
+      "task_id": "task-1"
+    }
+  },
+  "run_failed": {
+    "error": {
+      "code": "refused",
+      "message": "Task task-1 is `blocked`, not `review` or `done`; accept only runs after a successful, terminal delivery",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "run_not_terminal": {
+    "error": {
+      "code": "refused",
+      "message": "Task task-1 is `in-progress`, not `review` or `done`; accept only runs after a successful, terminal delivery",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "stored_evidence_mismatch": {
+    "error": {
+      "code": "conflict",
+      "message": "task-1 already carries research-acceptance.json for a different commit or run; refusing to overwrite recorded acceptance",
+      "retryable": false
+    },
+    "ok": false
+  },
+  "success": {
+    "ok": true,
+    "output": {
+      "artifact_digests": {
+        "input.csv": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
+      },
+      "recorded": true,
+      "research_id": "R001",
+      "run_id": "run-1",
+      "task_id": "task-1"
+    }
+  },
+  "validate_fails_at_published_commit": {
+    "error": {
+      "code": "section_placeholder",
+      "message": "section_placeholder: research/R001-study/README.md: `## Method` still empty or holding the reserved stub's text",
+      "retryable": false
+    },
+    "ok": false
+  }
+}

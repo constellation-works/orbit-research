@@ -71,8 +71,40 @@ impl AcceptanceLookup for Accepted {
             commit: "0".repeat(40),
             blob: "0".repeat(40),
             run_id: "run-1".into(),
+            artifact_digests: Default::default(),
         }))
     }
+}
+
+/// A lookup backed by a stored task artifact, as the plugin's `accept` tool
+/// would persist and the CLI's `assess` path would fetch. Deserializing
+/// straight into `Acceptance` is the "connection" between the two: `accept`
+/// and `assess` share the same wire shape for `research-acceptance.json`.
+struct FromStoredArtifact(Value);
+
+impl AcceptanceLookup for FromStoredArtifact {
+    fn acceptance(&self, research_id: &str) -> Result<Option<Acceptance>> {
+        let acceptance: Acceptance =
+            serde_json::from_value(self.0.clone()).expect("valid research-acceptance.json");
+        Ok((acceptance.research_id == research_id).then_some(acceptance))
+    }
+}
+
+#[test]
+fn assess_succeeds_once_the_lookup_deserializes_accepts_stored_artifact_shape() {
+    let temp = negative_result_corpus();
+    let artifact = json!({
+        "research_id": "R001",
+        "commit": "0".repeat(40),
+        "blob": "0".repeat(40),
+        "run_id": "run-1",
+        "artifact_digests": {"input.csv": "0".repeat(64)},
+    });
+    let app = Application::local(&root(&temp))
+        .expect("app")
+        .with_acceptance(FromStoredArtifact(artifact));
+    assess(&app, Some("inconclusive"), 1)
+        .expect("assess succeeds when the task carries research-acceptance.json");
 }
 
 fn hypothesis(app: &Application) -> Value {

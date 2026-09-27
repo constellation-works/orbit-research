@@ -1,0 +1,19 @@
+# See list.yaml: the conformance workspace is never a valid corpus, and
+# `orbit plugin test` has no fixture corpus and no way to fake the
+# orbit.task.show/orbit.task.artifact.{get,put} callbacks. `accept` checks
+# the bound workspace opens as a corpus before touching any host callback
+# (the same fail-fast order `link` uses), so this pins that deterministic
+# refusal. Success, the idempotent retry, and each other refusal (a
+# non-terminal/failed run, a validate finding at the published commit, a
+# stored-evidence mismatch) are covered by `cargo test -p orbit-research-cli`
+# (src/tests/plugin.rs), which drives `serve_plugin_tool_call_with_host` with
+# an in-memory fake task host over a real git-backed corpus.
+schemaVersion: 1
+kind: PluginTest
+tests:
+  - name: accept_refuses_when_the_workspace_has_no_corpus
+    tool: accept
+    input: {"task_id": "TASK-1", "research_id": "R001"}
+    expect:
+      error:
+        code: corpus_unavailable
