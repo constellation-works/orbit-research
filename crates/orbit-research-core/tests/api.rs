@@ -155,6 +155,58 @@ fn link_requests_share_confirmations_across_worktrees_without_git_on_path() {
 }
 
 #[test]
+fn link_request_io_failures_identify_the_operation_and_path() {
+    for block_lock in [false, true] {
+        let (temp, app) = fixture();
+        create_r(&app, "io-context-reservation");
+        let log_root = temp
+            .path()
+            .canonicalize()
+            .expect("canonical fixture root")
+            .join(".git/orbit-research-operations");
+        let (operation, failing_path) = if block_lock {
+            fs::create_dir(&log_root).expect("request log directory");
+            let lock = log_root.join("lock");
+            fs::create_dir(&lock).expect("directory blocking the lock file");
+            ("open request-log lock", lock)
+        } else {
+            fs::write(&log_root, "preserve this file").expect("file blocking the log directory");
+            ("create request-log directory", log_root.clone())
+        };
+        let error = match app.link_intent("io-context-link", "R001") {
+            Err(error) => error,
+            Ok(_) => panic!("blocked request log must fail before saving an intent"),
+        };
+        let orbit_research_core::Error::Io(error) = error else {
+            panic!("filesystem errors must preserve the typed Io variant");
+        };
+        let expected_kind = if block_lock {
+            error.kind() == std::io::ErrorKind::IsADirectory
+                || (cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied)
+        } else {
+            error.kind() == std::io::ErrorKind::AlreadyExists
+        };
+        assert!(expected_kind, "unexpected I/O kind: {error:?}");
+        assert!(
+            std::error::Error::source(&error).is_some(),
+            "operation context must retain the original filesystem error as its source"
+        );
+        let message = error.to_string();
+        assert!(message.contains(operation), "{message}");
+        assert!(
+            message.contains(&failing_path.display().to_string()),
+            "{message}"
+        );
+        if !block_lock {
+            assert_eq!(
+                fs::read_to_string(log_root).expect("blocking file remains readable"),
+                "preserve this file"
+            );
+        }
+    }
+}
+
+#[test]
 fn local_capture_and_work_plans_need_no_backend() {
     let (temp, app) = fixture();
     let first = create_r(&app, "capture-r");
