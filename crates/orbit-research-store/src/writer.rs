@@ -607,7 +607,7 @@ impl Corpus {
     /// Writers reuse the compiled owner contract; a changed schema needs a reopen.
     pub(crate) fn require_open_schema(&self) -> Result<()> {
         let schema: serde_json::Value =
-            serde_json::from_slice(&fs::read(self.root().join("_scripts/schema.json"))?)?;
+            serde_json::from_slice(&self.working_bytes("_scripts/schema.json")?)?;
         if schema != *self.schema() {
             return Err(Error::Invalid(
                 "Owner schema changed; reopen the corpus before writing".into(),

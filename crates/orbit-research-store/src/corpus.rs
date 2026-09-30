@@ -29,6 +29,7 @@ pub struct Corpus {
 }
 
 impl Corpus {
+    /// Open the selected corpus, refusing symlinked schema files or ancestors.
     pub fn open(root: &Path) -> Result<Self> {
         let requested_root = root.to_owned();
         let root = root.canonicalize().map_err(|error| {
@@ -45,20 +46,22 @@ impl Corpus {
             }
         })?;
         let schema_path = root.join("_scripts/schema.json");
-        let schema_bytes = fs::read(&schema_path).map_err(|error| {
-            if error.kind() == std::io::ErrorKind::NotFound {
-                Error::Invalid(format!(
-                    "Corpus at {} is missing the corpus contract: {}",
-                    root.display(),
-                    schema_path.display()
-                ))
-            } else {
-                Error::Invalid(format!(
+        let schema_bytes = safe_path(&root, Path::new("_scripts/schema.json"))
+            .and_then(|path| Ok(fs::read(path)?))
+            .map_err(|error| match error {
+                Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    Error::Invalid(format!(
+                        "Corpus at {} is missing the corpus contract: {}",
+                        root.display(),
+                        schema_path.display()
+                    ))
+                }
+                Error::Io(error) => Error::Invalid(format!(
                     "Unable to read the corpus contract at {}: {error}",
                     schema_path.display()
-                ))
-            }
-        })?;
+                )),
+                error => error,
+            })?;
         let corpus = Self {
             root,
             contract: Contract::compile(serde_json::from_slice(&schema_bytes)?)?,
@@ -249,25 +252,30 @@ impl Corpus {
     }
 
     pub(crate) fn safe_path(&self, relative: &Path) -> Result<PathBuf> {
-        if relative.is_absolute()
-            || relative
-                .components()
-                .any(|c| !matches!(c, std::path::Component::Normal(_)))
-        {
-            return Err(Error::Invalid(
-                "Corpus path must be relative without traversal".into(),
-            ));
-        }
-        let mut path = self.root.clone();
-        for component in relative.components() {
-            path.push(component);
-            if fs::symlink_metadata(&path)?.file_type().is_symlink() {
-                return Err(Error::Invalid(format!(
-                    "Corpus symlink refused: {}",
-                    relative.display()
-                )));
-            }
-        }
-        Ok(path)
+        safe_path(&self.root, relative)
     }
+}
+
+/// Resolve working-tree paths before a contract exists as well as after opening.
+fn safe_path(root: &Path, relative: &Path) -> Result<PathBuf> {
+    if relative.is_absolute()
+        || relative
+            .components()
+            .any(|c| !matches!(c, std::path::Component::Normal(_)))
+    {
+        return Err(Error::Invalid(
+            "Corpus path must be relative without traversal".into(),
+        ));
+    }
+    let mut path = root.to_owned();
+    for component in relative.components() {
+        path.push(component);
+        if fs::symlink_metadata(&path)?.file_type().is_symlink() {
+            return Err(Error::Invalid(format!(
+                "Corpus symlink refused: {}",
+                relative.display()
+            )));
+        }
+    }
+    Ok(path)
 }

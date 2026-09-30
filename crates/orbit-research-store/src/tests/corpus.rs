@@ -278,6 +278,67 @@ fn rejects_symlink_outside_corpus() {
     assert!(error.to_string().contains("Corpus symlink refused"));
 }
 
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_schema_file_or_directory_before_opening_the_corpus() {
+    use std::os::unix::fs::symlink;
+
+    for (symlink_directory, missing_schema) in
+        [(false, false), (true, false), (false, true), (true, true)]
+    {
+        let temp = start_fixture();
+        finish_fixture(&temp);
+        let outside = tempfile::tempdir().unwrap();
+        if !missing_schema {
+            fs::write(outside.path().join("schema.json"), SCHEMA).unwrap();
+        }
+        if symlink_directory {
+            fs::remove_dir_all(temp.path().join("_scripts")).unwrap();
+            symlink(outside.path(), temp.path().join("_scripts")).unwrap();
+        } else {
+            fs::remove_file(temp.path().join("_scripts/schema.json")).unwrap();
+            symlink(
+                outside.path().join("schema.json"),
+                temp.path().join("_scripts/schema.json"),
+            )
+            .unwrap();
+        }
+        let error = match Corpus::open(temp.path()) {
+            Ok(_) => panic!("schema contract must not be read through a symlink"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("Corpus symlink refused"));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn writer_rechecks_schema_symlinks_after_the_corpus_is_opened() {
+    use std::os::unix::fs::symlink;
+
+    let temp = canonical_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let outside = tempfile::NamedTempFile::new().unwrap();
+    fs::write(outside.path(), SCHEMA).unwrap();
+    fs::remove_file(temp.path().join("_scripts/schema.json")).unwrap();
+    symlink(outside.path(), temp.path().join("_scripts/schema.json")).unwrap();
+    let before = command(temp.path(), &["rev-parse", "HEAD"]);
+    let error = corpus
+        .reserve(
+            "unsafe-schema",
+            "Q",
+            "Another question",
+            "Why?",
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("Corpus symlink refused"));
+    assert_eq!(command(temp.path(), &["rev-parse", "HEAD"]), before);
+    assert_eq!(fs::read(outside.path()).unwrap(), SCHEMA);
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 4);
+}
+
 #[test]
 fn rejects_invalid_frontmatter() {
     let temp = start_fixture();
