@@ -57,3 +57,45 @@ jobs:
           toolchain: 1.89.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test -p orbit-research-store --lib --locked portable_reservation_and_revision_retry_after_receipt_loss
+
+  plugin:
+    name: Installed Orbit plugin (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1; Rust 1.89.0
+        with:
+          toolchain: 1.89.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo build -p orbit-research-cli --locked
+      - name: Download and verify pinned Orbit
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/orbit.tar.gz" \
+            https://github.com/constellation-works/orbit/releases/download/v0.25.0/orbit-x86_64-unknown-linux-gnu.tar.gz
+          printf '%s  %s\n' \
+            '20fb33831213e4785d29172ea4944f19c76332764806e8928164a3bbf20d593a' \
+            "$RUNNER_TEMP/orbit.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/orbit.tar.gz" -C "$RUNNER_TEMP" orbit
+          "$RUNNER_TEMP/orbit" --version
+      - name: Validate and test a clean plugin export
+        shell: bash
+        run: |
+          qa_home="$RUNNER_TEMP/research-plugin-home"
+          qa_orbit() { env HOME="$qa_home" XDG_CONFIG_HOME="$qa_home" "$RUNNER_TEMP/orbit" "$@"; }
+          mkdir -p "$qa_home" "$RUNNER_TEMP/research-plugin-source" "$RUNNER_TEMP/research-plugin-workspace"
+          git archive HEAD .orbit-plugin scripts/bundle-plugin-binary.sh | \
+            tar -x -C "$RUNNER_TEMP/research-plugin-source"
+          env HOME="$qa_home" XDG_CONFIG_HOME="$qa_home" sh "$RUNNER_TEMP/research-plugin-source/scripts/bundle-plugin-binary.sh" \
+            --binary "$PWD/target/debug/orbit-research" "$RUNNER_TEMP/research-plugin-source/.orbit-plugin"
+          env HOME="$qa_home" XDG_CONFIG_HOME="$qa_home" git -C "$RUNNER_TEMP/research-plugin-workspace" init -b main
+          cd "$RUNNER_TEMP/research-plugin-workspace"
+          qa_orbit workspace init --name research-conformance --root "$RUNNER_TEMP/research-conformance-root"
+          qa_orbit plugin validate --first-party "$RUNNER_TEMP/research-plugin-source/.orbit-plugin"
+          qa_orbit plugin test --first-party --root "$RUNNER_TEMP/research-conformance-root" \
+            --workspace research-conformance "$RUNNER_TEMP/research-plugin-source/.orbit-plugin"
+      - name: Exercise all installed tools through CLI and MCP
+        env:
+          ORBIT_RESEARCH_TEST_ORBIT_BIN: ${{ runner.temp }}/orbit
+        run: cargo test -p orbit-research-cli --test plugin_v2 --locked -- --ignored
