@@ -188,9 +188,9 @@ fn tool_call_delegates_and_wraps_core_errors() {
     assert!(list["revision"].is_string());
     assert!(list["records"].is_array());
     assert!(list["tags"].is_array());
-    assert!(values[3]["result"]["isError"] == true);
+    assert_eq!(values[3]["error"]["code"], -32602);
     assert!(
-        values[3]["result"]["content"][0]["text"]
+        values[3]["error"]["message"]
             .as_str()
             .expect("text error content")
             .contains("Unknown research operation")

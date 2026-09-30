@@ -61,6 +61,14 @@ canonical snapshot shape.
 version always remain readable text, even under a machine format preference.
 `resource --version` selects a resource revision rather than process version.
 
+MCP replies preserve request IDs, including requests using a notification method
+name. Actual notifications omit `id` and receive no reply. Malformed request
+envelopes return `-32600`; unsupported methods return `-32601`; invalid tool
+names and arguments return `-32602`. Application execution failures remain tool
+results with `isError: true`. These follow the
+[JSON-RPC request contract](https://www.jsonrpc.org/specification#request_object)
+and [MCP tool error distinction](https://modelcontextprotocol.io/specification/2024-11-05/server/tools#error-handling).
+
 ## 5. Migration
 
 The previous default was JSON. Scripts must add `--format json` or set

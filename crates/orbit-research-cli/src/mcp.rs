@@ -103,17 +103,18 @@ pub(crate) fn serve_mcp_application(
         let notification = !id_present;
         let valid_shape = object.get("jsonrpc") == Some(&Value::String("2.0".into()))
             && object.get("method").and_then(Value::as_str).is_some()
-            && object.get("id").is_none_or(valid_id);
+            && object.get("id").is_none_or(valid_id)
+            && object
+                .get("params")
+                .is_none_or(|params| params.is_object() || params.is_array());
         let invalid = !valid_shape;
         if invalid {
-            write_response(
-                &mut writer,
-                error_response(Value::Null, -32600, "Invalid Request"),
-            )?;
+            let id = if valid_id(&id) { id } else { Value::Null };
+            write_response(&mut writer, error_response(id, -32600, "Invalid Request"))?;
             continue;
         }
         let method = object["method"].as_str().expect("validated method");
-        if method == "notifications/initialized" {
+        if method == "notifications/initialized" && notification {
             continue;
         }
         if method == "initialize" {
@@ -154,6 +155,19 @@ pub(crate) fn serve_mcp_application(
             }
             continue;
         }
+        if matches!(method, "ping" | "tools/list")
+            && object
+                .get("params")
+                .is_some_and(|params| !params.is_object())
+        {
+            if !notification {
+                write_response(
+                    &mut writer,
+                    error_response(id, -32602, format!("{method} params must be an object")),
+                )?;
+            }
+            continue;
+        }
         let result = match method {
             "ping" => Ok(json!({})),
             "tools/list" => Ok(json!({"tools":tools()})),
@@ -188,19 +202,26 @@ pub(crate) fn serve_mcp_application(
                     .cloned()
                     .unwrap_or_else(|| json!({}));
                 if !arguments.is_object() {
-                    Err(Error::Invalid(
-                        "tools/call arguments must be an object".into(),
-                    ))
-                } else {
-                    application
-                        .call(name, arguments)
-                        .map(|value| {
-                            json!({
-                                "content": [{ "type": "text", "text": value.to_string() }],
-                                "isError": false,
-                            })
-                        })
-                        .map_err(|error| Error::Invalid(error.to_string()))
+                    write_response(
+                        &mut writer,
+                        error_response(id, -32602, "tools/call arguments must be an object"),
+                    )?;
+                    continue;
+                }
+                match application.call(name, arguments) {
+                    Ok(value) => Ok(json!({
+                        "content": [{ "type": "text", "text": value.to_string() }],
+                        "isError": false,
+                    })),
+                    Err(Error::InvalidInput(message)) => {
+                        write_response(&mut writer, error_response(id, -32602, message))?;
+                        continue;
+                    }
+                    Err(Error::Internal(message)) => {
+                        write_response(&mut writer, error_response(id, -32603, message))?;
+                        continue;
+                    }
+                    Err(error) => Err(error),
                 }
             }
             _ => {
