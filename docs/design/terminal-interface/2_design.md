@@ -74,7 +74,9 @@ canonical body, metadata, path and content identities. See
 `research check --corpus PATH` renders one human summary line with validation
 status, base revision and record/tag counts. Other structured values render as
 untruncated dotted field labels and values.
-Arrays repeat the field label; empty arrays and nulls display `-`. Packaged
+Arrays repeat the field label; empty arrays and nulls display `-`. An empty
+`research work-links` result displays `-` for absent local correlations; it does
+not claim the corpus has no research records. Packaged
 `resource` instructions render as Markdown text in human modes. Control characters
 are escaped; detail bodies retain newlines and tabs for readability.
 

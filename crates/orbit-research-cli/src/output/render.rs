@@ -69,8 +69,10 @@ pub(crate) fn render(
 fn records(value: &Value) -> Option<&Vec<Value>> {
     value.get("records").and_then(Value::as_array).or_else(|| {
         value.as_array().filter(|rows| {
-            rows.iter()
-                .all(|row| row.get("id").is_some() && row.get("kind").is_some())
+            !rows.is_empty()
+                && rows
+                    .iter()
+                    .all(|row| row.get("id").is_some() && row.get("kind").is_some())
         })
     })
 }
@@ -105,7 +107,11 @@ fn detail(out: &mut impl Write, value: &Value, prefix: &str) -> io::Result<()> {
         }
         Value::Array(values) => {
             if values.is_empty() {
-                writeln!(out, "{prefix}: -")?;
+                if prefix.is_empty() {
+                    writeln!(out, "-")?;
+                } else {
+                    writeln!(out, "{prefix}: -")?;
+                }
             }
             for value in values {
                 detail(out, value, prefix)?;
