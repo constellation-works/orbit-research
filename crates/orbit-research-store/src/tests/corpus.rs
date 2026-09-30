@@ -288,20 +288,23 @@ fn rejects_symlinked_schema_file_or_directory_before_opening_the_corpus() {
     {
         let temp = start_fixture();
         finish_fixture(&temp);
-        let outside = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().expect("external schema directory");
         if !missing_schema {
-            fs::write(outside.path().join("schema.json"), SCHEMA).unwrap();
+            fs::write(outside.path().join("schema.json"), SCHEMA).expect("external schema bytes");
         }
         if symlink_directory {
-            fs::remove_dir_all(temp.path().join("_scripts")).unwrap();
-            symlink(outside.path(), temp.path().join("_scripts")).unwrap();
+            fs::remove_dir_all(temp.path().join("_scripts"))
+                .expect("remove internal schema directory");
+            symlink(outside.path(), temp.path().join("_scripts"))
+                .expect("schema directory symlink");
         } else {
-            fs::remove_file(temp.path().join("_scripts/schema.json")).unwrap();
+            fs::remove_file(temp.path().join("_scripts/schema.json"))
+                .expect("remove internal schema");
             symlink(
                 outside.path().join("schema.json"),
                 temp.path().join("_scripts/schema.json"),
             )
-            .unwrap();
+            .expect("schema file symlink");
         }
         let error = match Corpus::open(temp.path()) {
             Ok(_) => panic!("schema contract must not be read through a symlink"),
@@ -317,11 +320,11 @@ fn writer_rechecks_schema_symlinks_after_the_corpus_is_opened() {
     use std::os::unix::fs::symlink;
 
     let temp = canonical_fixture();
-    let corpus = Corpus::open(temp.path()).unwrap();
-    let outside = tempfile::NamedTempFile::new().unwrap();
-    fs::write(outside.path(), SCHEMA).unwrap();
-    fs::remove_file(temp.path().join("_scripts/schema.json")).unwrap();
-    symlink(outside.path(), temp.path().join("_scripts/schema.json")).unwrap();
+    let corpus = Corpus::open(temp.path()).expect("open canonical fixture");
+    let outside = tempfile::NamedTempFile::new().expect("external schema file");
+    fs::write(outside.path(), SCHEMA).expect("external schema bytes");
+    fs::remove_file(temp.path().join("_scripts/schema.json")).expect("remove internal schema");
+    symlink(outside.path(), temp.path().join("_scripts/schema.json")).expect("schema file symlink");
     let before = command(temp.path(), &["rev-parse", "HEAD"]);
     let error = corpus
         .reserve(
@@ -332,11 +335,21 @@ fn writer_rechecks_schema_symlinks_after_the_corpus_is_opened() {
             vec![],
             vec![],
         )
-        .unwrap_err();
+        .expect_err("writer must refuse the schema symlink");
     assert!(error.to_string().contains("Corpus symlink refused"));
     assert_eq!(command(temp.path(), &["rev-parse", "HEAD"]), before);
-    assert_eq!(fs::read(outside.path()).unwrap(), SCHEMA);
-    assert_eq!(corpus.snapshot().unwrap().records.len(), 4);
+    assert_eq!(
+        fs::read(outside.path()).expect("external schema preserved"),
+        SCHEMA
+    );
+    assert_eq!(
+        corpus
+            .snapshot()
+            .expect("canonical records preserved")
+            .records
+            .len(),
+        4
+    );
 }
 
 #[test]

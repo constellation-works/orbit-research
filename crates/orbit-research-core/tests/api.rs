@@ -56,12 +56,18 @@ fn create_r(app: &Application, request_key: &str) -> Value {
 fn confirmed_link_retries_preserve_the_original_task() {
     let (temp, app) = fixture();
     create_r(&app, "link-reservation");
-    let preparation = app.link_intent("link-request", "R001").unwrap();
+    let preparation = app
+        .link_intent("link-request", "R001")
+        .expect("record link intent");
     assert!(preparation.is_new);
     assert!(preparation.link.task_id.is_none());
 
-    let first = app.link_confirm("link-request", "task-first").unwrap();
-    let retry = app.link_confirm("link-request", "task-first").unwrap();
+    let first = app
+        .link_confirm("link-request", "task-first")
+        .expect("first confirmation");
+    let retry = app
+        .link_confirm("link-request", "task-first")
+        .expect("identical confirmation retry");
     assert_eq!(first.task_id, retry.task_id);
 
     let error = app
@@ -71,12 +77,16 @@ fn confirmed_link_retries_preserve_the_original_task() {
     let message = error.to_string();
     assert!(!message.contains("task-first"));
     assert!(!message.contains("task-competing"));
-    let reopened = Application::local(temp.path()).unwrap();
-    let recalled = reopened.link_intent("link-request", "R001").unwrap();
+    let reopened = Application::local(temp.path()).expect("reopen fixture application");
+    let recalled = reopened
+        .link_intent("link-request", "R001")
+        .expect("recall persisted link");
     assert!(!recalled.is_new);
     assert_eq!(recalled.link.task_id.as_deref(), Some("task-first"));
-    let links = reopened.call("research.work_links", json!({})).unwrap();
-    assert_eq!(links.as_array().unwrap().len(), 1);
+    let links = reopened
+        .call("research.work_links", json!({}))
+        .expect("list persisted links");
+    assert_eq!(links.as_array().expect("link array").len(), 1);
     assert_eq!(links[0]["task_id"], "task-first");
 }
 
