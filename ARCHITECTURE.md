@@ -7,6 +7,13 @@ app coordinates only through local request correlation. See the plugin
 conversion spec (constellation `operations/research/orbit-research-plugin.md`)
 for the `plan`/`link`/`validate`/`accept` design.
 
+The plugin requires Orbit 0.25.0 or newer. Orbit 0.24.0's macOS sandbox denies
+directory metadata access needed to resolve its own callback identity; `link`
+therefore cannot reach the declared task callbacks. Orbit 0.25.0 fixes those
+ancestor metadata grants without permitting directory listing. The manifest
+has one host version range for Linux and macOS, so it refuses older hosts on
+both platforms before installation.
+
 ```text
 orbit-research-cli ── orbit-research-core
                               │
