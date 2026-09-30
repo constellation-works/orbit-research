@@ -18,6 +18,9 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Bound the complete exec envelope, including host context, before parsing.
+const MAX_PLUGIN_REQUEST_BYTES: u64 = 1024 * 1024;
+
 /// Map a plugin tool call to a Core operation. The host may send the bare
 /// verb, the local-development namespace (`research.list`) or the verified
 /// first-party namespace (`orbit.research.list`); only the trailing verb is
@@ -59,6 +62,10 @@ fn error_envelope(code: &str, message: impl Into<String>) -> Value {
 fn version_output() -> Value {
     json!({"ok": true, "output": {"core_version": orbit_research_core::VERSION}})
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VersionInput {}
 
 /// A reference to an Orbit task, as returned by `orbit.task.list`/`orbit.task.add`.
 pub(crate) struct TaskRef {
@@ -548,11 +555,17 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     let Some(tool) = request.get("tool").and_then(Value::as_str) else {
         return error_envelope("invalid_request", "Missing plugin tool call `tool` name");
     };
+    let input = request.get("input").cloned().unwrap_or(json!({}));
+    if !input.is_object() {
+        return error_envelope("invalid_request", "Plugin tool input must be a JSON object");
+    }
     if verb(tool) == "version" {
-        return version_output();
+        return match serde_json::from_value::<VersionInput>(input) {
+            Ok(_) => version_output(),
+            Err(error) => error_envelope("invalid_request", error.to_string()),
+        };
     }
     if verb(tool) == "validate" {
-        let input = request.get("input").cloned().unwrap_or(json!({}));
         return validate_output(&request, input);
     }
     let workspace_root = request
@@ -562,8 +575,6 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     let Some(workspace_root) = workspace_root else {
         return error_envelope("workspace_required", "This tool requires a bound workspace");
     };
-    let input = request.get("input").cloned().unwrap_or(json!({}));
-    let input = if input.is_null() { json!({}) } else { input };
     if verb(tool) == "link" {
         return link_output(&workspace_root, input, host);
     }
@@ -591,13 +602,24 @@ pub fn serve_plugin_tool_call(reader: impl Read, writer: impl Write) -> Result<(
 }
 
 pub(crate) fn serve_plugin_tool_call_with_host(
-    mut reader: impl Read,
+    reader: impl Read,
     mut writer: impl Write,
     host: &dyn TaskHost,
 ) -> Result<()> {
     let mut request_bytes = Vec::new();
-    reader.read_to_end(&mut request_bytes)?;
-    let response = handle(&request_bytes, host);
+    reader
+        .take(MAX_PLUGIN_REQUEST_BYTES + 1)
+        .read_to_end(&mut request_bytes)?;
+    let response = if request_bytes.len() as u64 > MAX_PLUGIN_REQUEST_BYTES {
+        error_envelope(
+            "invalid_request",
+            format!(
+                "Plugin request exceeds {MAX_PLUGIN_REQUEST_BYTES} bytes; reduce the input or context"
+            ),
+        )
+    } else {
+        handle(&request_bytes, host)
+    };
     serde_json::to_writer(&mut writer, &response)?;
     writer.write_all(b"\n")?;
     writer.flush()?;
