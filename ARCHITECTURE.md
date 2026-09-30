@@ -35,10 +35,15 @@ workspace leaf; no workspace crate dependency is permitted.
   it to a different filesystem root.
 - **CLI’s plugin transport** (`src/plugin.rs`, the `orbit-tool` subcommand) owns the sandboxed
   Orbit plugin `exec` backend protocol: one stdin JSON request, one stdout JSON reply, never a
-  nonzero exit for a refused call. It resolves each call's tool verb to a Core `Operation` and
+  nonzero exit for a refused call. The complete input envelope is limited to 1 MiB (1,048,576
+  bytes); oversized requests return `invalid_request` before parsing or dispatch. Each tool's
+  `input` must be a JSON object; omission selects an empty object, while explicit null is refused.
+  It resolves
+  each call's tool verb to a Core `Operation` and
   opens `Application::local` against `context.workspace_root` — the plugin's bound workspace,
   never a request-supplied path, matching the MCP transport's fixed-scope rule above. `version`
-  is the one exception: it answers from `orbit_research_core::VERSION` without opening a corpus,
+  is the one exception: it validates its empty-object input and answers from
+  `orbit_research_core::VERSION` without opening a corpus,
   so it still answers when the bound workspace holds none. `.orbit-plugin/plugin.yaml` declares
   `list`, `show`, `check`, `version` and `plan` as sandboxed, read-only tools with
   `fs.read: {{workspace}}` only; their input schemas in `.orbit-plugin/schemas/*.request.json` are copies of
