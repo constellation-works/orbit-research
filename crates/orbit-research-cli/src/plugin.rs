@@ -271,8 +271,18 @@ pub(crate) struct LinkInput {
 }
 
 fn link(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Result<Value> {
-    let input: LinkInput =
+    let mut input: LinkInput =
         serde_json::from_value(input).map_err(|error| Error::InvalidInput(error.to_string()))?;
+    if input.title.trim().is_empty() {
+        return Err(Error::InvalidInput(
+            "`title` must contain non-whitespace text; supply a title for the investigation".into(),
+        ));
+    }
+    // Orbit refuses blank task descriptions. Honor link's optional field by
+    // deriving a usable description before persisting any submission intent.
+    if input.description.trim().is_empty() {
+        input.description = input.title.clone();
+    }
     let app = Application::local(workspace_root)?;
     let preparation = app.link_intent(&input.request_key, &input.research_id)?;
     let workspace = workspace_root.to_string_lossy();

@@ -84,7 +84,8 @@ spec:
         tagged research-request:<key> with context_files naming the
         reserved research item. Idempotent by request key: an identical
         retry adopts the one task already tagged with that key instead of
-        creating another.
+        creating another. The title must contain non-whitespace text; an
+        omitted or blank description uses the title.
       execution_kind: mutating
       mcp_scope: workspace
       input_schema: { $ref: schemas/link.request.json }

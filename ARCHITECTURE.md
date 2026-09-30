@@ -55,7 +55,9 @@ workspace leaf; no workspace crate dependency is permitted.
   spawning `orbit tool run` the same way a person would — never a `requires.programs` grant,
   which fails every deterministic `plugin.tool_call` step. Its `TaskHost` trait is production-real
   (`OrbitCliTaskHost`, one subprocess per callback) or a test fake driving
-  `serve_plugin_tool_call_with_host` directly, since the conformance harness's workspace is always
+  `serve_plugin_tool_call_with_host` directly. `link` refuses a blank title before recording an
+  intent, and uses that title as the task description when the optional description is absent
+  or blank, satisfying Orbit's nonempty-description requirement. The conformance harness's workspace is always
   empty and cannot exercise a live callback; `.orbit-plugin/schemas/link.request.json`'s drift check lives next
   to that fake in `src/tests/plugin.rs`, the only place both the schema and its Rust type are
   in scope.
