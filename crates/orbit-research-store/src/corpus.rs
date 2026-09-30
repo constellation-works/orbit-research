@@ -1,5 +1,5 @@
 use crate::{
-    Error, Result,
+    Error, Result, git,
     record::{kebab, parse, parse_record_name},
     validation::{Contract, validate_records},
 };
@@ -86,25 +86,24 @@ impl Corpus {
 
     /// Immutable records and owner schema from one pinned commit, for work plans.
     pub fn committed_snapshot(&self) -> Result<Snapshot> {
-        let revision = self.head_commit()?;
-        let schema =
-            serde_json::from_slice(&self.committed_bytes(&revision, "_scripts/schema.json")?)?;
-        let paths = self.committed_paths(&revision)?;
-        if schema == self.contract.schema {
-            self.read_snapshot(&self.contract, &revision, Some(&paths))
-        } else {
-            let contract = Contract::compile(schema)?;
-            self.read_snapshot(&contract, &revision, Some(&paths))
-        }
+        git::read::with_head(self.root(), |committed| {
+            let schema = serde_json::from_slice(&committed.bytes("_scripts/schema.json")?)?;
+            if schema == self.contract.schema {
+                self.read_snapshot(&self.contract, committed.revision(), Some(&committed))
+            } else {
+                let contract = Contract::compile(schema)?;
+                self.read_snapshot(&contract, committed.revision(), Some(&committed))
+            }
+        })
     }
 
     fn read_snapshot(
         &self,
         contract: &Contract,
         revision: &str,
-        committed: Option<&[String]>,
+        committed: Option<&git::read::CommittedView<'_>>,
     ) -> Result<Snapshot> {
-        let records = self.read_records(contract, revision, committed)?;
+        let records = self.read_records(contract, committed)?;
         validate_records(&records)?;
         let tags = records
             .values()
@@ -183,13 +182,13 @@ impl Corpus {
     pub(crate) fn read_records(
         &self,
         contract: &Contract,
-        revision: &str,
-        committed: Option<&[String]>,
+        committed: Option<&git::read::CommittedView<'_>>,
     ) -> Result<BTreeMap<String, Record>> {
         let mut records = BTreeMap::new();
-        for entry in self.record_entries(contract, committed)? {
-            let bytes = if committed.is_some() {
-                self.committed_bytes(revision, &entry.path)?
+        let paths = committed.map(|view| view.paths()).transpose()?;
+        for entry in self.record_entries(contract, paths.as_deref())? {
+            let bytes = if let Some(view) = committed {
+                view.bytes(&entry.path)?
             } else {
                 self.working_bytes(&entry.path)?
             };

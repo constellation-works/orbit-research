@@ -185,8 +185,73 @@ fn committed_paths_matches_ls_tree_recursive_listing() {
         .collect();
     expected.sort();
 
-    let corpus = Corpus::open(root).unwrap();
-    let mut actual = corpus.committed_paths(&head).unwrap();
+    let mut actual = crate::git::read::with_head(root, |view| view.paths())
+        .expect("list pinned committed paths");
     actual.sort();
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn pinned_tree_ignores_head_updates_and_next_snapshot_observes_them() {
+    let temp = canonical_fixture();
+    let root = temp.path();
+    let corpus = Corpus::open(root).expect("open original contract");
+    let original = corpus.committed_snapshot().expect("original snapshot");
+    let schema = fs::read(root.join("_scripts/schema.json")).expect("original schema bytes");
+    let path = "questions/Q001-why.md";
+    let original_bytes = fs::read(root.join(path)).expect("original question bytes");
+    crate::git::read::with_head(root, |view| {
+        assert_eq!(view.revision(), original.revision);
+        record(
+            root,
+            path,
+            "id: Q001\ntitle: Why\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+            "A later question body.",
+        );
+        record(
+            root,
+            "questions/Q002-second.md",
+            "id: Q002\ntitle: Second\nstatus: open\ntags: []\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []",
+            "Another question.",
+        );
+        let mut updated_schema: serde_json::Value =
+            serde_json::from_slice(&schema).expect("original schema JSON");
+        updated_schema["title"] = serde_json::json!("Updated owner contract");
+        fs::write(
+            root.join("_scripts/schema.json"),
+            serde_json::to_vec(&updated_schema).expect("updated schema JSON"),
+        )
+        .expect("updated owner contract");
+        git(root, &["add", "."]);
+        git(root, &["commit", "-q", "-m", "updated corpus"]);
+
+        assert_eq!(view.bytes(path)?, original_bytes);
+        assert_eq!(view.bytes("_scripts/schema.json")?, schema);
+        assert!(!view.paths()?.iter().any(|path| path.contains("Q002")));
+        Ok(())
+    })
+    .expect("finish pinned snapshot read");
+
+    let later = corpus
+        .committed_snapshot()
+        .expect("new snapshot at advanced HEAD");
+    assert_ne!(later.revision, original.revision);
+    assert_eq!(later.records.len(), 2);
+    assert_eq!(later.records[0].body, "A later question body.");
+}
+
+#[cfg(unix)]
+#[test]
+fn committed_snapshot_refuses_symlink_record_entries() {
+    let temp = canonical_fixture();
+    let root = temp.path();
+    std::os::unix::fs::symlink("Q001-why.md", root.join("questions/Q002-escape.md"))
+        .expect("committed record symlink");
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "symlink record"]);
+    let error = Corpus::open(root)
+        .expect("open symlink fixture")
+        .committed_snapshot()
+        .expect_err("committed records must be ordinary files");
+    assert!(error.to_string().contains("regular committed files"));
 }

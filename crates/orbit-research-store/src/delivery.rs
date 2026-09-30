@@ -385,7 +385,7 @@ impl Corpus {
         if !clean {
             return;
         }
-        let records = match self.read_records(&self.contract, &report.revision, None) {
+        let records = match self.read_records(&self.contract, None) {
             Ok(records) => records,
             Err(error) => {
                 report.fail(Reason::CorpusInvalid, error.to_string());
