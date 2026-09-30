@@ -53,6 +53,34 @@ fn create_r(app: &Application, request_key: &str) -> Value {
 }
 
 #[test]
+fn confirmed_link_retries_preserve_the_original_task() {
+    let (temp, app) = fixture();
+    create_r(&app, "link-reservation");
+    let preparation = app.link_intent("link-request", "R001").unwrap();
+    assert!(preparation.is_new);
+    assert!(preparation.link.task_id.is_none());
+
+    let first = app.link_confirm("link-request", "task-first").unwrap();
+    let retry = app.link_confirm("link-request", "task-first").unwrap();
+    assert_eq!(first.task_id, retry.task_id);
+
+    let error = app
+        .link_confirm("link-request", "task-competing")
+        .expect_err("a confirmed request cannot be reassigned to another task");
+    assert!(matches!(error, orbit_research_core::Error::Conflict(_)));
+    let message = error.to_string();
+    assert!(!message.contains("task-first"));
+    assert!(!message.contains("task-competing"));
+    let reopened = Application::local(temp.path()).unwrap();
+    let recalled = reopened.link_intent("link-request", "R001").unwrap();
+    assert!(!recalled.is_new);
+    assert_eq!(recalled.link.task_id.as_deref(), Some("task-first"));
+    let links = reopened.call("research.work_links", json!({})).unwrap();
+    assert_eq!(links.as_array().unwrap().len(), 1);
+    assert_eq!(links[0]["task_id"], "task-first");
+}
+
+#[test]
 fn local_capture_and_work_plans_need_no_backend() {
     let (temp, app) = fixture();
     let first = create_r(&app, "capture-r");

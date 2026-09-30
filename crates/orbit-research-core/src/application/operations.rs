@@ -91,13 +91,22 @@ impl Corpus {
     }
 
     /// Record the Orbit task adopted or created for a previously recorded
-    /// link intent.
+    /// link intent. An identical retry recalls the task; a different task
+    /// refuses without replacing the original correlation.
     pub fn link_confirm(&self, request_key: &str, task_id: &str) -> Result<Link> {
         let log = self.store.request_log()?;
         let key = digest(request_key.as_bytes());
         let mut link: Link = log
             .read(&key)?
             .ok_or_else(|| Error::Invalid("No recorded link intent for this request key".into()))?;
+        if let Some(existing) = &link.task_id {
+            if existing != task_id {
+                return Err(Error::Conflict(
+                    "Request key is already linked to a different task".into(),
+                ));
+            }
+            return Ok(link);
+        }
         link.task_id = Some(task_id.into());
         log.save(&key, &link)?;
         Ok(link)
