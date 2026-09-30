@@ -51,6 +51,62 @@ fn finish_output(result: io::Result<()>) -> ExitCode {
     }
 }
 
+// Transport errors can originate from stdin or stdout. Observe the output sink
+// so only a closed stdout pipe receives the successful pipeline exit code.
+struct ProtocolWriter<W> {
+    writer: W,
+    broken_pipe: bool,
+}
+
+impl<W> ProtocolWriter<W> {
+    fn observe<T>(&mut self, result: io::Result<T>) -> io::Result<T> {
+        self.broken_pipe |= result
+            .as_ref()
+            .is_err_and(|error| error.kind() == io::ErrorKind::BrokenPipe);
+        result
+    }
+}
+
+impl<W: Write> Write for ProtocolWriter<W> {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let result = self.writer.write(buffer);
+        self.observe(result)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        let result = self.writer.flush();
+        self.observe(result)
+    }
+}
+
+fn is_stdout_broken_pipe(error: &orbit_research_core::Error, observed: bool) -> bool {
+    observed
+        && match error {
+            orbit_research_core::Error::Io(error) => error.kind() == io::ErrorKind::BrokenPipe,
+            orbit_research_core::Error::Json(error) => {
+                error.io_error_kind() == Some(io::ErrorKind::BrokenPipe)
+            }
+            _ => false,
+        }
+}
+
+fn run_protocol(
+    operation: impl FnOnce(&mut dyn Write) -> orbit_research_core::Result<()>,
+) -> ExitCode {
+    let mut output = ProtocolWriter {
+        writer: io::stdout().lock(),
+        broken_pipe: false,
+    };
+    match operation(&mut output) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) if is_stdout_broken_pipe(&error, output.broken_pipe) => ExitCode::SUCCESS,
+        Err(error) => {
+            let _ = writeln!(io::stderr().lock(), "{error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn fail(error: Invalid, code: u8, sink: &OutputSink) -> ExitCode {
     let _ = output::render_error(&mut io::stderr().lock(), &error, sink);
     ExitCode::from(code)
@@ -67,26 +123,12 @@ fn run(cli: Cli) -> ExitCode {
             Ok(application) => application,
             Err(error) => return fail(error, 1, &sink),
         };
-        return match mcp::serve_mcp_application(
-            &application,
-            io::stdin().lock(),
-            io::stdout().lock(),
-        ) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::FAILURE
-            }
-        };
+        return run_protocol(|output| {
+            mcp::serve_mcp_application(&application, io::stdin().lock(), output)
+        });
     }
     if let Command::OrbitTool = &cli.command {
-        return match plugin::serve_plugin_tool_call(io::stdin().lock(), io::stdout().lock()) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::FAILURE
-            }
-        };
+        return run_protocol(|output| plugin::serve_plugin_tool_call(io::stdin().lock(), output));
     }
     match execute(cli) {
         Ok((value, code)) => {
