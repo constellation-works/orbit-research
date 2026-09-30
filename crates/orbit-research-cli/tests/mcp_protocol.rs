@@ -114,3 +114,28 @@ fn invalid_requests_preserve_known_ids_and_use_null_for_invalid_or_absent_ids() 
         assert_eq!(response["error"]["code"], -32600, "{response}");
     }
 }
+
+#[test]
+fn pre_initialization_ping_does_not_unlock_tools_or_bypass_parameter_validation() {
+    let responses = exchange(&[
+        json!({"jsonrpc":"2.0", "id":"ping-before-initialize", "method":"ping"}),
+        json!({"jsonrpc":"2.0", "method":"ping"}),
+        json!({"jsonrpc":"2.0", "id":2, "method":"ping", "params":[]}),
+        json!({"jsonrpc":"2.0", "id":3, "method":"tools/list"}),
+        json!({"jsonrpc":"2.0", "id":4, "method":"initialize"}),
+        json!({"jsonrpc":"2.0", "id":5, "method":"tools/list"}),
+    ]);
+    assert_eq!(responses.len(), 5, "{responses:?}");
+    assert_eq!(
+        responses[0],
+        json!({"jsonrpc":"2.0", "id":"ping-before-initialize", "result":{}})
+    );
+    assert_eq!(responses[1]["id"], 2);
+    assert_eq!(responses[1]["error"]["code"], -32602);
+    assert_eq!(responses[2]["id"], 3);
+    assert_eq!(responses[2]["error"]["code"], -32002);
+    assert_eq!(responses[3]["id"], 4);
+    assert_eq!(responses[3]["result"]["protocolVersion"], "2024-11-05");
+    assert_eq!(responses[4]["id"], 5);
+    assert!(responses[4]["result"]["tools"].is_array());
+}

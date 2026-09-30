@@ -146,7 +146,9 @@ pub(crate) fn serve_mcp_application(
             }
             continue;
         }
-        if !initialized {
+        // MCP permits liveness checks during initialization; a ping does not
+        // grant access to tools or change the session state.
+        if !initialized && method != "ping" {
             if !notification {
                 write_response(
                     &mut writer,

@@ -132,6 +132,23 @@ fn notification_initialize_does_not_advance_handshake() {
 }
 
 #[test]
+fn ping_is_available_before_initialization_without_advancing_the_handshake() {
+    let temp = corpus();
+    let values = exchange(
+        temp.path(),
+        r#"{"jsonrpc":"2.0","id":"ping","method":"ping"}
+{"jsonrpc":"2.0","id":2,"method":"ping","params":[]}
+{"jsonrpc":"2.0","id":3,"method":"tools/list"}
+"#,
+    );
+    assert_eq!(values.len(), 3);
+    assert_eq!(values[0]["id"], "ping");
+    assert_eq!(values[0]["result"], serde_json::json!({}));
+    assert_eq!(values[1]["error"]["code"], -32602);
+    assert_eq!(values[2]["error"]["code"], -32002);
+}
+
+#[test]
 fn notification_tool_call_is_ignored_before_core_dispatch() {
     let temp = corpus();
     let values = exchange(
