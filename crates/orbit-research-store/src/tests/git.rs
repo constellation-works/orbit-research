@@ -78,7 +78,7 @@ fn read_and_validate_modules_never_mention_process_spawning() {
     // The writer's escape hatch is expected to still spawn `git`; confirm the
     // split actually exists rather than the read side accidentally losing all coverage.
     assert!(include_str!("../git/mod.rs").contains("Command::new"));
-    assert!(include_str!("../workspace.rs").contains("Command::new"));
+    assert!(include_str!("../workspace.rs").contains("crate::git::command"));
 }
 
 /// End-to-end proof, not just textual: every read/validate operation succeeds
@@ -254,4 +254,215 @@ fn committed_snapshot_refuses_symlink_record_entries() {
         .committed_snapshot()
         .expect_err("committed records must be ordinary files");
     assert!(error.to_string().contains("regular committed files"));
+}
+
+/// A hook or another checkout can export these selectors. Explicit corpus
+/// writers and scaffolding must never use that foreign repository or index.
+#[test]
+fn git_environment_cannot_redirect_writes_or_workspace_initialization() {
+    const SELECTED: &str = "ORBIT_RESEARCH_SELECTED_GIT_CONTEXT";
+    const FRESH: &str = "ORBIT_RESEARCH_FRESH_GIT_CONTEXT";
+    if let Some(root) = std::env::var_os(SELECTED) {
+        let root = std::path::PathBuf::from(root);
+        let corpus = Corpus::open(&root).expect("selected corpus under foreign Git selectors");
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        {
+            let prepared = crate::request_log::prepare_workspace_operations(&root)
+                .expect("ignore and indexed-path probes must use the selected owner");
+            assert_eq!(prepared["prepared"], true);
+            assert_eq!(prepared["changed"], true);
+            corpus
+                .require_prepared_operations()
+                .expect("selected prepared state");
+        }
+        let reserved = corpus
+            .reserve(
+                "isolated-git-writer",
+                "Q",
+                "Selected checkout",
+                "Written only to the explicit corpus.",
+                vec![],
+                vec![],
+            )
+            .expect("writer must ignore the foreign staged changes");
+        assert_eq!(reserved.id, "Q002");
+        let snapshot = corpus.committed_snapshot().expect("selected new commit");
+        assert_eq!(snapshot.records.len(), 2);
+        assert!(snapshot.records.iter().any(|record| record.id == "Q002"));
+
+        let fresh =
+            std::path::PathBuf::from(std::env::var_os(FRESH).expect("private scaffold path"));
+        let initialized = crate::workspace::init(&fresh)
+            .expect("scaffold must initialize its own repository and index");
+        assert_eq!(initialized["created"], true);
+        let fresh_corpus = Corpus::open(&fresh).expect("new explicit corpus");
+        assert!(
+            fresh_corpus
+                .committed_snapshot()
+                .expect("new corpus commit")
+                .records
+                .is_empty()
+        );
+        assert!(fresh.join(".git").is_dir());
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        fresh_corpus
+            .require_prepared_operations()
+            .expect("fresh shared state prepared");
+        return;
+    }
+
+    for mode in ["selectors", "inline-count", "inline-parameters"] {
+        let selected = canonical_fixture();
+        let foreign = canonical_fixture();
+        fs::write(
+            selected.path().join(".gitignore"),
+            "_data/**\n!_data/**/\n!_data/**/manifest.json\n",
+        )
+        .expect("selected owner ignore policy");
+        git(selected.path(), &["add", ".gitignore"]);
+        git(
+            selected.path(),
+            &["commit", "-q", "-m", "owner ignore policy"],
+        );
+        let fresh_parent = tempfile::tempdir().expect("private scaffold parent");
+        let fresh = fresh_parent.path().join("corpus");
+        fs::write(
+            foreign.path().join("staged-sentinel"),
+            "foreign staged bytes\n",
+        )
+        .expect("foreign staged sentinel");
+        git(foreign.path(), &["add", "staged-sentinel"]);
+        fs::write(
+            foreign.path().join("untracked-sentinel"),
+            "foreign untracked bytes\n",
+        )
+        .expect("foreign untracked sentinel");
+        let foreign_state = foreign.path().join("_data/orbit-research-operations");
+        fs::create_dir_all(&foreign_state).expect("foreign indexed state prefix");
+        fs::write(
+            foreign_state.join("foreign.json"),
+            "foreign indexed state\n",
+        )
+        .expect("foreign indexed state bytes");
+        git(foreign.path(), &["add", "_data"]);
+        let status = git(foreign.path(), &["status", "--porcelain"]);
+        let head = git(foreign.path(), &["rev-parse", "HEAD"]);
+        let index = fs::read(foreign.path().join(".git/index")).expect("foreign index bytes");
+        let selected_head = git(selected.path(), &["rev-parse", "HEAD"]);
+        let original_question =
+            fs::read(foreign.path().join("questions/Q001-why.md")).expect("foreign question bytes");
+        let before = tree_bytes(foreign.path());
+        let mut child = Command::new(std::env::current_exe().expect("test executable"));
+        child
+            .args([
+                "--exact",
+                "tests::git::git_environment_cannot_redirect_writes_or_workspace_initialization",
+            ])
+            .env(SELECTED, selected.path())
+            .env(FRESH, &fresh)
+            .env("GIT_AUTHOR_NAME", "Isolated writer")
+            .env("GIT_AUTHOR_EMAIL", "isolated@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Isolated writer")
+            .env("GIT_COMMITTER_EMAIL", "isolated@example.invalid");
+        for name in [
+            "GIT_DIR",
+            "GIT_COMMON_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_OBJECT_DIRECTORY",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_PARAMETERS",
+        ] {
+            child.env_remove(name);
+        }
+        match mode {
+            "selectors" => {
+                child
+                    .env("GIT_DIR", foreign.path().join(".git"))
+                    .env("GIT_COMMON_DIR", foreign.path().join(".git"))
+                    .env("GIT_WORK_TREE", foreign.path())
+                    .env("GIT_INDEX_FILE", foreign.path().join(".git/index"))
+                    .env("GIT_OBJECT_DIRECTORY", foreign.path().join(".git/objects"))
+                    .env(
+                        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+                        foreign.path().join(".git/objects"),
+                    );
+            }
+            "inline-count" => {
+                child
+                    .env("GIT_CONFIG_COUNT", "1")
+                    .env("GIT_CONFIG_KEY_0", "core.worktree")
+                    .env("GIT_CONFIG_VALUE_0", foreign.path());
+            }
+            "inline-parameters" => {
+                child.env(
+                    "GIT_CONFIG_PARAMETERS",
+                    format!("'core.worktree={}'", foreign.path().display()),
+                );
+            }
+            _ => unreachable!("fixed fixture mode"),
+        }
+        let output = child
+            .output()
+            .expect("re-exec under hostile Git repository selectors");
+        assert!(
+            output.status.success(),
+            "explicit corpus operation used foreign Git context ({mode}):\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_ne!(git(selected.path(), &["rev-parse", "HEAD"]), selected_head);
+        assert_eq!(git(foreign.path(), &["rev-parse", "HEAD"]), head);
+        assert_eq!(
+            fs::read(foreign.path().join(".git/index")).expect("preserved foreign index"),
+            index
+        );
+        assert_eq!(git(foreign.path(), &["status", "--porcelain"]), status);
+        assert_eq!(
+            fs::read(foreign.path().join("questions/Q001-why.md"))
+                .expect("preserved foreign question"),
+            original_question
+        );
+        assert_eq!(
+            fs::read(foreign.path().join("staged-sentinel")).expect("preserved staged sentinel"),
+            b"foreign staged bytes\n"
+        );
+        assert_eq!(
+            fs::read(foreign.path().join("untracked-sentinel"))
+                .expect("preserved untracked sentinel"),
+            b"foreign untracked bytes\n"
+        );
+        assert!(
+            !foreign
+                .path()
+                .join("questions/Q002-selected-checkout.md")
+                .exists()
+        );
+        assert!(fresh.join(".git/index").is_file());
+        assert_eq!(
+            tree_bytes(foreign.path()),
+            before,
+            "foreign config, refs, objects, index and files must remain exact ({mode})"
+        );
+    }
+}
+
+fn tree_bytes(root: &Path) -> std::collections::BTreeMap<std::path::PathBuf, Vec<u8>> {
+    fn collect(root: &Path, result: &mut std::collections::BTreeMap<std::path::PathBuf, Vec<u8>>) {
+        for entry in fs::read_dir(root).expect("private foreign repository entries") {
+            let path = entry.expect("private repository entry").path();
+            if path.is_dir() {
+                collect(&path, result);
+            } else {
+                result.insert(
+                    path.clone(),
+                    fs::read(path).expect("private repository file bytes"),
+                );
+            }
+        }
+    }
+    let mut result = std::collections::BTreeMap::new();
+    collect(root, &mut result);
+    result
 }

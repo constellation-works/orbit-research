@@ -5,6 +5,21 @@ exec input limits, launcher failures and a real Git-backed fixture corpus.
 The plugin's eight conformance goldens cover its corpus-independent health
 response and deterministic refusals in Orbit's empty conformance workspace.
 
+Before linking work in an existing corpus, prepare its operational journal
+outside the plugin sandbox:
+
+```sh
+orbit-research workspace prepare-operations /absolute/path/to/corpus
+```
+
+New corpora created by `workspace init` prepare this directory automatically
+on Linux and macOS. Preparation preserves existing idempotency entries and
+the journal's lock while moving them to `_data/orbit-research-operations/`.
+The plugin grants writes only to that ignored operational directory and its
+`.orbit-research-tmp/` acceptance scratch directory. It does not need to write
+Git metadata or canonical research records. An existing unprepared corpus
+refuses linking with the preparation command before creating an Orbit task.
+
 To exercise an installed plugin with an existing Orbit binary:
 
 ```sh
@@ -17,7 +32,11 @@ current executable and creates its own corpus, HOME and Orbit workspace. It
 invokes all eight advertised tools through both Orbit CLI and Orbit MCP:
 `version`, `list`, `show`, `check`, `plan`, `link`, `validate` and `accept`.
 It checks real task creation and idempotent linking, including an omitted task
-description, and malformed `version` fields. `validate` must refuse without
+description, and malformed `version` fields. It first models an unprepared
+legacy journal and requires both transports to refuse linking before any task
+is created, with the explicit preparation command. Preparation preserves
+existing receipt and lock bytes; subsequent linking and retries leave the
+scientific commit unchanged and Git status clean. `validate` must refuse without
 job context; `accept` must refuse a task that has not delivered. CLI calls use
 Orbit's explicit operator override and MCP uses its operator session.
 

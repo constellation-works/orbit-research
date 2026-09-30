@@ -71,7 +71,7 @@ impl Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// Initialize a new corpus or validate an existing corpus without modifying it.
+    /// Initialize or validate a corpus, and explicitly prepare its operational state.
     Workspace {
         #[command(subcommand)]
         operation: WorkspaceOperation,
@@ -110,6 +110,11 @@ pub(crate) enum WorkspaceOperation {
     /// Create a research corpus, or validate one that already exists.
     Init {
         /// Directory to initialize.
+        path: PathBuf,
+    },
+    /// Prepare local operational state for an existing corpus (primary checkout only).
+    PrepareOperations {
+        /// Path to the existing corpus's primary checkout.
         path: PathBuf,
     },
 }

@@ -1711,6 +1711,7 @@ dependencies = [
  "fs2",
  "gix",
  "jsonschema",
+ "libc",
  "orbit-research-common",
  "serde",
  "serde_json",

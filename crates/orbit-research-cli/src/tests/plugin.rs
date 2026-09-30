@@ -24,6 +24,11 @@ fn corpus() -> TempDir {
     let root = temp.path();
     fs::create_dir(root.join("_scripts")).expect("schema directory");
     fs::write(root.join("_scripts/schema.json"), SCHEMA).expect("fixture schema");
+    fs::write(
+        root.join(".gitignore"),
+        "_data/orbit-research-operations/\n.orbit-research-tmp/\n",
+    )
+    .expect("ignore private operational state");
     for dir in ["questions", "hypotheses", "theories", "research"] {
         fs::create_dir(root.join(dir)).expect("record directory");
         // Keep empty kind directories in Git, so linked worktrees have them too.
@@ -53,6 +58,8 @@ fn corpus() -> TempDir {
     run(&["config", "user.name", "Plugin tests"]);
     run(&["add", "."]);
     run(&["commit", "-q", "-m", "fixture"]);
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    orbit_research_core::prepare_workspace_operations(root).expect("prepare fixture operations");
     temp
 }
 
@@ -91,6 +98,7 @@ fn reserved_corpus() -> TempDir {
 #[derive(Default)]
 struct FakeTaskHost {
     tasks: Mutex<Vec<(String, String)>>,
+    list_calls: Mutex<usize>,
     next_id: Mutex<u32>,
     fail_create: Mutex<bool>,
     fail_put: Mutex<bool>,
@@ -102,6 +110,7 @@ struct FakeTaskHost {
 }
 
 impl FakeTaskHost {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     fn failing() -> Self {
         let host = Self::default();
         *host.fail_create.lock().expect("lock") = true;
@@ -135,6 +144,7 @@ impl FakeTaskHost {
 
 impl TaskHost for FakeTaskHost {
     fn list_by_tag(&self, _workspace: &str, tag: &str) -> Result<Vec<TaskRef>> {
+        *self.list_calls.lock().expect("list call count") += 1;
         Ok(self
             .tasks
             .lock()
@@ -381,6 +391,7 @@ fn link_input_schema_matches_the_committed_schema() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_creates_exactly_one_task_and_an_identical_retry_adopts_it() {
     let temp = reserved_corpus();
     let host = FakeTaskHost::default();
@@ -412,6 +423,57 @@ fn link_creates_exactly_one_task_and_an_identical_retry_adopts_it() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_refuses_unprepared_operations_before_persisting_intent_or_calling_host() {
+    let temp = reserved_corpus();
+    let research = orbit_research_core::Research::open(temp.path()).expect("open corpus");
+    research
+        .link_intent("legacy-pending", "R001")
+        .expect("existing intent");
+    let prepared = temp.path().join("_data/orbit-research-operations");
+    let legacy = temp.path().join(".git/orbit-research-operations");
+    fs::remove_file(&legacy).expect("remove private fresh marker");
+    fs::rename(prepared, &legacy).expect("restore private previous layout");
+    let entries = || {
+        fs::read_dir(&legacy)
+            .expect("legacy journal")
+            .map(|entry| {
+                let entry = entry.expect("journal entry");
+                (
+                    entry.file_name(),
+                    fs::read(entry.path()).expect("journal bytes"),
+                )
+            })
+            .collect::<BTreeMap<_, _>>()
+    };
+    let before = entries();
+    let host = FakeTaskHost::default();
+    let reply = call_with_host(
+        &envelope(
+            "link",
+            json!({"research_id":"R001", "request_key":"new-unprepared", "title":"Investigate R001"}),
+            Some(temp.path()),
+        ),
+        &host,
+    );
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert!(
+        reply["error"]
+            .to_string()
+            .contains("workspace prepare-operations"),
+        "{reply}"
+    );
+    assert_eq!(*host.list_calls.lock().expect("list count"), 0);
+    assert!(host.tasks.lock().expect("tasks").is_empty());
+    assert_eq!(
+        entries(),
+        before,
+        "refusal preserves all prior journal bytes"
+    );
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_uses_the_title_when_optional_description_is_missing_or_blank() {
     let temp = reserved_corpus();
     let host = FakeTaskHost::default();
@@ -463,6 +525,7 @@ fn link_refuses_blank_titles_before_persisting_an_intent_or_calling_the_host() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_adopts_correlated_task_when_local_intent_is_missing() {
     let temp = reserved_corpus();
     let host = FakeTaskHost::default();
@@ -477,7 +540,7 @@ fn link_adopts_correlated_task_when_local_intent_is_missing() {
     let task_id = first["output"]["task_id"].as_str().expect("task id");
 
     // Model an uncertain submission followed by loss of the local log entry.
-    let log_dir = temp.path().join(".git/orbit-research-operations");
+    let log_dir = temp.path().join("_data/orbit-research-operations");
     let entries: Vec<_> = fs::read_dir(log_dir)
         .expect("request log")
         .map(|entry| entry.expect("log entry").path())
@@ -497,6 +560,7 @@ fn link_adopts_correlated_task_when_local_intent_is_missing() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_refuses_when_the_research_item_is_not_reserved() {
     let temp = corpus();
     let host = FakeTaskHost::default();
@@ -513,6 +577,7 @@ fn link_refuses_when_the_research_item_is_not_reserved() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_refuses_when_more_than_one_task_carries_the_key() {
     let temp = reserved_corpus();
     let host = FakeTaskHost::default();
@@ -531,6 +596,7 @@ fn link_refuses_when_more_than_one_task_carries_the_key() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn link_refuses_when_a_recorded_intent_has_no_matching_task() {
     let temp = reserved_corpus();
     let host = FakeTaskHost::failing();

@@ -8,7 +8,8 @@ change.
 
 ## Executable surfaces
 
-The CLI has 14 leaf commands: `workspace init`, `research list`, `research show`,
+The CLI has 15 leaf commands: `workspace init`, `workspace prepare-operations`,
+`research list`, `research show`,
 `research check`, `research create`, `research capture`, `research revise`,
 `research assess`, `research revise-question`, `research work-links`,
 `research plan`, `mcp`, `orbit-tool`, and `resource`. Real executable tests cover
@@ -53,8 +54,37 @@ Acceptance calls use unique owner-only staged files, preserve unrelated files,
 refuse a symlinked scratch directory, and clean up after callback success or
 failure. Overlapping calls retain independent callback sources.
 
+The installed Linux test exposed a separate write denial: its sandbox correctly
+forbids creating the old request log inside `.git`. Operational state now lives
+in the primary checkout's ignored `_data/orbit-research-operations/`, with that
+directory as the plugin's additional write grant. Fresh Linux/macOS initialization
+prepares the layout; existing corpora require the explicit preparation command.
+Plugin linking refuses before persisting an intent or invoking a task callback
+when the corpus has not been prepared.
+
+Preparation holds the original lock and atomically exchanges the complete log
+with a versioned marker. Tests preserve pending and confirmed receipts byte for
+byte, keep the original lock inode, prove contention across linked worktrees,
+and exercise a reader waiting on the old descriptor during publication.
+An unsupported exchange preserves the original log; retries recover a staged
+marker. Unknown layouts, populated targets, tracked paths, unignored entries,
+symlinks and special files refuse without adopting foreign state. Older clients
+refuse the marker instead of opening a second journal. CLI checks verify
+unchanged canonical records, schema, ignore policy, HEAD and index, including
+repeated preparation in all four output formats.
+
+Git subprocesses and in-process readers respect the explicit corpus rather
+than inherited repository, work-tree, index, object or inline-config overrides.
+A private baseline export at `cd11161` reproduced a primary writer consulting
+the foreign dirty index. The candidate regression exercises three independent
+override modes, owner ignore/index checks during preparation, committed reads,
+reservation and fresh initialization, while preserving the complete foreign
+repository byte for byte. The same test caught the in-process work-tree override
+before its permission fix. This does not claim that every inline-config mode
+redirects Git's `status` command on every platform.
+
 The pristine required `make test` gate passed all 176 tests. The final `make ci`
-gate passed at production revision `dbff799`: 204 tests passed and the installed
+gate passed with the storage and Git-isolation changes: 223 tests passed and the installed
 Orbit test was ignored by the ordinary suite. Formatting, the required CLI
 all-target Clippy check, dependency-direction self-tests, and whitespace checks
 passed. The locked workspace build and documentation with warnings denied also
@@ -79,7 +109,9 @@ Positive delivery validation and acceptance, evidence mismatch, retries and
 cleanup are covered by Git-backed fixtures using the same exec handler and
 an in-memory task host. These checks do not run an investigation provider.
 
-The installed test passed against Orbit 0.25.0. Clean exports at `dbff799` passed
+The installed test passed against Orbit 0.25.0, including the prepared-state
+workflow and preservation of an actual pending legacy receipt. The rebuilt
+candidate's native test completed in 22.77 seconds. Clean exports at `dbff799` passed
 all eight conformance goldens on both Orbit 0.24.0 and 0.25.0, but the installed
 test exposed a macOS callback failure on 0.24. A separate shell-only backend
 using the same selected 0.24 executable reproduced the refusal, excluding the

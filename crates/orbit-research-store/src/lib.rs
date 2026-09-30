@@ -3,6 +3,7 @@ pub mod corpus;
 pub mod delivery;
 pub mod edit;
 pub mod request_log;
+mod request_log_layout;
 #[cfg(test)]
 mod tests;
 pub mod workspace;

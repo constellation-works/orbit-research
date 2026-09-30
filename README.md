@@ -76,6 +76,14 @@ orbit-research research show --corpus ./observatory --id Q001
 orbit-research --format json research list --corpus ./observatory
 ```
 
+Use `workspace init PATH` to create a new corpus or validate an existing one.
+On Linux and macOS, new corpora include the local operational state needed for
+research request correlations. To prepare an existing corpus explicitly, run
+`orbit-research workspace prepare-operations PATH` against its primary checkout.
+Preparation leaves canonical research records and Git history unchanged; repeat
+calls report `changed: false`. Existing-corpus `workspace init` remains
+validation only.
+
 `research plan` drafts work without creating a task or changing the corpus.
 Select `--shape investigation` with `--objective`, `--shape contribution` with
 `--objective` and `--unit`, or `--shape synthesis` with at least one

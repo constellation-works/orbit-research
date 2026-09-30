@@ -155,6 +155,9 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
         Command::Workspace {
             operation: WorkspaceOperation::Init { path },
         } => Ok((command::workspace::initialize(&path)?, 0)),
+        Command::Workspace {
+            operation: WorkspaceOperation::PrepareOperations { path },
+        } => Ok((command::workspace::prepare_operations(&path)?, 0)),
         Command::Research { operation } => {
             let (corpus, operation, input) = command::research::prepare(*operation)?;
             Ok((

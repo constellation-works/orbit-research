@@ -1,6 +1,6 @@
 //! The canonical plugin installed into a private HOME, exercised through real Orbit.
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 #[cfg(unix)]
@@ -17,6 +17,48 @@ use tempfile::TempDir;
 fn installed_plugin_serves_every_tool_over_cli_and_mcp() {
     let fixture = Fixture::new();
     fixture.install();
+    let revision = fixture.git_text(&["rev-parse", "HEAD"]);
+    fixture.assert_scientific_corpus_unchanged(&revision);
+    orbit_research_core::application::api::Application::local(&fixture.repository)
+        .expect("private corpus application")
+        .link_intent("legacy-pending", "R001")
+        .expect("seed an uncertain previous link without creating a task");
+    fixture.restore_unprepared_legacy_journal();
+    let legacy = fixture.repository.join(".git/orbit-research-operations");
+    let legacy_bytes = journal_bytes(&legacy);
+    assert!(
+        legacy_bytes.keys().any(|name| name.ends_with(".json")),
+        "the legacy journal contains an actual pending receipt"
+    );
+    let unprepared =
+        json!({"research_id":"R001", "request_key":"unprepared", "title":"Investigate R001"});
+    assert_preparation_refusal(fixture.cli_tool("link", &unprepared));
+    let mut mcp = Mcp::start(&fixture, true);
+    let refused = mcp.call("link", unprepared);
+    assert_eq!(refused["isError"], true, "{refused}");
+    assert!(
+        refused["structuredContent"]
+            .to_string()
+            .contains("workspace prepare-operations"),
+        "{refused}"
+    );
+    fixture.assert_task_count(0);
+    assert_eq!(
+        journal_bytes(&legacy),
+        legacy_bytes,
+        "refusal preserves the legacy journal"
+    );
+    assert!(
+        !legacy.join(".layout").exists(),
+        "link does not prepare storage implicitly"
+    );
+    fixture.prepare_operations();
+    assert_eq!(
+        journal_bytes(&fixture.repository.join("_data/orbit-research-operations")),
+        legacy_bytes,
+        "preparation preserves the existing journal bytes"
+    );
+    fixture.assert_scientific_corpus_unchanged(&revision);
     let advertised = fixture.manifest["spec"]["tools"]
         .as_array()
         .expect("tools")
@@ -49,7 +91,6 @@ fn installed_plugin_serves_every_tool_over_cli_and_mcp() {
     let accept = json!({"task_id":task, "research_id":"R001"});
     assert_cli_refusal(fixture.cli_tool("accept", &accept), "refused");
 
-    let mut mcp = Mcp::start(&fixture, true);
     let listed = mcp.request("tools/list", json!({}));
     let names = listed["tools"]
         .as_array()
@@ -91,6 +132,8 @@ fn installed_plugin_serves_every_tool_over_cli_and_mcp() {
             .contains("unknown_field"),
         "{invalid}"
     );
+    fixture.assert_task_count(2);
+    fixture.assert_scientific_corpus_unchanged(&revision);
 }
 
 fn read_requests() -> Vec<(&'static str, Value)> {
@@ -139,6 +182,36 @@ fn assert_cli_refusal(output: Output, code: &str) {
     let value: Value = serde_json::from_str(stderr.lines().last().expect("error JSON line"))
         .expect("error object");
     assert_eq!(value["code"], code, "{value}");
+}
+
+fn assert_preparation_refusal(output: Output) {
+    assert!(!output.status.success(), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let value: Value = serde_json::from_str(stderr.lines().last().expect("error JSON line"))
+        .expect("error object");
+    assert!(
+        value.to_string().contains("workspace prepare-operations"),
+        "{value}"
+    );
+}
+
+fn journal_bytes(path: &Path) -> BTreeMap<String, Vec<u8>> {
+    fs::read_dir(path)
+        .expect("private operations journal")
+        .filter_map(|entry| {
+            let entry = entry.expect("journal entry");
+            assert!(entry.file_type().expect("entry type").is_file());
+            // Preparation adds its versioned ledger; existing receipt and
+            // lock bytes must remain identical across that explicit change.
+            if entry.file_name() == ".layout" {
+                return None;
+            }
+            Some((
+                entry.file_name().to_string_lossy().into_owned(),
+                fs::read(entry.path()).expect("journal bytes"),
+            ))
+        })
+        .collect()
 }
 
 struct Fixture {
@@ -256,6 +329,68 @@ impl Fixture {
         self.command_for(Path::new(env!("CARGO_BIN_EXE_orbit-research")))
     }
 
+    fn git_text(&self, args: &[&str]) -> String {
+        let output = self
+            .command_for(Path::new("git"))
+            .args(args)
+            .output()
+            .expect("private corpus Git observation");
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8(output.stdout).expect("Git text")
+    }
+
+    fn assert_scientific_corpus_unchanged(&self, revision: &str) {
+        assert_eq!(self.git_text(&["rev-parse", "HEAD"]), revision);
+        assert_eq!(
+            self.git_text(&["status", "--porcelain", "--untracked-files=all"]),
+            "",
+            "operational linking keeps the scientific corpus clean"
+        );
+    }
+
+    fn restore_unprepared_legacy_journal(&self) {
+        let legacy = self.repository.join(".git/orbit-research-operations");
+        let prepared = self.repository.join("_data/orbit-research-operations");
+        assert!(
+            legacy.is_file(),
+            "fresh initialization leaves an old-client marker"
+        );
+        assert!(
+            prepared.is_dir(),
+            "fresh initialization prepares operations"
+        );
+        // Only this disposable corpus is reversed, before any task links exist.
+        fs::remove_file(&legacy).expect("remove the private fresh marker");
+        fs::remove_file(prepared.join(".layout")).expect("remove the private fresh ledger");
+        fs::rename(prepared, legacy).expect("model the previous journal layout");
+    }
+
+    fn prepare_operations(&self) {
+        let output = self
+            .research_command()
+            .args(["workspace", "prepare-operations"])
+            .arg(&self.repository)
+            .arg("--json")
+            .output()
+            .expect("prepare the private existing corpus");
+        assert!(output.status.success(), "{output:?}");
+    }
+
+    fn assert_task_count(&self, expected: usize) {
+        let output = self
+            .command()
+            .env("ORBIT_OPERATOR", "1")
+            .args(["task", "list", "--workspace", "research-v2-test", "--json"])
+            .output()
+            .expect("observe private tasks through Orbit");
+        let tasks = json_output(output, "private task list");
+        assert_eq!(
+            tasks.as_array().expect("task records").len(),
+            expected,
+            "{tasks}"
+        );
+    }
+
     fn install(&self) {
         let output = self
             .command_for(Path::new("sh"))
@@ -289,6 +424,19 @@ impl Fixture {
                 .args(&args)
                 .output()
                 .expect("install isolated plugin");
+            assert!(output.status.success(), "{args:?}: {output:?}");
+        }
+        // Orbit initialization adds its managed ignore block. Finalize that
+        // fixture-only onboarding change before measuring plugin mutations.
+        for args in [
+            vec!["add", "--", ".gitignore"],
+            vec!["commit", "-m", "Finalize isolated Orbit fixture ignore"],
+        ] {
+            let output = self
+                .command_for(Path::new("git"))
+                .args(&args)
+                .output()
+                .expect("finalize private Orbit onboarding");
             assert!(output.status.success(), "{args:?}: {output:?}");
         }
     }

@@ -1,4 +1,5 @@
 //! Local operational request log. Scientific facts never live here.
+use crate::request_log_layout as layout;
 use crate::{Error, Result, corpus::Corpus};
 use fs2::FileExt;
 use serde::{Serialize, de::DeserializeOwned};
@@ -13,26 +14,86 @@ pub struct RequestLog {
     _lock: File,
 }
 
+pub fn prepare_workspace_operations(path: &Path) -> Result<serde_json::Value> {
+    layout::prepare(path)
+}
+
 impl Corpus {
+    pub fn require_prepared_operations(&self) -> Result<()> {
+        layout::require_prepared(self)
+    }
+
     pub fn request_log(&self) -> Result<RequestLog> {
-        let common_dir = crate::git::read::common_git_dir(self.root())?;
-        let root = common_dir.join("orbit-research-operations");
-        fs::create_dir_all(&root)
-            .map_err(|error| io_context("create request-log directory", &root, error))?;
-        // The log directory itself may be new. Its parent must be durable too.
-        #[cfg(unix)]
-        sync_directory(&common_dir, "request-log parent")?;
-        let lock_path = root.join("lock");
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .open(&lock_path)
-            .map_err(|error| io_context("open request-log lock", &lock_path, error))?;
-        lock.lock_exclusive()
-            .map_err(|error| io_context("acquire request-log lock", &lock_path, error))?;
-        Ok(RequestLog { root, _lock: lock })
+        self.request_log_with_open_observer(|_| {})
+    }
+
+    pub(crate) fn request_log_with_open_observer(
+        &self,
+        mut observe: impl FnMut(&File),
+    ) -> Result<RequestLog> {
+        loop {
+            let root = layout::location(self)?.root;
+            let lock_path = root.join("lock");
+            let opened: Result<File> = (|| {
+                fs::create_dir_all(&root)
+                    .map_err(|error| io_context("create request-log directory", &root, error))?;
+                #[cfg(unix)]
+                sync_directory(
+                    root.parent()
+                        .ok_or_else(|| Error::Internal("Missing request-log parent".into()))?,
+                    "request-log parent",
+                )?;
+                layout::no_symlinks(&lock_path)?;
+                match fs::symlink_metadata(&lock_path) {
+                    Ok(metadata) if !metadata.is_file() => {
+                        return Err(Error::Refused(format!(
+                            "Request-log lock is not an ordinary file at {}",
+                            lock_path.display()
+                        )));
+                    }
+                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                        return Err(io_context("inspect request-log lock", &lock_path, error));
+                    }
+                    _ => {}
+                }
+                let mut options = OpenOptions::new();
+                options.create(true).truncate(false).read(true).write(true);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    options
+                        .mode(0o600)
+                        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+                }
+                let lock = options
+                    .open(&lock_path)
+                    .map_err(|error| io_context("open request-log lock", &lock_path, error))?;
+                if !lock.metadata()?.is_file() {
+                    return Err(Error::Refused(format!(
+                        "Request-log lock is not an ordinary file at {}",
+                        lock_path.display()
+                    )));
+                }
+                observe(&lock);
+                lock.lock_exclusive()
+                    .map_err(|error| io_context("acquire request-log lock", &lock_path, error))?;
+                Ok(lock)
+            })();
+            // An atomic preparation may have moved a lock we were waiting on,
+            // or published its marker immediately before we opened that lock.
+            let current = layout::location(self)?;
+            if current.root != root {
+                continue;
+            }
+            let lock = opened?;
+            if !layout::same_file(&lock, &lock_path)? {
+                return Err(Error::Refused(format!(
+                    "Request-log lock changed while acquiring it at {}",
+                    lock_path.display()
+                )));
+            }
+            return Ok(RequestLog { root, _lock: lock });
+        }
     }
 }
 
@@ -46,15 +107,17 @@ impl RequestLog {
 
     pub fn read<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
         let path = self.path(key)?;
-        match fs::read(&path) {
+        match layout::read_file(&path) {
             Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(io_context("read request-log entry", &path, error)),
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(Error::Io(error)) => Err(io_context("read request-log entry", &path, error)),
+            Err(error) => Err(error),
         }
     }
 
     pub fn save<T: Serialize>(&self, key: &str, value: &T) -> Result<()> {
         let path = self.path(key)?;
+        layout::no_symlinks(&path)?;
         let mut temp = tempfile::NamedTempFile::new_in(&self.root)
             .map_err(|error| io_context("create request-log temporary file", &self.root, error))?;
         temp.write_all(&serde_json::to_vec_pretty(value)?)
@@ -80,8 +143,10 @@ impl RequestLog {
                 .map_err(|error| io_context("read request-log directory entry", &self.root, error))?
                 .path();
             if path.extension().and_then(|e| e.to_str()) == Some("json") {
-                let bytes = fs::read(&path)
-                    .map_err(|error| io_context("read request-log entry", &path, error))?;
+                let bytes = layout::read_file(&path).map_err(|error| match error {
+                    Error::Io(error) => io_context("read request-log entry", &path, error),
+                    error => error,
+                })?;
                 items.push(serde_json::from_slice(&bytes)?);
             }
         }
