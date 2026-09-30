@@ -76,5 +76,11 @@ orbit-research research show --corpus ./observatory --id Q001
 orbit-research --format json research list --corpus ./observatory
 ```
 
+`research plan` drafts work without creating a task or changing the corpus.
+Select `--shape investigation` with `--objective`, `--shape contribution` with
+`--objective` and `--unit`, or `--shape synthesis` with at least one
+`--contribution` (repeat for several). Flags for another shape are rejected as
+usage errors rather than discarded.
+
 See the [terminal design](docs/design/terminal-interface/2_design.md) for output,
 error and compatibility contracts.

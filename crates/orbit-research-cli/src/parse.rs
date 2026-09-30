@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::output::OutputMode;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum, error::ErrorKind};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -25,6 +25,48 @@ pub(crate) struct Cli {
     pub(crate) json: bool,
     #[command(subcommand)]
     pub(crate) command: Command,
+}
+
+impl Cli {
+    pub(crate) fn try_parse_checked_from(args: &[std::ffi::OsString]) -> Result<Self, clap::Error> {
+        let cli = Self::try_parse_from(args)?;
+        if let Command::Research { operation } = &cli.command
+            && let ResearchOperation::Plan {
+                shape,
+                objective,
+                unit,
+                contributions,
+                ..
+            } = &**operation
+        {
+            for (present, flag, allowed) in [
+                (
+                    objective.is_some(),
+                    "--objective",
+                    *shape != PlanShape::Synthesis,
+                ),
+                (unit.is_some(), "--unit", *shape == PlanShape::Contribution),
+                (
+                    !contributions.is_empty(),
+                    "--contribution",
+                    *shape == PlanShape::Synthesis,
+                ),
+            ] {
+                if present && !allowed {
+                    let shape = match shape {
+                        PlanShape::Investigation => "investigation",
+                        PlanShape::Contribution => "contribution",
+                        PlanShape::Synthesis => "synthesis",
+                    };
+                    return Err(Self::command().error(
+                        ErrorKind::ArgumentConflict,
+                        format!("{flag} cannot be used with --shape {shape}"),
+                    ));
+                }
+            }
+        }
+        Ok(cli)
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -257,14 +299,14 @@ pub(crate) enum ResearchOperation {
         /// Reserved research record ID, such as R001.
         #[arg(long)]
         research_id: String,
-        /// Question or outcome this work should address (investigation, contribution).
-        #[arg(long)]
+        /// Required question or outcome for investigation and contribution only.
+        #[arg(long, required_if_eq_any = [("shape", "investigation"), ("shape", "contribution")])]
         objective: Option<String>,
-        /// Contribution name used for its code and artifact paths (contribution).
-        #[arg(long)]
+        /// Required contribution name for its code and artifact paths; contribution only.
+        #[arg(long, required_if_eq("shape", "contribution"))]
         unit: Option<String>,
-        /// Completed contribution name; repeat for multiple contributions (synthesis).
-        #[arg(long = "contribution")]
+        /// Required completed contribution name; repeat for several. Synthesis only.
+        #[arg(long = "contribution", required_if_eq("shape", "synthesis"))]
         contributions: Vec<String>,
     },
 }

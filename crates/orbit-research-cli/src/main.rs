@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 use serde_json::Value;
 
 use crate::command::application::compose;
@@ -28,7 +28,7 @@ fn main() -> ExitCode {
                 .and_then(|()| writeln!(out)),
         );
     }
-    match Cli::try_parse_from(&args) {
+    match Cli::try_parse_checked_from(&args) {
         Ok(cli) => run(cli),
         Err(error) if error.exit_code() == 0 => {
             finish_output(write!(io::stdout().lock(), "{error}"))
