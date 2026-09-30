@@ -210,3 +210,40 @@ fn bundled_backend_runs_from_an_isolated_plugin_root() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["output"]["core_version"], env!("CARGO_PKG_VERSION"));
 }
+
+#[test]
+fn launcher_failure_is_valid_json_for_control_characters_in_the_install_path() {
+    let temp = tempfile::tempdir().expect("temporary plugin root");
+    let controls: String = (1..=31).map(char::from).collect();
+    let bin = temp
+        .path()
+        .join(format!("missing-{controls}-\"\\κ"))
+        .join("bin");
+    fs::create_dir_all(&bin).expect("isolated launcher directory");
+    let launcher = bin.join("orbit-research");
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.orbit-plugin/bin/orbit-research"),
+        &launcher,
+    )
+    .expect("copy real launcher");
+    let output = Command::new(&launcher)
+        .arg("orbit-tool")
+        .env_clear()
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("run launcher without a bundled binary");
+    assert!(output.status.success(), "structured refusal: {output:?}");
+    assert!(output.stderr.is_empty(), "{output:?}");
+    let response: Value = serde_json::from_slice(&output.stdout).expect("one JSON plugin response");
+    assert_eq!(response["ok"], false);
+    assert_eq!(response["error"]["code"], "incompatible_binary");
+    assert_eq!(response["error"]["retryable"], false);
+    assert_eq!(
+        response["error"]["detail"]["path"],
+        bin.canonicalize()
+            .expect("physical fixture path")
+            .join("orbit-research.bin")
+            .to_string_lossy()
+            .as_ref()
+    );
+}

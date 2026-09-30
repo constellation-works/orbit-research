@@ -7,7 +7,21 @@ launcher_dir=$(CDPATH= cd "$(dirname "$0")" && pwd -P)
 research_binary="$launcher_dir/orbit-research.bin"
 
 json_escape() {
-    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+    # Append a record separator to retain any original trailing newline.
+    # C locale preserves UTF-8 bytes while escaping all JSON control bytes.
+    printf '%s\n' "$1" | LC_ALL=C awk '
+        BEGIN {
+            for (i = 1; i < 32; i++) escaped[sprintf("%c", i)] = sprintf("\\u%04x", i)
+            escaped["\\"] = "\\\\"
+            escaped["\""] = "\\\""
+        }
+        NR > 1 { printf "\\n" }
+        {
+            for (i = 1; i <= length($0); i++) {
+                c = substr($0, i, 1)
+                printf "%s", (c in escaped ? escaped[c] : c)
+            }
+        }'
 }
 
 incompatible() {
