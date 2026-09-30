@@ -138,7 +138,8 @@ fn assess_refuses_research_without_an_acceptance_record() {
             .expect("app")
             .with_acceptance(Accepted("R999")),
     ] {
-        let error = assess(&app, Some("inconclusive"), 1).unwrap_err();
+        let error = assess(&app, Some("inconclusive"), 1)
+            .expect_err("assessment requires accepted research evidence");
         assert!(
             error.to_string().contains("R001 has no acceptance record"),
             "{error}"
@@ -156,7 +157,7 @@ fn negative_result_is_assessed_inconclusive_never_supported() {
         .with_acceptance(Accepted("R001"));
 
     // Execution success and acceptance supply no verdict: the author must give one.
-    let error = assess(&app, None, 1).unwrap_err();
+    let error = assess(&app, None, 1).expect_err("assessment requires an explicit verdict");
     assert!(matches!(error, Error::InvalidInput(_)), "{error}");
     assert!(error.to_string().contains("verdict"), "{error}");
 
@@ -198,7 +199,8 @@ fn revised_hypothesis_keeps_earlier_assessments_on_their_revision() {
     assert_eq!(metadata["revision"], 2);
     assert_eq!(metadata["assessments"][0]["revision"], 1);
 
-    let error = assess(&app, Some("refutes"), 3).unwrap_err();
+    let error = assess(&app, Some("refutes"), 3)
+        .expect_err("assessment cannot cite an unknown hypothesis revision");
     assert!(error.to_string().contains("has no revision 3"), "{error}");
     assess(&app, Some("refutes"), 2).expect("assess revision 2");
     let metadata = &hypothesis(&app)["metadata"];
@@ -241,9 +243,11 @@ fn create_status_names_only_the_initial_status_and_mode_assertions_hold() {
             json!({"request_key": format!("r-{status}-{mode}"), "kind": "R", "title": "Study", "status": status, "mode": mode}),
         )
     };
-    let error = reserve("done", "primary").unwrap_err();
+    let error =
+        reserve("done", "primary").expect_err("new research must start at its initial status");
     assert!(error.to_string().contains("start as planned"), "{error}");
-    let error = reserve("planned", "worktree").unwrap_err();
+    let error =
+        reserve("planned", "worktree").expect_err("ID reservation requires the primary checkout");
     assert!(matches!(error, Error::Refused(_)), "{error}");
     let reserved = reserve("planned", "primary").expect("reservation");
     assert_eq!(reserved["id"], "R002");

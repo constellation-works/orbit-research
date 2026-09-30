@@ -332,15 +332,15 @@ impl ReservationIntent {
             text: self.text.clone(),
             before: None,
         });
-        if self.id.starts_with('R') {
-            if let Some((parent, _)) = self.path.rsplit_once('/') {
-                self.files.push(WriteFile {
-                    // Intent paths are Git paths, including on Windows.
-                    path: format!("{parent}/data/manifest.json"),
-                    text: "{\"inputs\":[]}\n".into(),
-                    before: None,
-                });
-            }
+        if self.id.starts_with('R')
+            && let Some((parent, _)) = self.path.rsplit_once('/')
+        {
+            self.files.push(WriteFile {
+                // Intent paths are Git paths, including on Windows.
+                path: format!("{parent}/data/manifest.json"),
+                text: "{\"inputs\":[]}\n".into(),
+                before: None,
+            });
         }
     }
 }
@@ -531,7 +531,7 @@ impl<'a> Writer<'a> {
                 .corpus
                 .git_bytes(&["show", &format!(":{}", file.path)])?;
             if bytes != file.text.as_bytes()
-                && !file.before.as_ref().is_some_and(|s| bytes == s.as_bytes())
+                && file.before.as_ref().is_none_or(|s| bytes != s.as_bytes())
             {
                 return Err(Error::Conflict(format!(
                     "Staged path {} has conflicting edits; refusing commit",
