@@ -232,4 +232,6 @@ Rust formatting is enforced by `make fmt-check`.
 `Store::request_log` holds writer intents and link request keys. The writer
 records reservation intents for crash recovery. Neither is a scientific
 journal or an alternate record store; both are required to prevent duplicate writes
-and work after uncertain outcomes.
+and work after uncertain outcomes. Once a link request confirms an Orbit task,
+an identical confirmation recalls that task and a different task refuses without
+changing the persisted correlation.
