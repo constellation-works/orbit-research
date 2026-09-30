@@ -91,6 +91,70 @@ fn confirmed_link_retries_preserve_the_original_task() {
 }
 
 #[test]
+fn link_requests_share_confirmations_across_worktrees_without_git_on_path() {
+    const PRIMARY: &str = "ORBIT_RESEARCH_LINK_NO_GIT_PRIMARY";
+    const LINKED: &str = "ORBIT_RESEARCH_LINK_NO_GIT_LINKED";
+    if let Some(primary) = std::env::var_os(PRIMARY) {
+        let linked = std::env::var_os(LINKED).expect("linked worktree fixture path");
+        let primary = Application::local(Path::new(&primary)).expect("open primary without Git");
+        let linked = Application::local(Path::new(&linked)).expect("open worktree without Git");
+        let intent = primary
+            .link_intent("git-free-link", "R001")
+            .expect("persist intent without spawning Git");
+        assert!(intent.is_new);
+        let recalled = linked
+            .link_intent("git-free-link", "R001")
+            .expect("worktree recalls the primary intent without spawning Git");
+        assert!(!recalled.is_new);
+        linked
+            .link_confirm("git-free-link", "task-confirmed")
+            .expect("confirm the shared intent without spawning Git");
+        let links = primary
+            .call("research.work_links", json!({}))
+            .expect("list the shared confirmation without spawning Git");
+        assert_eq!(links.as_array().expect("link array").len(), 1);
+        assert_eq!(links[0]["task_id"], "task-confirmed");
+        return;
+    }
+
+    let (temp, app) = fixture();
+    create_r(&app, "git-free-link-reservation");
+    let linked_parent = tempfile::tempdir().expect("private linked worktree parent");
+    let linked = linked_parent.path().join("worktree");
+    git(
+        temp.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            linked.to_str().expect("UTF-8 private worktree path"),
+        ],
+    );
+    let output = Command::new(std::env::current_exe().expect("current test binary"))
+        .args([
+            "--exact",
+            "link_requests_share_confirmations_across_worktrees_without_git_on_path",
+        ])
+        .env("PATH", "")
+        .env(PRIMARY, temp.path())
+        .env(LINKED, &linked)
+        .output()
+        .expect("run link operations in a child with an empty PATH");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success() && stdout.contains("1 passed"),
+        "Git-free link regression must execute and pass: {stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(temp.path().join(".git/orbit-research-operations").is_dir());
+    assert!(
+        !linked.join(".git/orbit-research-operations").exists(),
+        "linked worktrees must keep using the shared request log"
+    );
+}
+
+#[test]
 fn local_capture_and_work_plans_need_no_backend() {
     let (temp, app) = fixture();
     let first = create_r(&app, "capture-r");
