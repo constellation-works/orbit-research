@@ -413,6 +413,50 @@ const ACCEPTANCE_ARTIFACT_PATH: &str = "research-acceptance.json";
 /// write root that reaches workspace metadata.
 const ACCEPT_SCRATCH_DIR: &str = ".orbit-research-tmp";
 
+struct ScratchDirectory {
+    path: PathBuf,
+    #[cfg(unix)]
+    directory: fs::File,
+}
+
+fn scratch_directory(workspace_root: &Path) -> Result<ScratchDirectory> {
+    let scratch = workspace_root.canonicalize()?.join(ACCEPT_SCRATCH_DIR);
+    let directory = fs::DirBuilder::new();
+    #[cfg(unix)]
+    let directory = {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut directory = directory;
+        directory.mode(0o700);
+        directory
+    };
+    match directory.create(&scratch) {
+        Ok(()) => (),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => (),
+        Err(error) => return Err(error.into()),
+    }
+    let metadata = fs::symlink_metadata(&scratch)?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(Error::Refused(format!(
+            "Acceptance scratch path must be an ordinary directory: {}",
+            scratch.display()
+        )));
+    }
+    #[cfg(unix)]
+    let directory = {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Refuse a symlink substituted between the metadata check and open.
+        fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+            .open(&scratch)?
+    };
+    Ok(ScratchDirectory {
+        path: scratch,
+        #[cfg(unix)]
+        directory,
+    })
+}
+
 struct AcceptOutcome {
     acceptance: Acceptance,
     /// Whether this call wrote the artifact; `false` for an idempotent retry
@@ -456,13 +500,30 @@ fn accept_record(
             "{task} already carries {ACCEPTANCE_ARTIFACT_PATH} for a different commit or run; refusing to overwrite recorded acceptance"
         )));
     }
-    let scratch_dir = workspace_root.join(ACCEPT_SCRATCH_DIR);
-    fs::create_dir_all(&scratch_dir)?;
-    let scratch_file = scratch_dir.join(ACCEPTANCE_ARTIFACT_PATH);
-    fs::write(&scratch_file, serde_json::to_vec_pretty(&candidate)?)?;
-    let put = host.put_artifact(&scratch_file, task, ACCEPTANCE_ARTIFACT_PATH);
-    let _ = fs::remove_file(&scratch_file);
-    put?;
+    let scratch = scratch_directory(workspace_root)?;
+    let mut scratch_file = tempfile::Builder::new()
+        .prefix("research-acceptance-")
+        .suffix(".json")
+        .tempfile_in(&scratch.path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let opened = scratch.directory.metadata()?;
+        let current = fs::symlink_metadata(&scratch.path)?;
+        if current.file_type().is_symlink()
+            || (opened.dev(), opened.ino()) != (current.dev(), current.ino())
+        {
+            return Err(Error::Refused(format!(
+                "Acceptance scratch directory changed while staging: {}",
+                scratch.path.display()
+            )));
+        }
+    }
+    serde_json::to_writer_pretty(scratch_file.as_file_mut(), &candidate)?;
+    scratch_file.flush()?;
+    // The uniquely created, owner-only file stays alive through the callback;
+    // its guard removes only this call's file on success and error alike.
+    host.put_artifact(scratch_file.path(), task, ACCEPTANCE_ARTIFACT_PATH)?;
     Ok(AcceptOutcome {
         acceptance: candidate,
         recorded: true,

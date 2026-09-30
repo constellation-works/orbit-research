@@ -93,6 +93,7 @@ struct FakeTaskHost {
     tasks: Mutex<Vec<(String, String)>>,
     next_id: Mutex<u32>,
     fail_create: Mutex<bool>,
+    fail_put: Mutex<bool>,
     /// Task id -> (status, job_run_id), as `accept` reads via `orbit.task.show`.
     task_states: Mutex<BTreeMap<String, (String, Option<String>)>>,
     /// (task id, artifact path) -> stored content, as `orbit.task.artifact.put` records.
@@ -183,7 +184,21 @@ impl TaskHost for FakeTaskHost {
     }
 
     fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(source_path)?.permissions().mode() & 0o777,
+                0o600,
+                "callback source is owner-only"
+            );
+        }
         let bytes = fs::read(source_path)?;
+        if *self.fail_put.lock().expect("lock") {
+            return Err(Error::Internal(
+                "simulated artifact callback failure".into(),
+            ));
+        }
         let content: Value = serde_json::from_slice(&bytes).map_err(|error| {
             Error::Internal(format!("staged {path} is not valid JSON: {error}"))
         })?;
@@ -764,6 +779,152 @@ fn call_accept(primary: &Path, task_id: &str, research_id: &str, host: &dyn Task
         ),
         host,
     )
+}
+
+#[test]
+fn accept_preserves_a_preexisting_scratch_file() {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let host = FakeTaskHost::default();
+    host.seed_task_state("task-1", "review", Some("run-1"));
+    let scratch = delivered.primary.path().join(".orbit-research-tmp");
+    fs::create_dir(&scratch).expect("scratch directory");
+    let existing = scratch.join("research-acceptance.json");
+    fs::write(&existing, "another call's artifact").expect("existing file");
+
+    let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(
+        fs::read_to_string(existing).expect("preserved file"),
+        "another call's artifact"
+    );
+    assert_eq!(
+        fs::read_dir(scratch).expect("scratch directory").count(),
+        1,
+        "this call cleans up only its own staged file"
+    );
+}
+
+#[test]
+fn accept_cleans_up_its_private_scratch_file_when_the_callback_fails() {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let host = FakeTaskHost::default();
+    host.seed_task_state("task-1", "review", Some("run-1"));
+    *host.fail_put.lock().expect("callback failure flag") = true;
+    let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(reply["error"]["code"], "internal", "{reply}");
+    let scratch = delivered.primary.path().join(".orbit-research-tmp");
+    assert_eq!(
+        fs::read_dir(&scratch).expect("scratch directory").count(),
+        0
+    );
+    assert!(host.artifacts.lock().expect("artifacts").is_empty());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(scratch)
+                .expect("scratch metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn accept_refuses_a_symlinked_scratch_directory_without_touching_its_target() {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let outside = tempfile::tempdir().expect("outside scratch target");
+    let existing = outside.path().join("research-acceptance.json");
+    fs::write(&existing, "unrelated outside file").expect("outside file");
+    std::os::unix::fs::symlink(
+        outside.path(),
+        delivered.primary.path().join(".orbit-research-tmp"),
+    )
+    .expect("scratch symlink");
+    let host = FakeTaskHost::default();
+    host.seed_task_state("task-1", "review", Some("run-1"));
+
+    let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "refused", "{reply}");
+    assert_eq!(
+        fs::read_to_string(existing).expect("outside file survives"),
+        "unrelated outside file"
+    );
+    assert!(host.artifacts.lock().expect("artifacts").is_empty());
+}
+
+/// A nested call completes while the first callback is still waiting to read
+/// its source file, modeling two overlapping exec calls without timing waits.
+struct InterleavedAcceptHost {
+    host: FakeTaskHost,
+    primary: std::path::PathBuf,
+    entered: std::sync::atomic::AtomicBool,
+}
+
+impl TaskHost for InterleavedAcceptHost {
+    fn list_by_tag(&self, workspace: &str, tag: &str) -> Result<Vec<TaskRef>> {
+        self.host.list_by_tag(workspace, tag)
+    }
+
+    fn create(
+        &self,
+        workspace: &str,
+        tag: &str,
+        title: &str,
+        description: &str,
+        criteria: &[String],
+        files: &[String],
+    ) -> Result<TaskRef> {
+        self.host
+            .create(workspace, tag, title, description, criteria, files)
+    }
+
+    fn task_state(&self, id: &str) -> Result<TaskState> {
+        self.host.task_state(id)
+    }
+
+    fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>> {
+        self.host.get_artifact(id, path)
+    }
+
+    fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()> {
+        if !self.entered.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            let second = call_accept(&self.primary, id, "R001", self);
+            assert_eq!(second["ok"], true, "overlapping call: {second}");
+        }
+        self.host.put_artifact(source_path, id, path)
+    }
+}
+
+#[test]
+fn overlapping_accept_calls_keep_independent_callback_source_files() {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let host = InterleavedAcceptHost {
+        host: FakeTaskHost::default(),
+        primary: delivered.primary.path().into(),
+        entered: std::sync::atomic::AtomicBool::new(false),
+    };
+    host.host.seed_task_state("task-1", "review", Some("run-1"));
+    let first = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(
+        first["ok"], true,
+        "first call still has its callback source: {first}"
+    );
+    assert_eq!(host.host.artifacts.lock().expect("artifacts").len(), 1);
+    assert_eq!(
+        fs::read_dir(delivered.primary.path().join(".orbit-research-tmp"))
+            .expect("scratch")
+            .count(),
+        0
+    );
 }
 
 /// Stable golden form: strip the published commit and blob, which vary by

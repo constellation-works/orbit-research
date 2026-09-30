@@ -79,7 +79,9 @@ workspace leaf; no workspace crate dependency is permitted.
   as a conflict. `orbit.task.artifact.put`'s callback reads real bytes off a `source_path` inside
   the bound workspace, so `accept` stages the artifact under the workspace-relative
   `.orbit-research-tmp/` scratch directory (its own `permissions.fs.write` grant, never `.orbit`/
-  `.git`) and removes the staged file after the callback returns. `.orbit-plugin/schemas/accept.request.json` is
+  `.git`). Each call creates a unique owner-only scratch file, keeps it alive through the
+  callback and removes it on success or error. A symlinked scratch directory is refused, and
+  overlapping calls leave each other's source files intact. `.orbit-plugin/schemas/accept.request.json` is
   drift-checked and its goldens (success, idempotent retry, and each refusal) are pinned in
   `src/tests/plugin.rs`/`src/snapshots/plugin-accept.json`, over the same in-memory `TaskHost` fake
   used for `link`. `assess`'s `AcceptanceLookup` (`application/acceptance.rs`) deserializes directly
