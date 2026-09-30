@@ -50,16 +50,56 @@ fn no_commits_error(root: &Path) -> Error {
 /// (no commits yet) yields a typed error rather than a raw Git message.
 pub(crate) fn head_commit(root: &Path) -> Result<String> {
     let repo = open(root)?;
+    Ok(head(&repo, root)?.id.to_string())
+}
+
+fn head<'repo>(repo: &'repo gix::Repository, root: &Path) -> Result<gix::Commit<'repo>> {
     let mut head = repo
         .head()
         .map_err(|error| Error::Internal(error.to_string()))?;
     if head.is_unborn() {
         return Err(no_commits_error(root));
     }
-    let commit = head
-        .peel_to_commit()
+    head.peel_to_commit()
+        .map_err(|error| Error::Internal(error.to_string()))
+}
+
+/// One invocation's pinned commit tree, with its repository kept open only
+/// for the read. Every schema and record lookup uses this exact tree.
+pub(crate) struct CommittedView<'repo> {
+    revision: String,
+    tree: gix::Tree<'repo>,
+}
+
+pub(crate) fn with_head<T>(
+    root: &Path,
+    read: impl FnOnce(CommittedView<'_>) -> Result<T>,
+) -> Result<T> {
+    let repo = open(root)?;
+    let commit = head(&repo, root)?;
+    let tree = commit
+        .tree()
         .map_err(|error| Error::Internal(error.to_string()))?;
-    Ok(commit.id.to_string())
+    read(CommittedView {
+        revision: commit.id.to_string(),
+        tree,
+    })
+}
+
+impl CommittedView<'_> {
+    pub(crate) fn revision(&self) -> &str {
+        &self.revision
+    }
+
+    pub(crate) fn bytes(&self, path: &str) -> Result<Vec<u8>> {
+        tree_bytes(&self.tree, path)
+    }
+
+    pub(crate) fn paths(&self) -> Result<Vec<String>> {
+        let mut paths = Vec::new();
+        collect_paths(self.tree.repo, self.tree.clone(), "", &mut paths)?;
+        Ok(paths)
+    }
 }
 
 /// Resolve any revision spec (a full object id, `HEAD`, a branch or tag name,
@@ -103,7 +143,16 @@ pub(crate) fn committed_blob(root: &Path, revision: &str, path: &str) -> Result<
 pub(crate) fn committed_bytes(root: &Path, revision: &str, path: &str) -> Result<Vec<u8>> {
     let repo = open(root)?;
     let commit = resolve_commit(&repo, revision)?;
-    let entry = find_tree_entry(&commit, path)?
+    let tree = commit
+        .tree()
+        .map_err(|error| Error::Internal(error.to_string()))?;
+    tree_bytes(&tree, path)
+}
+
+fn tree_bytes(tree: &gix::Tree<'_>, path: &str) -> Result<Vec<u8>> {
+    let entry = tree
+        .lookup_entry(path.split('/'))
+        .map_err(|error| Error::Internal(error.to_string()))?
         .ok_or_else(|| Error::Invalid(format!("No such committed path: {path}")))?;
     if !entry.mode().is_blob() {
         return Err(Error::Invalid(
@@ -115,19 +164,6 @@ pub(crate) fn committed_bytes(root: &Path, revision: &str, path: &str) -> Result
         .map_err(|error| Error::Internal(error.to_string()))?
         .data
         .clone())
-}
-
-/// Equivalent to `git ls-tree -r --name-only revision`: every blob and
-/// submodule path reachable from `revision`'s tree, recursively.
-pub(crate) fn committed_paths(root: &Path, revision: &str) -> Result<Vec<String>> {
-    let repo = open(root)?;
-    let commit = resolve_commit(&repo, revision)?;
-    let tree = commit
-        .tree()
-        .map_err(|error| Error::Internal(error.to_string()))?;
-    let mut paths = Vec::new();
-    collect_paths(&repo, tree, "", &mut paths)?;
-    Ok(paths)
 }
 
 fn collect_paths(

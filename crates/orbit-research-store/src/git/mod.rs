@@ -76,8 +76,4 @@ impl Corpus {
     pub(crate) fn hash_bytes(&self, bytes: &[u8]) -> Result<String> {
         Ok(read::hash_bytes(bytes))
     }
-
-    pub(crate) fn committed_paths(&self, revision: &str) -> Result<Vec<String>> {
-        read::committed_paths(self.root(), revision)
-    }
 }
