@@ -139,6 +139,17 @@ supported Orbit binary and runs clean-export conformance and the installed test.
 See [plugin-validation.md](../../plugin-validation.md) for commands and coverage
 boundaries.
 
+The final clean export at `f8db26b` passed validation and all eight unchanged
+goldens against official Mac Orbit 0.25.0. Its manifest digest was
+`78437238d35f48e166132c820c13c05bf019ed9c35023892e5757999202b3af7`;
+conformance did not mark the deliberately uninstalled export certified.
+[CI run 36695154990](https://github.com/constellation-works/orbit-research/actions/runs/36695154990)
+passed all five checks on that exact source commit, including Linux installed
+CLI/MCP callbacks, Linux quality, both portability suites and the Windows writer
+regression. A separate private Mac probe confirmed that plugin calls from a
+linked checkout still use its registered primary workspace; this does not claim
+support for independently registering that linked checkout.
+
 ## Reproducible committed-snapshot benchmark
 
 The [locked harness](benchmarks/committed/run.py) builds a copied source tree
