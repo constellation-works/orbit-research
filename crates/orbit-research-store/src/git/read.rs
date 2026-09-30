@@ -28,6 +28,12 @@ pub(crate) fn own_git_dir(root: &Path) -> Result<std::path::PathBuf> {
     Ok(open(root)?.git_dir().to_owned())
 }
 
+/// The shared Git directory for the primary checkout and all linked worktrees.
+/// Request correlation uses this identity without requiring a Git subprocess.
+pub(crate) fn common_git_dir(root: &Path) -> Result<std::path::PathBuf> {
+    Ok(open(root)?.common_dir().to_owned())
+}
+
 /// Whether `HEAD` currently resolves to a commit (false for a freshly
 /// initialized repository with no commits yet).
 pub(crate) fn has_head(root: &Path) -> Result<bool> {

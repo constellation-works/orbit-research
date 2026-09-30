@@ -15,11 +15,7 @@ pub struct RequestLog {
 
 impl Corpus {
     pub fn request_log(&self) -> Result<RequestLog> {
-        let common_dir = PathBuf::from(self.git(&[
-            "rev-parse",
-            "--path-format=absolute",
-            "--git-common-dir",
-        ])?);
+        let common_dir = crate::git::read::common_git_dir(self.root())?;
         let root = common_dir.join("orbit-research-operations");
         fs::create_dir_all(&root)?;
         // The log directory itself may be new. Its parent must be durable too.
