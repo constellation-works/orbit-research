@@ -149,8 +149,23 @@ fn help_flags_and_nested_command_help_are_documented_successes() {
     for args in [
         &["-h"][..],
         &["--help"][..],
+        &["workspace", "--help"][..],
+        &["workspace", "init", "--help"][..],
         &["research", "--help"][..],
+        &["research", "list", "--help"][..],
+        &["research", "show", "--help"][..],
+        &["research", "check", "--help"][..],
         &["research", "create", "--help"][..],
+        &["research", "capture", "--help"][..],
+        &["research", "revise", "--help"][..],
+        &["research", "assess", "--help"][..],
+        &["research", "revise-question", "--help"][..],
+        &["research", "work-links", "--help"][..],
+        &["research", "plan", "--help"][..],
+        &["mcp", "--help"][..],
+        &["orbit-tool", "--help"][..],
+        &["resource", "--help"][..],
+        &["--format", "json", "research", "plan", "--help"][..],
     ] {
         let output = run(args);
         assert_success(&output);
@@ -387,6 +402,32 @@ fn empty_human_list_has_no_data_and_writes_a_diagnostic() {
         !stderr.contains("\u{1b}["),
         "diagnostic contained ANSI: {stderr:?}"
     );
+}
+
+#[test]
+fn empty_work_links_does_not_claim_that_the_corpus_has_no_records() {
+    let temp = tempfile::tempdir().expect("temporary corpus");
+    let corpus = temp.path().join("corpus");
+    initialize(&corpus);
+    create_question(&corpus);
+    for format in ["auto", "table", "json", "ndjson"] {
+        let output = run(&[
+            "--format",
+            format,
+            "research",
+            "work-links",
+            "--corpus",
+            corpus.to_str().expect("UTF-8 fixture path"),
+        ]);
+        assert_success(&output);
+        assert!(output.stderr.is_empty(), "{format}: {output:?}");
+        match format {
+            "auto" | "table" => assert_eq!(output.stdout, b"-\n"),
+            "json" => assert_eq!(parse_json(&output.stdout), serde_json::json!([])),
+            "ndjson" => assert!(output.stdout.is_empty()),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[test]
