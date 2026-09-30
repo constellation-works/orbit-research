@@ -237,6 +237,10 @@ impl Fixture {
             .env("TMPDIR", &self.root)
             .env("ORBIT_BIN", &self.orbit)
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Installed plugin fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Installed plugin fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
             .env(
                 "GIT_CONFIG_GLOBAL",
                 if cfg!(windows) { "NUL" } else { "/dev/null" },
