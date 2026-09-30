@@ -29,7 +29,11 @@ spec:
   permissions:
     fs:
       read: ["{{workspace}}"]
-      write: ["{{workspace}}/.orbit-research-tmp"]
+      write:
+        [
+          "{{workspace}}/.orbit-research-tmp",
+          "{{workspace}}/_data/orbit-research-operations",
+        ]
     network: none
     orbit_tools:
       [

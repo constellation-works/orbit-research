@@ -14,3 +14,8 @@ impl Application {
 pub fn init_workspace(path: &Path) -> Result<serde_json::Value> {
     orbit_research_store::workspace::init(path)
 }
+
+/// Explicitly prepare shared operational state on an existing primary corpus.
+pub fn prepare_workspace_operations(path: &Path) -> Result<serde_json::Value> {
+    orbit_research_store::request_log::prepare_workspace_operations(path)
+}

@@ -151,6 +151,7 @@ fn help_flags_and_nested_command_help_are_documented_successes() {
         &["--help"][..],
         &["workspace", "--help"][..],
         &["workspace", "init", "--help"][..],
+        &["workspace", "prepare-operations", "--help"][..],
         &["research", "--help"][..],
         &["research", "list", "--help"][..],
         &["research", "show", "--help"][..],

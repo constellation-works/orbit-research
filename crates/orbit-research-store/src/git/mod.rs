@@ -1,7 +1,7 @@
 //! Git process boundary. Bytes never pass through trimmed text helpers.
 //!
-//! Only the primary-mode writer's plumbing (`git`/`git_bytes`, used by
-//! `writer.rs` for commit/lock work) spawns a process here. Every read used by
+//! The primary-mode writer and explicit operational-state preparation spawn
+//! processes here. Every read used by
 //! the plugin-sandboxed read/validate path is in-process; see [`read`].
 use crate::{Error, Result, corpus::Corpus};
 use std::process::{Command, Output};
@@ -17,6 +17,23 @@ fn command_error(operation: &str, output: &Output) -> Error {
 }
 
 impl Corpus {
+    pub(crate) fn is_ignored(&self, relative: &str) -> Result<bool> {
+        let output = command(self.root())
+            .args(["check-ignore", "--quiet", "--no-index", "--", relative])
+            .env_remove("GIT_LITERAL_PATHSPECS")
+            .output()?;
+        match output.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(command_error("check-ignore", &output)),
+        }
+    }
+
+    pub(crate) fn has_indexed_paths(&self, relative: &str) -> Result<bool> {
+        Ok(!self
+            .git_bytes(&["ls-files", "-z", "--cached", "--", relative])?
+            .is_empty())
+    }
     pub(crate) fn ensure_repository(&self) -> Result<()> {
         read::ensure_repository(self.root())
     }
@@ -47,10 +64,8 @@ impl Corpus {
     }
 
     pub(crate) fn git_bytes(&self, args: &[&str]) -> Result<Vec<u8>> {
-        let result = Command::new("git")
+        let result = command(self.root())
             .arg("--literal-pathspecs")
-            .arg("-C")
-            .arg(self.root())
             .args(args)
             .output()?;
         if !result.status.success() {
@@ -76,4 +91,32 @@ impl Corpus {
     pub(crate) fn hash_bytes(&self, bytes: &[u8]) -> Result<String> {
         Ok(read::hash_bytes(bytes))
     }
+}
+
+/// Every Git subprocess acts on its explicit corpus, including when invoked
+/// from a hook or worktree shell carrying repository/index overrides.
+pub(crate) fn command(root: &std::path::Path) -> Command {
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root);
+    for name in [
+        "GIT_DIR",
+        "GIT_COMMON_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_CONFIG_COUNT",
+        "GIT_CONFIG_PARAMETERS",
+        "GIT_NAMESPACE",
+        "GIT_LITERAL_PATHSPECS",
+        "GIT_GLOB_PATHSPECS",
+        "GIT_NOGLOB_PATHSPECS",
+        "GIT_ICASE_PATHSPECS",
+        "GIT_PREFIX",
+        "GIT_CEILING_DIRECTORIES",
+        "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    ] {
+        command.env_remove(name);
+    }
+    command
 }

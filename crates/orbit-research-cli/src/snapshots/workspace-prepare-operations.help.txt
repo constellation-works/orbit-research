@@ -1,0 +1,11 @@
+Prepare local operational state for an existing corpus (primary checkout only)
+
+Usage: orbit-research workspace prepare-operations [OPTIONS] <PATH>
+
+Arguments:
+  <PATH>  Path to the existing corpus's primary checkout
+
+Options:
+      --format <FORMAT>  Output format: tables in a terminal, plain text in pipes by default [env: ORBIT_RESEARCH_FORMAT=] [default: auto] [possible values: auto, table, json, ndjson]
+      --json             Shorthand for --format json
+  -h, --help             Print help

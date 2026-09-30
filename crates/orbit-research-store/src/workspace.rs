@@ -1,6 +1,6 @@
 use crate::{Error, Result, corpus::Corpus};
 use serde_json::{Value, json};
-use std::{fs, path::Path, process::Command};
+use std::{fs, path::Path};
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -60,7 +60,10 @@ pub fn init(path: &Path) -> Result<Value> {
         "#!/bin/sh\nset -eu\n# Validate and print the base revision and record/tag counts.\nexec orbit-research research check --corpus \"$(CDPATH= cd -- \"$(dirname -- \"$0\")/..\" && pwd)\"\n",
     )?;
     make_check_executable(path)?;
-    if let Err(error) = run_git(path, &["init", "-q"]).and_then(|()| commit_scaffold(path)) {
+    if let Err(error) = run_git(path, &["init", "-q"])
+        .and_then(|()| prepare_new_operations(path))
+        .and_then(|()| commit_scaffold(path))
+    {
         cleanup_scaffold(path);
         return Err(error);
     }
@@ -70,6 +73,14 @@ pub fn init(path: &Path) -> Result<Value> {
         "created": true,
         "revision": corpus.snapshot()?.revision,
     }))
+}
+
+fn prepare_new_operations(path: &Path) -> Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    crate::request_log::prepare_workspace_operations(path)?;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let _ = path;
+    Ok(())
 }
 
 fn has_head(path: &Path) -> Result<bool> {
@@ -96,11 +107,7 @@ fn commit_scaffold(path: &Path) -> Result<()> {
 }
 
 fn run_git(path: &Path, args: &[&str]) -> Result<()> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(path)
-        .args(args)
-        .output()?;
+    let output = crate::git::command(path).args(args).output()?;
     if output.status.success() {
         return Ok(());
     }

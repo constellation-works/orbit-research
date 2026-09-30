@@ -226,16 +226,19 @@ mod workspace {
     use super::*;
 
     pub fn init_without_identity(root: &Path) -> std::process::Output {
+        // The Git boundary clears command-scoped config overrides along with
+        // repository redirects. Keep this identity requirement in an isolated
+        // configuration file so the fixture still proves commit-failure rollback.
+        let config = tempfile::NamedTempFile::new().expect("private strict Git config");
+        fs::write(config.path(), "[user]\n\tuseConfigOnly = true\n")
+            .expect("require an explicit fixture identity");
         Command::new(env!("CARGO_BIN_EXE_orbit-research"))
             .args(["--format", "json", "workspace", "init"])
             .arg(root)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_GLOBAL", config.path())
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_COUNT", "1")
-            .env("GIT_CONFIG_KEY_0", "user.useConfigOnly")
-            .env("GIT_CONFIG_VALUE_0", "true")
             .output()
             .expect("run corpus initialization without identity")
     }

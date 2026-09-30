@@ -284,6 +284,7 @@ fn link(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Result<Valu
         input.description = input.title.clone();
     }
     let app = Application::local(workspace_root)?;
+    app.require_prepared_operations()?;
     let preparation = app.link_intent(&input.request_key, &input.research_id)?;
     let workspace = workspace_root.to_string_lossy();
     let tag = &preparation.link.correlation_tag;

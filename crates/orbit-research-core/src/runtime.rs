@@ -12,6 +12,11 @@ pub struct Application {
 }
 
 impl Application {
+    /// The sandboxed plugin must use state prepared outside Git metadata.
+    pub fn require_prepared_operations(&self) -> Result<()> {
+        self.corpus.store.require_prepared_operations()
+    }
+
     /// Replace the acceptance lookup `assess` consults.
     pub fn with_acceptance(mut self, lookup: impl AcceptanceLookup + 'static) -> Self {
         self.acceptance = Box::new(lookup);

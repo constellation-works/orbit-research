@@ -26,6 +26,8 @@ fn fixture() -> (TempDir, Application) {
     let root = temp.path();
     fs::create_dir(root.join("_scripts")).unwrap();
     fs::write(root.join("_scripts/schema.json"), SCHEMA).unwrap();
+    fs::write(root.join(".gitignore"), "/_data/**\n!/_data/**/\n")
+        .expect("ignored operational bytes");
     for directory in ["questions", "hypotheses", "theories", "research"] {
         fs::create_dir(root.join(directory)).unwrap();
     }
@@ -119,6 +121,9 @@ fn link_requests_share_confirmations_across_worktrees_without_git_on_path() {
 
     let (temp, app) = fixture();
     create_r(&app, "git-free-link-reservation");
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    orbit_research_core::prepare_workspace_operations(temp.path())
+        .expect("prepare process-free shared state");
     let linked_parent = tempfile::tempdir().expect("private linked worktree parent");
     let linked = linked_parent.path().join("worktree");
     git(
@@ -147,6 +152,9 @@ fn link_requests_share_confirmations_across_worktrees_without_git_on_path() {
         "Git-free link regression must execute and pass: {stdout}\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    assert!(temp.path().join(".git/orbit-research-operations").is_file());
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     assert!(temp.path().join(".git/orbit-research-operations").is_dir());
     assert!(
         !linked.join(".git/orbit-research-operations").exists(),
@@ -164,7 +172,7 @@ fn link_request_io_failures_identify_the_operation_and_path() {
             .canonicalize()
             .expect("canonical fixture root")
             .join(".git/orbit-research-operations");
-        let (operation, failing_path) = if block_lock {
+        let (_operation, failing_path) = if block_lock {
             fs::create_dir(&log_root).expect("request log directory");
             let lock = log_root.join("lock");
             fs::create_dir(&lock).expect("directory blocking the lock file");
@@ -177,33 +185,132 @@ fn link_request_io_failures_identify_the_operation_and_path() {
             Err(error) => error,
             Ok(_) => panic!("blocked request log must fail before saving an intent"),
         };
-        let orbit_research_core::Error::Io(error) = error else {
-            panic!("filesystem errors must preserve the typed Io variant");
-        };
-        let expected_kind = if block_lock {
-            error.kind() == std::io::ErrorKind::IsADirectory
-                || (cfg!(windows) && error.kind() == std::io::ErrorKind::PermissionDenied)
-        } else {
-            error.kind() == std::io::ErrorKind::AlreadyExists
-        };
-        assert!(expected_kind, "unexpected I/O kind: {error:?}");
-        assert!(
-            std::error::Error::source(&error).is_some(),
-            "operation context must retain the original filesystem error as its source"
-        );
-        let message = error.to_string();
-        assert!(message.contains(operation), "{message}");
-        assert!(
-            message.contains(&failing_path.display().to_string()),
-            "{message}"
-        );
         if !block_lock {
+            let message = error.to_string();
+            assert!(matches!(error, orbit_research_core::Error::Refused(_)));
+            assert!(
+                message.contains("Unrecognized request-storage layout"),
+                "{message}"
+            );
+            assert!(
+                message.contains(&failing_path.display().to_string()),
+                "{message}"
+            );
             assert_eq!(
                 fs::read_to_string(log_root).expect("blocking file remains readable"),
                 "preserve this file"
             );
+            continue;
         }
+        assert!(matches!(error, orbit_research_core::Error::Refused(_)));
+        let message = error.to_string();
+        assert!(message.contains("not an ordinary file"), "{message}");
+        assert!(
+            message.contains(&failing_path.display().to_string()),
+            "{message}"
+        );
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn request_log_permission_errors_keep_io_kind_and_original_source() {
+    use std::os::unix::fs::PermissionsExt;
+    let (temp, app) = fixture();
+    create_r(&app, "permission-reservation");
+    app.link_intent("permission-link", "R001")
+        .expect("initial intent");
+    let root = temp.path().join(".git/orbit-research-operations");
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o500))
+        .expect("read-only request directory");
+    let result = app.link_confirm("permission-link", "task-confirmed");
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700))
+        .expect("restore cleanup permissions");
+    let orbit_research_core::Error::Io(error) =
+        result.expect_err("confirmation cannot write into a read-only directory")
+    else {
+        panic!("permission failures retain the typed Io variant");
+    };
+    assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+    assert!(std::error::Error::source(&error).is_some());
+    assert!(
+        error
+            .to_string()
+            .contains("create request-log temporary file")
+    );
+    assert!(
+        app.link_intent("permission-link", "R001")
+            .expect("recall unchanged intent")
+            .link
+            .task_id
+            .is_none()
+    );
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn preparation_preserves_pending_intents_and_confirmed_task_links() {
+    let (temp, app) = fixture();
+    create_r(&app, "pending-reservation");
+    let pending = app
+        .link_intent("pending-request", "R001")
+        .expect("legacy uncertain intent");
+    app.link_intent("confirmed-request", "R001")
+        .expect("legacy confirmed intent");
+    app.link_confirm("confirmed-request", "task-original")
+        .expect("legacy confirmation");
+    let old = temp.path().join(".git/orbit-research-operations");
+    let originals = fs::read_dir(&old)
+        .expect("legacy files")
+        .map(|entry| {
+            let entry = entry.expect("entry");
+            (
+                entry.file_name(),
+                fs::read(entry.path()).expect("original bytes"),
+            )
+        })
+        .collect::<Vec<_>>();
+    let prepared = orbit_research_core::prepare_workspace_operations(temp.path())
+        .expect("prepare existing correlations");
+    assert_eq!(prepared["changed"], true);
+    let new = temp.path().join("_data/orbit-research-operations");
+    for (name, bytes) in originals {
+        assert_eq!(fs::read(new.join(name)).expect("moved bytes"), bytes);
+    }
+    let recalled = app
+        .link_intent("pending-request", "R001")
+        .expect("recall uncertain outcome");
+    assert!(!recalled.is_new);
+    assert_eq!(recalled.link.correlation_tag, pending.link.correlation_tag);
+    assert!(recalled.link.task_id.is_none());
+    app.link_confirm("pending-request", "task-resolved")
+        .expect("confirm an adopted uncertain task");
+    let conflict = app
+        .link_confirm("confirmed-request", "task-competing")
+        .expect_err("preserve the original confirmed task after migration");
+    assert!(matches!(conflict, orbit_research_core::Error::Conflict(_)));
+    let reopened = Application::local(temp.path()).expect("reopen prepared corpus");
+    reopened
+        .require_prepared_operations()
+        .expect("plugin guard recognizes prepared state");
+    assert_eq!(
+        reopened
+            .link_intent("confirmed-request", "R001")
+            .expect("confirmed retry")
+            .link
+            .task_id
+            .as_deref(),
+        Some("task-original")
+    );
+    assert_eq!(
+        reopened
+            .call("research.work_links", json!({}))
+            .expect("shared links")
+            .as_array()
+            .expect("array")
+            .len(),
+        2
+    );
 }
 
 #[test]

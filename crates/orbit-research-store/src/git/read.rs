@@ -10,7 +10,14 @@ use sha1::{Digest, Sha1};
 use std::path::Path;
 
 fn open(root: &Path) -> Result<gix::Repository> {
-    gix::open(root).map_err(|_| {
+    // The explicit corpus is authoritative even inside a Git hook or another
+    // checkout's shell. Keep normal local/global configuration and identity,
+    // but do not let environment selectors replace its worktree or objects.
+    let mut permissions = gix::open::Permissions::default();
+    permissions.config.env = false;
+    permissions.env.git_prefix = gix::sec::Permission::Deny;
+    permissions.env.objects = gix::sec::Permission::Deny;
+    gix::open_opts(root, gix::open::Options::default().permissions(permissions)).map_err(|_| {
         Error::Invalid(format!(
             "Corpus at {} is not a Git repository; initialize or select a Git repository for the corpus",
             root.display()
@@ -32,6 +39,25 @@ pub(crate) fn own_git_dir(root: &Path) -> Result<std::path::PathBuf> {
 /// Request correlation uses this identity without requiring a Git subprocess.
 pub(crate) fn common_git_dir(root: &Path) -> Result<std::path::PathBuf> {
     Ok(open(root)?.common_dir().to_owned())
+}
+
+/// Resolve Git's primary worktree, without inferring it from directory names.
+pub(crate) fn primary_worktree(root: &Path) -> Result<std::path::PathBuf> {
+    let repo = open(root)?;
+    let primary = if repo.git_dir() == repo.common_dir() {
+        repo
+    } else {
+        repo.main_repo().map_err(|error| {
+            Error::Refused(format!("Unable to resolve primary checkout: {error}"))
+        })?
+    };
+    primary
+        .workdir()
+        .ok_or_else(|| {
+            Error::Refused("Request storage requires a primary working checkout".into())
+        })?
+        .canonicalize()
+        .map_err(Error::Io)
 }
 
 /// Whether `HEAD` currently resolves to a commit (false for a freshly
