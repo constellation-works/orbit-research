@@ -93,7 +93,10 @@ validation problems. Usage failures exit 2, operation failures exit 1 and succes
 exits 0. `finish_output` maps stdout `BrokenPipe` to quiet success.
 
 MCP framing in `src/mcp.rs` bypasses the output renderer entirely. Its stdout
-remains JSON-RPC. There are no progress bars or spinners in the current CLI.
+remains JSON-RPC. Request IDs always receive responses; notifications are silent.
+Envelope and tool argument failures use JSON-RPC errors, while application
+execution failures use tool results with `isError: true`. There are no progress
+bars or spinners in the current CLI.
 
 ## 7. Validation
 
