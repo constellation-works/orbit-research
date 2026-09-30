@@ -94,6 +94,7 @@ struct FakeTaskHost {
     next_id: Mutex<u32>,
     fail_create: Mutex<bool>,
     fail_put: Mutex<bool>,
+    created_descriptions: Mutex<Vec<String>>,
     /// Task id -> (status, job_run_id), as `accept` reads via `orbit.task.show`.
     task_states: Mutex<BTreeMap<String, (String, Option<String>)>>,
     /// (task id, artifact path) -> stored content, as `orbit.task.artifact.put` records.
@@ -148,14 +149,24 @@ impl TaskHost for FakeTaskHost {
         &self,
         _workspace: &str,
         tag: &str,
-        _title: &str,
-        _description: &str,
+        title: &str,
+        description: &str,
         _acceptance_criteria: &[String],
         _context_files: &[String],
     ) -> Result<TaskRef> {
         if *self.fail_create.lock().expect("lock") {
             return Err(Error::Internal("simulated orbit.task.add failure".into()));
         }
+        // Mirror the real Orbit callback's nonblank task text requirements.
+        if title.trim().is_empty() || description.trim().is_empty() {
+            return Err(Error::InvalidInput(
+                "task title and description must not be empty".into(),
+            ));
+        }
+        self.created_descriptions
+            .lock()
+            .expect("descriptions")
+            .push(description.into());
         let mut next = self.next_id.lock().expect("lock");
         *next += 1;
         let id = format!("TEST-{next}");
@@ -397,6 +408,57 @@ fn link_creates_exactly_one_task_and_an_identical_retry_adopts_it() {
         host.tasks.lock().expect("lock").len(),
         1,
         "an identical retry must create no additional task"
+    );
+}
+
+#[test]
+fn link_uses_the_title_when_optional_description_is_missing_or_blank() {
+    let temp = reserved_corpus();
+    let host = FakeTaskHost::default();
+    for (key, description) in [
+        ("missing", None),
+        ("empty", Some("")),
+        ("blank", Some(" \n\t")),
+    ] {
+        let mut input =
+            json!({"research_id":"R001", "request_key":key, "title":"Investigate R001"});
+        if let Some(description) = description {
+            input["description"] = json!(description);
+        }
+        let created = call_with_host(&envelope("link", input.clone(), Some(temp.path())), &host);
+        assert_eq!(created["ok"], true, "{created}");
+        assert_eq!(created["output"]["created"], true, "{created}");
+        let adopted = call_with_host(&envelope("link", input, Some(temp.path())), &host);
+        assert_eq!(adopted["ok"], true, "{adopted}");
+        assert_eq!(adopted["output"]["created"], false, "{adopted}");
+        assert_eq!(adopted["output"]["task_id"], created["output"]["task_id"]);
+    }
+    assert_eq!(
+        *host.created_descriptions.lock().expect("descriptions"),
+        vec!["Investigate R001"; 3]
+    );
+}
+
+#[test]
+fn link_refuses_blank_titles_before_persisting_an_intent_or_calling_the_host() {
+    let temp = reserved_corpus();
+    let host = FakeTaskHost::default();
+    for title in ["", " \n\t"] {
+        let reply = call_with_host(
+            &envelope(
+                "link",
+                json!({"research_id":"R001", "request_key":"invalid-title", "title":title, "description":"A valid description"}),
+                Some(temp.path()),
+            ),
+            &host,
+        );
+        assert_eq!(reply["error"]["code"], "invalid_request", "{reply}");
+    }
+    assert!(host.tasks.lock().expect("tasks").is_empty());
+    let research = orbit_research_core::Research::open(temp.path()).expect("open corpus");
+    assert!(
+        research.work_links().expect("work links").is_empty(),
+        "an invalid title does not poison its request key with an unresolved intent"
     );
 }
 
