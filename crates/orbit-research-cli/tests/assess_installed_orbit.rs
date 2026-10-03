@@ -52,6 +52,15 @@ impl Fixture {
             "--ship-mode",
             "local",
         ]));
+        // A runner with no provider CLI leaves the default crew disabled, which
+        // blocks the in-progress transition the fixture tasks pass through.
+        fixture.ok(fixture.orbit_command().args([
+            "config",
+            "set",
+            "--global",
+            "crews.opus.enabled",
+            "true",
+        ]));
         // Orbit initialization adds its managed ignore block; commit it so the
         // writer sees a clean checkout.
         fixture.git(&["add", "--", ".gitignore"]);
