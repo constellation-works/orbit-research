@@ -102,6 +102,25 @@ fn planning_rejects_ignored_flags_and_valid_shapes_remain_read_only() {
     let temp = corpus();
     let root = temp.path().join("corpus");
     let path = root.to_str().expect("UTF-8 fixture path");
+    {
+        let findings = root.join("research/R001-plans/artifacts/work");
+        std::fs::create_dir_all(&findings).expect("contribution directory");
+        std::fs::write(findings.join("findings.md"), "Findings.\n").expect("findings");
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "contribution",
+            ],
+        );
+    }
     let head = git(&root, &["rev-parse", "HEAD"]);
     for supplied in [
         vec![
@@ -166,7 +185,7 @@ fn planning_rejects_ignored_flags_and_valid_shapes_remain_read_only() {
     for (supplied, expected) in [
         (
             vec!["--shape", "investigation", "--objective", "Test"],
-            "Investigate R001",
+            "Investigate R001: Test",
         ),
         (
             vec![
@@ -177,7 +196,7 @@ fn planning_rejects_ignored_flags_and_valid_shapes_remain_read_only() {
                 "--unit",
                 "work",
             ],
-            "Contribute work to R001",
+            "Contribute work to R001: Test",
         ),
         (
             vec!["--shape", "synthesis", "--contribution", "work"],

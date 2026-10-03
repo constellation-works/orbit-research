@@ -26,7 +26,7 @@ pub(crate) fn render_records(
 
 fn render_plain(out: &mut impl Write, records: &[Value]) -> io::Result<()> {
     for record in records {
-        writeln!(out, "{}", row(record, "").join("\t"))?;
+        writeln!(out, "{}", row(record, "", true).join("\t"))?;
     }
     Ok(())
 }
@@ -37,7 +37,10 @@ fn render_table(
     records: &[Value],
     sink: &OutputSink,
 ) -> io::Result<()> {
-    let rows: Vec<[String; 6]> = records.iter().map(|record| row(record, "-")).collect();
+    let rows: Vec<[String; 6]> = records
+        .iter()
+        .map(|record| row(record, "-", false))
+        .collect();
     let mut visible = [true; 6];
 
     if sink.suppress_uniform {
@@ -67,40 +70,43 @@ fn render_table(
     Ok(())
 }
 
-fn row(record: &Value, missing: &str) -> [String; 6] {
+/// `tsv` marks the pipe format, where a literal backslash is doubled so that
+/// the `\t`/`\n` escapes stay unambiguous for a reader that splits on tabs.
+fn row(record: &Value, missing: &str, tsv: bool) -> [String; 6] {
     let metadata = record.get("metadata");
     [
-        field(record.get("id"), missing),
-        field(record.get("kind"), missing),
-        field(metadata.and_then(|value| value.get("status")), missing),
-        field(metadata.and_then(|value| value.get("title")), missing),
+        field(record.get("id"), missing, tsv),
+        field(record.get("kind"), missing, tsv),
+        field(metadata.and_then(|value| value.get("status")), missing, tsv),
+        field(metadata.and_then(|value| value.get("title")), missing, tsv),
         metadata
             .and_then(|value| value.get("tags"))
             .and_then(Value::as_array)
             .map(|tags| {
                 tags.iter()
-                    .map(|tag| field(Some(tag), missing))
+                    .map(|tag| field(Some(tag), missing, tsv))
                     .collect::<Vec<_>>()
                     .join(",")
             })
             .unwrap_or_else(|| missing.to_owned()),
-        field(record.get("path"), missing),
+        field(record.get("path"), missing, tsv),
     ]
 }
 
-fn field(value: Option<&Value>, missing: &str) -> String {
+fn field(value: Option<&Value>, missing: &str, tsv: bool) -> String {
     let value = match value {
         None | Some(Value::Null) => missing.to_owned(),
         Some(Value::String(value)) => value.clone(),
         Some(value) => value.to_string(),
     };
-    escape_controls(&value)
+    escape_controls(&value, tsv)
 }
 
-fn escape_controls(value: &str) -> String {
+fn escape_controls(value: &str, escape_backslash: bool) -> String {
     let mut escaped = String::with_capacity(value.len());
     for character in value.chars() {
         match character {
+            '\\' if escape_backslash => escaped.push_str("\\\\"),
             '\t' => escaped.push_str("\\t"),
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),

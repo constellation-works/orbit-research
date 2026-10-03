@@ -1,4 +1,5 @@
 //! Output policy and rendering exports.
+mod detail;
 mod render;
 mod sink;
 mod table;

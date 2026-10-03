@@ -59,6 +59,21 @@ pub(crate) fn kebab(title: &str) -> String {
     slug.trim_matches('-').to_owned()
 }
 
+/// The path slug for a new record. Non-ASCII titles are transliterated
+/// (`Café` becomes `cafe`, CJK text becomes its romanization) so they keep
+/// their meaning, and a title with nothing pronounceable falls back to
+/// `untitled`. The result always matches the contract's `slug_pattern`.
+pub(crate) fn slug_for(title: &str) -> String {
+    let slug = kebab(&deunicode::deunicode(title));
+    if slug.is_empty() {
+        UNTITLED_SLUG.to_owned()
+    } else {
+        slug
+    }
+}
+
+const UNTITLED_SLUG: &str = "untitled";
+
 /// `raw` is everything after the closing delimiter line, kept byte for byte.
 pub(crate) fn render(metadata: &Value, raw: &str) -> Result<String> {
     Ok(format!(
@@ -114,12 +129,7 @@ pub(crate) fn scaffold(
     derived_from: Vec<String>,
 ) -> Result<(String, String)> {
     use serde_json::json;
-    let full_slug = kebab(title);
-    if full_slug.is_empty() {
-        return Err(Error::Invalid(
-            "Title needs at least one ASCII letter or number for its path".into(),
-        ));
-    }
+    let full_slug = slug_for(title);
     let slug = capped_slug(&full_slug);
     let date = utc_date()?;
     let mut meta = json!({
@@ -147,8 +157,11 @@ pub(crate) fn scaffold(
             meta["tests"] = json!([]);
         }
     }
-    if slug != full_slug {
-        // A captured question's first line can be long; freeze a shorter path slug.
+    if slug != kebab(title) {
+        // The path slug is not the plain kebab-case of the title (a long captured
+        // line was shortened, or the title was transliterated or has no ASCII
+        // letters). Declare it so validation, which compares a slug-less record's
+        // path to the kebab-case of its title, accepts it.
         meta["slug"] = json!(slug);
     }
     contract.validate(&meta, id)?;

@@ -134,7 +134,10 @@ spec:
         (committed with orbit.task and orbit.run) whose task has no
         research-acceptance.json artifact, reading each task through the
         orbit.task.show and orbit.task.artifact.get callbacks. A task that
-        cannot be read shows as acceptance unknown, never as accepted. Read-only.
+        cannot be read shows as acceptance unknown with a short reason, never as
+        accepted. A result counts as accepted only when the artifact names it and
+        its current README blob. Changes no research record; its only write is a
+        best-effort cache of positive answers in the plugin's state directory.
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/awaiting-acceptance.request.json }

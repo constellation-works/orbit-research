@@ -4,10 +4,11 @@
 //! Orbit, plugin installation or grant is involved.
 #![cfg(unix)]
 
+mod exec_support;
+
 use serde_json::{Value, json};
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
@@ -21,12 +22,10 @@ fn fake_orbit() -> &'static Path {
     static SCRIPT: OnceLock<PathBuf> = OnceLock::new();
     SCRIPT.get_or_init(|| {
         let path = tempfile::tempdir().expect("script dir").keep().join("orbit");
-        fs::write(
+        exec_support::install_executable(
             &path,
             "#!/bin/sh\nd=\"$PWD/.git/fake-orbit\"\nprintf '%s\\n' \"$3 $5\" >> \"$d/calls\"\nif [ -f \"$d/$3.fail\" ]; then cat \"$d/$3.fail\" >&2; exit 1; fi\ncat \"$d/$3.out\"\n",
-        )
-        .expect("write fake orbit");
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+        );
         path
     })
 }

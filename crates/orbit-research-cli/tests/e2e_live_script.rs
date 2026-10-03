@@ -5,8 +5,9 @@
 //! `orbit` cannot be reached, then requires that no refusal ever called the stub.
 #![cfg(unix)]
 
+mod exec_support;
+
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -27,15 +28,13 @@ impl Harness {
         let log = root.join("stub-calls.log");
         for name in ["orbit", "orbit-research"] {
             let stub = stub_dir.join(name);
-            fs::write(
+            exec_support::install_executable(
                 &stub,
-                format!(
+                &format!(
                     "#!/bin/sh\nprintf '%s %s\\n' \"{name}\" \"$*\" >> '{}'\nexit 1\n",
                     log.display()
                 ),
-            )
-            .expect("stub");
-            fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).expect("chmod stub");
+            );
         }
         let harness = Self {
             _temp: temp,

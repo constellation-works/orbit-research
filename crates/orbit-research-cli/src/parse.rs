@@ -28,8 +28,29 @@ pub(crate) struct Cli {
 }
 
 impl Cli {
+    /// The command with the global output flags hidden from the two protocol
+    /// subcommands, whose stdout is JSON-RPC or a plugin reply, never formatted.
+    fn protocol_command() -> clap::Command {
+        let mut command = Self::command();
+        // Global flags reach subcommands when the command is built.
+        command.build();
+        for name in ["mcp", "orbit-tool"] {
+            command = command.mut_subcommand(name, |subcommand| {
+                subcommand.mut_args(|arg| {
+                    if matches!(arg.get_id().as_str(), "format" | "json") {
+                        arg.hide(true)
+                    } else {
+                        arg
+                    }
+                })
+            });
+        }
+        command
+    }
+
     pub(crate) fn try_parse_checked_from(args: &[std::ffi::OsString]) -> Result<Self, clap::Error> {
-        let cli = Self::try_parse_from(args)?;
+        let mut matches = Self::protocol_command().try_get_matches_from(args)?;
+        let cli = <Self as clap::FromArgMatches>::from_arg_matches_mut(&mut matches)?;
         if let Command::Research { operation } = &cli.command
             && let ResearchOperation::Plan {
                 shape,

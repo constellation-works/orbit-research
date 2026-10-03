@@ -11,6 +11,7 @@ use crate::output::{Invalid, OutputSink};
 use crate::parse::{Cli, Command, WorkspaceOperation};
 
 mod acceptance;
+mod acceptance_cache;
 mod command;
 mod mcp;
 mod output;

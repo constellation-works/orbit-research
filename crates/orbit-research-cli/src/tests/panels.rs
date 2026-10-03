@@ -127,12 +127,48 @@ struct ArtifactHost {
 }
 
 impl ArtifactHost {
-    fn accepted(task: &str, research: &str) -> Self {
+    /// `task` stores an acceptance of `research` as it is committed in `root`.
+    fn accepted(root: &Path, task: &str, research: &str) -> Self {
         let mut host = Self::default();
-        host.artifacts
-            .insert(task.into(), json!({"research_id": research}));
+        host.artifacts.insert(
+            task.into(),
+            json!({"research_id": research, "blob": readme_blob(root, research)}),
+        );
         host
     }
+}
+
+/// The Git blob of a committed research README, as `accept` records it.
+fn readme_blob(root: &Path, research: &str) -> String {
+    let directory = fs::read_dir(root.join("research"))
+        .expect("research directory")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .find(|name| name.starts_with(research))
+        .expect("research item");
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", &format!("HEAD:research/{directory}/README.md")])
+        .output()
+        .expect("rev-parse blob");
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout)
+        .expect("utf-8")
+        .trim()
+        .to_owned()
+}
+
+/// What `workspace prepare-operations` leaves: the state directory and its
+/// layout marker. The cache is used only inside it.
+fn prepare_state(root: &Path) -> std::path::PathBuf {
+    let state = root.join("_data/orbit-research-operations");
+    fs::create_dir_all(&state).expect("state directory");
+    fs::write(
+        state.join(".layout"),
+        "{\"layout_version\":1,\"state_path\":\"_data/orbit-research-operations\"}\n",
+    )
+    .expect("layout marker");
+    state
 }
 
 impl TaskHost for ArtifactHost {
@@ -185,11 +221,12 @@ fn open_questions_lists_open_questions_with_tags_and_linked_tasks() {
     assert_eq!(
         output,
         json!([
-            {"id": "Q001", "question": "Why does CI flake on macOS", "tags": "ci, evidence",
-             "tasks": "ORB-1, ORB-2", "updated": "2026-09-12"},
+            // Same update date, so the higher id leads.
             {"id": "Q003",
              "question": "Why does the macOS runner flake on the cache warm-up step only when the workspa…",
              "tags": null, "tasks": null, "updated": "2026-09-12"},
+            {"id": "Q001", "question": "Why does CI flake on macOS", "tags": "ci, evidence",
+             "tasks": "ORB-1, ORB-2", "updated": "2026-09-12"},
         ])
     );
 }
@@ -201,16 +238,19 @@ fn hypotheses_show_every_revision_and_never_collapse_disagreeing_results() {
     assert_eq!(
         output,
         json!([
-            {"id": "H001", "name": "Retries hide the flake", "rev": "2 (current, disputed)",
-             "status": "inconclusive", "verdict": "supports (suggestive)", "via": "R001", "when": "2026-09-14"},
-            {"id": "H001", "name": "Retries hide the flake", "rev": "2 (current, disputed)",
-             "status": "inconclusive", "verdict": "refutes (strong)", "via": "R002", "when": "2026-09-15"},
+            {"id": "H001", "name": "Retries hide the flake", "research": "R001",
+             "revision": "2 (current, disputed)", "status": "inconclusive",
+             "verdict": "supports (suggestive)", "when": "2026-09-14"},
+            {"id": "H001", "name": "Retries hide the flake", "research": "R002",
+             "revision": "2 (current, disputed)", "status": "inconclusive",
+             "verdict": "refutes (strong)", "when": "2026-09-15"},
             // R001 first said inconclusive, then supports, on revision 1:
             // only its latest verdict on that revision is shown.
-            {"id": "H001", "name": "Retries hide the flake", "rev": "1 (superseded)",
-             "status": "inconclusive", "verdict": "supports (suggestive)", "via": "R001", "when": "2026-09-06"},
-            {"id": "H002", "name": "Cache warm-up dominates", "rev": "1 (current)",
-             "status": "open", "verdict": "not assessed", "via": null, "when": null},
+            {"id": "H001", "name": "Retries hide the flake", "research": "R001",
+             "revision": "1 (superseded)", "status": "inconclusive",
+             "verdict": "supports (suggestive)", "when": "2026-09-06"},
+            {"id": "H002", "name": "Cache warm-up dominates", "research": null,
+             "revision": "1 (current)", "status": "open", "verdict": "not assessed", "when": null},
         ])
     );
 }
@@ -228,7 +268,10 @@ fn agreeing_results_on_one_revision_are_not_marked_disputed() {
     ];
     let temp = corpus_with(&records);
     let output = panel("hypotheses", temp.path(), &ArtifactHost::default());
-    let revisions: Vec<_> = rows(&output).iter().map(|row| row["rev"].clone()).collect();
+    let revisions: Vec<_> = rows(&output)
+        .iter()
+        .map(|row| row["revision"].clone())
+        .collect();
     assert_eq!(revisions, [json!("1 (current)"), json!("1 (current)")]);
 }
 
@@ -263,11 +306,11 @@ fn corpus_health_reports_validity_revision_and_counts_by_status() {
 #[test]
 fn awaiting_acceptance_omits_accepted_results_and_lists_the_rest() {
     let temp = research_corpus();
-    let host = ArtifactHost::accepted("ORB-1", "R001");
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     assert_eq!(
         panel("awaiting-acceptance", temp.path(), &host),
-        json!([{"id": "R002", "result": "Result rerun", "status": "awaiting acceptance",
-                "task": "ORB-2", "updated": "2026-09-15"}])
+        json!([{"id": "R002", "reason": null, "result": "Result rerun",
+                "status": "awaiting acceptance", "task": "ORB-2", "updated": "2026-09-15"}])
     );
     // R003 is only reserved: no task or run, so it is never read.
     assert_eq!(*host.reads.lock().expect("reads"), ["ORB-1", "ORB-2"]);
@@ -283,10 +326,10 @@ fn awaiting_acceptance_never_calls_an_unread_result_accepted() {
     assert_eq!(
         panel("awaiting-acceptance", temp.path(), &host),
         json!([
-            {"id": "R001", "result": "Result baseline", "status": "acceptance unknown",
-             "task": "ORB-1", "updated": "2026-09-15"},
-            {"id": "R002", "result": "Result rerun", "status": "acceptance unknown",
-             "task": "ORB-2", "updated": "2026-09-15"},
+            {"id": "R001", "reason": "task unreadable", "result": "Result baseline",
+             "status": "acceptance unknown", "task": "ORB-1", "updated": "2026-09-15"},
+            {"id": "R002", "reason": "task unreadable", "result": "Result rerun",
+             "status": "acceptance unknown", "task": "ORB-2", "updated": "2026-09-15"},
         ])
     );
 }
@@ -294,7 +337,7 @@ fn awaiting_acceptance_never_calls_an_unread_result_accepted() {
 #[test]
 fn awaiting_acceptance_flags_an_artifact_that_names_another_result() {
     let temp = research_corpus();
-    let mut host = ArtifactHost::accepted("ORB-1", "R001");
+    let mut host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     host.artifacts
         .insert("ORB-2".into(), json!({"research_id": "R001"}));
     let output = panel("awaiting-acceptance", temp.path(), &host);
@@ -343,7 +386,7 @@ fn awaiting_acceptance_only_counts_results_committed_at_head() {
         ),
     )
     .expect("uncommitted edit");
-    let host = ArtifactHost::accepted("ORB-1", "R001");
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     let output = panel("awaiting-acceptance", temp.path(), &host);
     assert_eq!(output[0]["id"], "R002");
     assert_eq!(rows(&output).len(), 1, "{output}");
@@ -393,7 +436,7 @@ fn a_corpus_without_open_questions_or_pending_results_says_so() {
         ),
     ];
     let temp = corpus_with(&records);
-    let host = ArtifactHost::accepted("ORB-1", "R001");
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     assert_eq!(
         panel("open-questions", temp.path(), &host),
         json!([{"status": "No open questions. The only question is answered or dropped."}])
@@ -441,7 +484,7 @@ fn an_invalid_corpus_names_the_problem_without_a_raw_error_dump() {
 #[test]
 fn every_cell_is_a_flat_scalar_and_every_table_column_is_stable() {
     let temp = research_corpus();
-    let host = ArtifactHost::accepted("ORB-1", "R001");
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     for verb in VERBS {
         let output = panel(verb, temp.path(), &host);
         let objects: Vec<&Value> = match &output {
@@ -515,7 +558,7 @@ fn panel_verbs_route_through_the_plugin_envelope_with_any_namespace_spelling() {
         .expect("serve panel call");
         let reply: Value = serde_json::from_slice(&output).expect("JSON reply");
         assert_eq!(reply["ok"], true, "{tool}: {reply}");
-        assert_eq!(reply["output"][0]["id"], "Q001", "{tool}");
+        assert_eq!(reply["output"][0]["id"], "Q003", "{tool}");
     }
 }
 
@@ -570,5 +613,239 @@ fn conformance_goldens_match_the_no_corpus_output() {
             refused["error"]["code"], cases[1]["expect"]["error"]["code"],
             "{verb}"
         );
+    }
+}
+
+#[test]
+fn open_question_tasks_sort_numerically_and_are_capped() {
+    let mut records = vec![question("Q001", "q", "Q", "open", "[]", "[]")];
+    for (number, task) in ["ORB-9", "ORB-10", "ORB-2", "ORB-1", "ORB-100"]
+        .iter()
+        .enumerate()
+    {
+        records.push(result(
+            &format!("R{:03}", number + 1),
+            &format!("r{}", number + 1),
+            "done",
+            "[]",
+            "[Q001]",
+            Some((task, "jrun")),
+        ));
+    }
+    let temp = corpus_with(&records);
+    let output = panel("open-questions", temp.path(), &ArtifactHost::default());
+    assert_eq!(output[0]["tasks"], "ORB-1, ORB-2, ORB-9, +2 more");
+
+    // At the cap exactly nothing is summarized; one task is just that task.
+    let mut records = vec![question("Q001", "q", "Q", "open", "[]", "[]")];
+    for (number, task) in ["ORB-10", "ORB-9", "ORB-2"].iter().enumerate() {
+        records.push(result(
+            &format!("R{:03}", number + 1),
+            &format!("r{}", number + 1),
+            "done",
+            "[]",
+            "[Q001]",
+            Some((task, "jrun")),
+        ));
+    }
+    let temp = corpus_with(&records);
+    let output = panel("open-questions", temp.path(), &ArtifactHost::default());
+    assert_eq!(output[0]["tasks"], "ORB-2, ORB-9, ORB-10");
+}
+
+#[test]
+fn open_questions_are_newest_first_with_ties_by_id_descending() {
+    let dated = |id: &str, updated: &str| {
+        let (path, text) = question(id, "q", "Q", "open", "[]", "[]");
+        (
+            path,
+            text.replace("updated: 2026-09-12", &format!("updated: {updated}")),
+        )
+    };
+    let records = [
+        dated("Q001", "2026-09-20"),
+        dated("Q002", "2026-09-12"),
+        dated("Q003", "2026-09-30"),
+        dated("Q004", "2026-09-20"),
+    ];
+    let temp = corpus_with(&records);
+    let output = panel("open-questions", temp.path(), &ArtifactHost::default());
+    let ids: Vec<_> = rows(&output).iter().map(|row| row["id"].clone()).collect();
+    assert_eq!(ids, ["Q003", "Q004", "Q001", "Q002"]);
+}
+
+#[test]
+fn an_unreadable_task_and_a_changed_result_each_say_why() {
+    let temp = research_corpus();
+    let mut host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
+    // ORB-2 accepted R002 as it was before someone edited it.
+    host.artifacts.insert(
+        "ORB-2".into(),
+        json!({"research_id": "R002", "blob": "0000000000000000000000000000000000000000"}),
+    );
+    let output = panel("awaiting-acceptance", temp.path(), &host);
+    assert_eq!(output[0]["id"], "R002");
+    assert_eq!(output[0]["status"], "result changed since accepted");
+    assert!(output[0]["reason"].is_null());
+}
+
+#[test]
+fn accepted_results_are_remembered_in_a_prepared_state_directory() {
+    let temp = research_corpus();
+    let state = prepare_state(temp.path());
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
+    let first = panel("awaiting-acceptance", temp.path(), &host);
+    assert_eq!(first[0]["id"], "R002");
+    assert_eq!(*host.reads.lock().expect("reads"), ["ORB-1", "ORB-2"]);
+    let entries: Vec<_> = fs::read_dir(state.join("acceptance"))
+        .expect("cache directory")
+        .map(|entry| entry.expect("entry").file_name())
+        .collect();
+    assert_eq!(entries.len(), 1, "{entries:?}");
+
+    // Orbit is now unreachable: R001 stays accepted from the cache without a
+    // call, while R002 was never accepted and is reported unknown.
+    let down = ArtifactHost {
+        failing: true,
+        ..ArtifactHost::default()
+    };
+    let second = panel("awaiting-acceptance", temp.path(), &down);
+    assert_eq!(rows(&second).len(), 1, "{second}");
+    assert_eq!(second[0]["id"], "R002");
+    assert_eq!(second[0]["status"], "acceptance unknown");
+    assert_eq!(*down.reads.lock().expect("reads"), ["ORB-2"]);
+    // Nothing else appeared in the state directory.
+    let mut names: Vec<_> = fs::read_dir(&state)
+        .expect("state")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .into_string()
+                .expect("name")
+        })
+        .collect();
+    names.sort();
+    assert_eq!(names, [".layout", "acceptance"]);
+}
+
+#[test]
+fn nothing_is_cached_outside_a_prepared_state_directory() {
+    let temp = research_corpus();
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
+    panel("awaiting-acceptance", temp.path(), &host);
+    // The panel must not create the directory: an unprepared corpus would
+    // then refuse `workspace prepare-operations` for a non-empty target.
+    assert!(!temp.path().join("_data").exists());
+    panel("awaiting-acceptance", temp.path(), &host);
+    assert_eq!(
+        *host.reads.lock().expect("reads"),
+        ["ORB-1", "ORB-2", "ORB-1", "ORB-2"]
+    );
+}
+
+#[test]
+fn the_cache_cannot_make_a_changed_or_forged_result_look_accepted() {
+    let temp = research_corpus();
+    let state = prepare_state(temp.path());
+    let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
+    panel("awaiting-acceptance", temp.path(), &host);
+    let cache = state.join("acceptance");
+    let entry = fs::read_dir(&cache)
+        .expect("cache")
+        .next()
+        .expect("one entry")
+        .expect("entry")
+        .path();
+
+    // 1. The README changes and is committed: the key's blob no longer
+    //    matches, and the stored acceptance names the old blob.
+    let readme = temp.path().join("research/R001-baseline/README.md");
+    let text = fs::read_to_string(&readme).expect("README");
+    fs::write(&readme, format!("{text}\nEdited after acceptance.\n")).expect("edit");
+    for args in [
+        ["add", "."].as_slice(),
+        ["commit", "-q", "-m", "edit"].as_slice(),
+    ] {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(temp.path())
+            .args(args)
+            .status()
+            .expect("git");
+        assert!(status.success());
+    }
+    let after = panel("awaiting-acceptance", temp.path(), &host);
+    let statuses: Vec<_> = rows(&after)
+        .iter()
+        .map(|row| (row["id"].clone(), row["status"].clone()))
+        .collect();
+    assert_eq!(
+        statuses,
+        [
+            (json!("R001"), json!("result changed since accepted")),
+            (json!("R002"), json!("awaiting acceptance")),
+        ]
+    );
+
+    // 2. An entry whose content disagrees with its name is a miss, and so is
+    //    junk, an oversized file or a symlink.
+    let forged = fs::read_to_string(&entry)
+        .expect("entry")
+        .replace("ORB-1", "ORB-9");
+    for content in [forged, "not json".to_owned(), "x".repeat(10_000)] {
+        fs::write(&entry, content).expect("overwrite entry");
+        let down = ArtifactHost {
+            failing: true,
+            ..ArtifactHost::default()
+        };
+        let output = panel("awaiting-acceptance", temp.path(), &down);
+        assert_eq!(rows(&output).len(), 2, "{output}");
+    }
+    #[cfg(unix)]
+    {
+        let target = temp.path().join("target.json");
+        fs::write(
+            &target,
+            format!(
+                "{{\"research_id\":\"R001\",\"task\":\"ORB-1\",\"blob\":\"{}\"}}",
+                readme_blob(temp.path(), "R001")
+            ),
+        )
+        .expect("target");
+        let linked = cache.join(format!(
+            "R001-ORB-1-{}.json",
+            readme_blob(temp.path(), "R001")
+        ));
+        std::os::unix::fs::symlink(&target, &linked).expect("symlink");
+        let down = ArtifactHost {
+            failing: true,
+            ..ArtifactHost::default()
+        };
+        let output = panel("awaiting-acceptance", temp.path(), &down);
+        assert_eq!(
+            rows(&output).len(),
+            2,
+            "a symlinked entry is ignored: {output}"
+        );
+    }
+}
+
+#[test]
+fn a_symlinked_state_directory_is_never_written_through() {
+    #[cfg(unix)]
+    {
+        let temp = research_corpus();
+        let elsewhere = tempfile::tempdir().expect("elsewhere");
+        fs::create_dir(temp.path().join("_data")).expect("_data");
+        std::os::unix::fs::symlink(
+            elsewhere.path(),
+            temp.path().join("_data/orbit-research-operations"),
+        )
+        .expect("symlink");
+        fs::write(elsewhere.path().join(".layout"), "{}").expect("marker");
+        let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
+        panel("awaiting-acceptance", temp.path(), &host);
+        assert!(!elsewhere.path().join("acceptance").exists());
     }
 }

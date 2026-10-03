@@ -150,3 +150,97 @@ fn validation_summary_is_concise_for_humans_and_structured_for_machines() {
         value
     );
 }
+
+fn human(value: &serde_json::Value) -> String {
+    let mut output = Vec::new();
+    render_with_terminal(&mut output, value, OutputMode::Auto, false)
+        .expect("human rendering succeeds");
+    String::from_utf8(output).expect("UTF-8 output")
+}
+
+#[test]
+fn show_prints_metadata_first_with_numbered_assessments_and_the_body_last() {
+    let value = serde_json::json!({
+        "id": "H001", "kind": "H", "path": "hypotheses/H001-h.md",
+        "git_blob": "blob", "content_sha256": "sha",
+        "body": "\n# H001 — Claim\n\n## The claim\n\ntext\n",
+        "metadata": {
+            "id": "H001", "title": "Claim", "status": "open", "tags": ["a", "b"],
+            "derived_from": ["Q001"], "created": "2026-09-01", "updated": "2026-09-02",
+            "revision": 2,
+            "assessments": [
+                {"date": "2026-09-01", "research": "R001", "revision": 1, "verdict": "supports", "strength": "strong"},
+                {"date": "2026-09-05", "research": "R002", "revision": 2, "verdict": "refutes", "strength": "anecdote", "note": "failed controls"}
+            ]
+        }
+    });
+    assert_eq!(
+        human(&value),
+        "id: H001\nkind: H\ntitle: Claim\nstatus: open\npath: hypotheses/H001-h.md\n\
+         tags: a, b\nderived_from: Q001\nrevision: 2\ncreated: 2026-09-01\nupdated: 2026-09-02\n\
+         assessments:\n  [1] 2026-09-01 R001 revision 1 supports (strong)\n  \
+         [2] 2026-09-05 R002 revision 2 refutes (anecdote)\n      note: failed controls\n\
+         git_blob: blob\ncontent_sha256: sha\n\nbody:\n# H001 — Claim\n\n## The claim\n\ntext\n"
+    );
+}
+
+#[test]
+fn plan_drafts_render_text_readably_with_numbered_lists() {
+    let value = serde_json::json!({
+        "title": "Investigate R001: Test",
+        "description": "First line.\n\nSecond paragraph.",
+        "acceptance_criteria": ["Documents Question, Method", "Is bound to the run"],
+        "context_files": ["dir:research/R001-x"]
+    });
+    assert_eq!(
+        human(&value),
+        "acceptance_criteria[1]: Documents Question, Method\n\
+         acceptance_criteria[2]: Is bound to the run\n\
+         context_files: dir:research/R001-x\n\
+         description:\n  First line.\n\n  Second paragraph.\n\
+         title: Investigate R001: Test\n"
+    );
+}
+
+#[test]
+fn lists_of_records_are_separated_and_empty_ones_say_so_on_stderr() {
+    let value = serde_json::json!([
+        {"request_key": "a", "research_id": "R001", "task_id": null},
+        {"request_key": "b", "research_id": "R002", "task_id": "ORB-2"}
+    ]);
+    assert_eq!(
+        human(&value),
+        "request_key: a\nresearch_id: R001\ntask_id: -\n\nrequest_key: b\nresearch_id: R002\ntask_id: ORB-2\n"
+    );
+    let (mut out, mut diagnostics) = (Vec::new(), Vec::new());
+    render(
+        &mut out,
+        &mut diagnostics,
+        &serde_json::json!([]),
+        &OutputSink::resolve(OutputMode::Auto, false, 0, false),
+    )
+    .expect("render");
+    assert!(out.is_empty());
+    assert_eq!(diagnostics, b"No work links found.\n");
+}
+
+#[test]
+fn the_packaged_resource_ends_with_exactly_one_newline() {
+    let value = serde_json::json!({"version": 1, "skill": "Body\nlast line\n"});
+    assert_eq!(human(&value), "Body\nlast line\n");
+}
+
+#[test]
+fn pipe_output_escapes_tabs_newlines_and_backslashes_in_fields() {
+    let value = serde_json::json!({"records": [{
+        "id": "Q001", "kind": "Q", "path": "questions/Q001-x.md",
+        "metadata": {"status": "open", "title": "a\tb\nc\\t", "tags": ["x\ty"]}
+    }]});
+    let output = human(&value);
+    assert_eq!(
+        output,
+        "Q001\tQ\topen\ta\\tb\\nc\\\\t\tx\\ty\tquestions/Q001-x.md\n"
+    );
+    assert_eq!(output.matches('\t').count(), 5);
+    assert_eq!(output.matches('\n').count(), 1);
+}

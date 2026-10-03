@@ -23,6 +23,7 @@
 //! artifacts through the same `orbit.task.show`/`orbit.task.artifact.get`
 //! callbacks `accept` uses; a callback that fails leaves that row's status
 //! `acceptance unknown` instead of guessing.
+use crate::acceptance_cache;
 use crate::plugin::{ACCEPTANCE_ARTIFACT_PATH, TaskHost, error_envelope};
 use orbit_research_core::{Error, Record, Research, Result, Snapshot};
 use serde::Deserialize;
@@ -74,7 +75,7 @@ pub(crate) fn serve(verb: &str, input: Value, workspace_root: &Path, host: &dyn 
         _ => (
             Shape::Table,
             build(workspace_root, true, |snapshot| {
-                awaiting_acceptance(snapshot, host)
+                awaiting_acceptance(snapshot, host, workspace_root)
             }),
         ),
     };
@@ -210,10 +211,11 @@ fn records_of<'a>(snapshot: &'a Snapshot, kind: &'a str) -> impl Iterator<Item =
 
 // ---- Open questions -------------------------------------------------------
 
-/// Keys sort as: id, question, tags, tasks, updated.
+/// Keys sort as: id, question, tags, tasks, updated. Newest update first,
+/// ties by id descending, so recent captures lead and the order is stable.
 fn open_questions(snapshot: &Snapshot) -> Value {
     let total = records_of(snapshot, "Q").count();
-    let open: Vec<&Record> = records_of(snapshot, "Q")
+    let mut open: Vec<&Record> = records_of(snapshot, "Q")
         .filter(|question| text(question, "status") == Some("open"))
         .collect();
     if open.is_empty() {
@@ -224,6 +226,11 @@ fn open_questions(snapshot: &Snapshot) -> Value {
             _ => format!("No open questions. All {total} questions are answered or dropped."),
         });
     }
+    open.sort_by(|a, b| {
+        updated_key(b)
+            .cmp(&updated_key(a))
+            .then_with(|| b.id.cmp(&a.id))
+    });
     Value::Array(
         open.into_iter()
             .map(|question| {
@@ -231,12 +238,50 @@ fn open_questions(snapshot: &Snapshot) -> Value {
                     "id": question.id,
                     "question": title_cell(question),
                     "tags": joined_cell(ids(question, "tags")),
-                    "tasks": joined_cell(linked_tasks(snapshot, question)),
+                    "tasks": tasks_cell(linked_tasks(snapshot, question)),
                     "updated": date_cell(text(question, "updated")),
                 })
             })
             .collect(),
     )
+}
+
+/// The `YYYY-MM-DD` of a record's `updated`, which sorts as a date; a missing
+/// date is the oldest.
+fn updated_key(record: &Record) -> Option<&str> {
+    text(record, "updated").map(|value| value.get(..10).unwrap_or(value))
+}
+
+/// How many task ids a cell lists before the rest are summarized.
+const TASKS_SHOWN: usize = 3;
+
+/// Distinct task ids in numeric order (`ORB-9` before `ORB-10`), at most
+/// [`TASKS_SHOWN`] of them followed by `+N more`.
+fn tasks_cell(tasks: Vec<&str>) -> Value {
+    let tasks: BTreeSet<&str> = tasks.into_iter().collect();
+    if tasks.is_empty() {
+        return Value::Null;
+    }
+    let mut tasks: Vec<&str> = tasks.into_iter().collect();
+    tasks.sort_by_key(|task| numeric_key(task));
+    let hidden = tasks.len().saturating_sub(TASKS_SHOWN);
+    let mut shown: Vec<String> = tasks
+        .into_iter()
+        .take(TASKS_SHOWN)
+        .map(str::to_owned)
+        .collect();
+    if hidden > 0 {
+        shown.push(format!("+{hidden} more"));
+    }
+    json!(shown.join(", "))
+}
+
+/// Orders `PREFIX-<number>` ids by prefix, then by the number's value; text
+/// without trailing digits sorts by its text alone.
+fn numeric_key(id: &str) -> (&str, u64, &str) {
+    let digits = id.bytes().rev().take_while(u8::is_ascii_digit).count();
+    let (prefix, number) = id.split_at(id.len() - digits);
+    (prefix, number.parse().unwrap_or(0), id)
 }
 
 /// Orbit tasks recorded on research items that work on this question: items
@@ -263,8 +308,15 @@ fn linked_tasks<'a>(snapshot: &'a Snapshot, question: &'a Record) -> Vec<&'a str
 
 // ---- Results awaiting acceptance ------------------------------------------
 
-/// Keys sort as: id, result, status, task, updated.
-fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost) -> Value {
+/// Keys sort as: id, reason, result, status, task, updated. `reason` is set
+/// only for `acceptance unknown`, saying in a few words why Orbit could not be
+/// asked or did not answer.
+///
+/// A result counts as accepted only when its task's artifact names this
+/// research id and this exact README blob at HEAD, the same bar `assess`
+/// applies. Positive answers are remembered per (id, task, blob) by
+/// [`acceptance_cache`], which can only ever hide a row, never invent one.
+fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost, workspace: &Path) -> Value {
     // Delivered: committed with both an Orbit task and run recorded, which is
     // what a finished `research_investigation` run writes.
     let delivered: Vec<(&Record, &str)> = records_of(snapshot, "R")
@@ -280,33 +332,46 @@ fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost) -> Value {
     let (mut failures, mut successes) = (0, 0);
     let mut rows = Vec::new();
     for (item, task) in &delivered {
+        if acceptance_cache::is_accepted(workspace, &item.id, task, &item.git_blob) {
+            continue;
+        }
         let giving_up =
             (failures >= CALLBACK_GIVE_UP && successes == 0) || started.elapsed() > CALLBACK_BUDGET;
-        let status = if giving_up {
-            Some("acceptance unknown")
+        let (status, reason) = if giving_up {
+            let reason = if started.elapsed() > CALLBACK_BUDGET {
+                "time budget exceeded"
+            } else {
+                "earlier tasks unreadable"
+            };
+            (Some("acceptance unknown"), Some(reason))
         } else {
             match host.get_artifact(task, ACCEPTANCE_ARTIFACT_PATH) {
                 Ok(None) => {
                     successes += 1;
-                    Some("awaiting acceptance")
+                    (Some("awaiting acceptance"), None)
                 }
                 Ok(Some(artifact)) => {
                     successes += 1;
-                    if artifact.get("research_id").and_then(Value::as_str) == Some(&item.id) {
-                        None
+                    let field = |name: &str| artifact.get(name).and_then(Value::as_str);
+                    if field("research_id") != Some(&item.id) {
+                        (Some("acceptance names another result"), None)
+                    } else if field("blob") != Some(&item.git_blob) {
+                        (Some("result changed since accepted"), None)
                     } else {
-                        Some("acceptance names another result")
+                        acceptance_cache::record(workspace, &item.id, task, &item.git_blob);
+                        (None, None)
                     }
                 }
                 Err(_) => {
                     failures += 1;
-                    Some("acceptance unknown")
+                    (Some("acceptance unknown"), Some("task unreadable"))
                 }
             }
         };
         if let Some(status) = status {
             rows.push(json!({
                 "id": item.id,
+                "reason": reason,
                 "result": title_cell(item),
                 "status": status,
                 "task": task,
@@ -327,7 +392,9 @@ fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost) -> Value {
 
 // ---- Hypotheses and assessments -------------------------------------------
 
-/// Keys sort as: id, name, rev, status, verdict, via, when.
+/// Keys sort as: id, name, research, revision, status, verdict, when. That
+/// reads as: which hypothesis, which result judged it, on which revision, with
+/// what standing and verdict, and when.
 ///
 /// One row per (hypothesis, revision, research result): the latest assessment
 /// that result made on that revision. Results that disagree on a revision stay
@@ -376,14 +443,14 @@ fn hypotheses(snapshot: &Snapshot) -> Value {
                 (false, true) => format!("{revision} (superseded, disputed)"),
                 (false, false) => format!("{revision} (superseded)"),
             };
-            let base = |verdict: Value, via: Value, when: Value| {
+            let base = |verdict: Value, research: Value, when: Value| {
                 json!({
                     "id": hypothesis.id,
                     "name": title_cell(hypothesis),
-                    "rev": label,
+                    "research": research,
+                    "revision": label,
                     "status": status,
                     "verdict": verdict,
-                    "via": via,
                     "when": when,
                 })
             };

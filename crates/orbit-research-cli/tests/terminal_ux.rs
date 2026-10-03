@@ -421,11 +421,19 @@ fn empty_work_links_does_not_claim_that_the_corpus_has_no_records() {
             corpus.to_str().expect("UTF-8 fixture path"),
         ]);
         assert_success(&output);
-        assert!(output.stderr.is_empty(), "{format}: {output:?}");
         match format {
-            "auto" | "table" => assert_eq!(output.stdout, b"-\n"),
-            "json" => assert_eq!(parse_json(&output.stdout), serde_json::json!([])),
-            "ndjson" => assert!(output.stdout.is_empty()),
+            "auto" | "table" => {
+                assert!(output.stdout.is_empty(), "{format}: {output:?}");
+                assert_eq!(output.stderr, b"No work links found.\n");
+            }
+            "json" => {
+                assert!(output.stderr.is_empty(), "{format}: {output:?}");
+                assert_eq!(parse_json(&output.stdout), serde_json::json!([]));
+            }
+            "ndjson" => {
+                assert!(output.stderr.is_empty(), "{format}: {output:?}");
+                assert!(output.stdout.is_empty());
+            }
             _ => unreachable!(),
         }
     }
@@ -460,4 +468,98 @@ fn format_environment_is_optional_and_explicit_auto_takes_precedence() {
         String::from_utf8_lossy(&explicit.stdout)
     );
     assert!(String::from_utf8_lossy(&explicit.stdout).contains("Q001"));
+}
+
+fn corpus_arg(corpus: &Path) -> &str {
+    corpus.to_str().expect("UTF-8 fixture path")
+}
+
+#[test]
+fn show_prints_metadata_before_the_body_and_replays_say_so() {
+    let temp = tempfile::tempdir().expect("temporary corpus");
+    let corpus = temp.path().join("corpus");
+    initialize(&corpus);
+    create_question(&corpus);
+    let output = run(&[
+        "research",
+        "show",
+        "--corpus",
+        corpus_arg(&corpus),
+        "--id",
+        "Q001",
+    ]);
+    assert_success(&output);
+    let text = String::from_utf8(output.stdout).expect("UTF-8");
+    let position = |needle: &str| {
+        text.find(needle)
+            .unwrap_or_else(|| panic!("{needle}: {text}"))
+    };
+    assert!(text.starts_with("id: Q001\nkind: Q\ntitle: Terminal output contract\nstatus: open\n"));
+    assert!(position("git_blob:") < position("body:"));
+    assert!(position("updated:") < position("body:"));
+    assert!(
+        text.trim_end()
+            .ends_with("Full record body for terminal detail.")
+    );
+
+    // The same capture again is a replay, and says so in both forms.
+    let capture = |format: &str| {
+        run(&[
+            "--format",
+            format,
+            "research",
+            "capture",
+            "--corpus",
+            corpus_arg(&corpus),
+            "--text",
+            "Replay me",
+            "--request-key",
+            "replay",
+        ])
+    };
+    let first = capture("json");
+    assert_success(&first);
+    let first = parse_json(&first.stdout);
+    assert!(
+        first["git_blob"]
+            .as_str()
+            .is_some_and(|blob| !blob.is_empty())
+    );
+    assert!(first.get("replayed").is_none());
+    let again = capture("auto");
+    assert_success(&again);
+    let again = String::from_utf8(again.stdout).expect("UTF-8");
+    assert!(again.contains("replayed: true\n"), "{again}");
+    assert!(again.contains(&format!(
+        "git_blob: {}",
+        first["git_blob"].as_str().expect("blob")
+    )));
+}
+
+#[test]
+fn revise_without_fields_is_refused_and_resource_has_no_trailing_blank_line() {
+    let temp = tempfile::tempdir().expect("temporary corpus");
+    let corpus = temp.path().join("corpus");
+    initialize(&corpus);
+    create_question(&corpus);
+    let output = run(&[
+        "research",
+        "revise",
+        "--corpus",
+        corpus_arg(&corpus),
+        "--id",
+        "Q001",
+        "--expected-blob",
+        "unused",
+    ]);
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Nothing to change"),
+        "{output:?}"
+    );
+
+    let output = run(&["resource"]);
+    assert_success(&output);
+    let text = String::from_utf8(output.stdout).expect("UTF-8");
+    assert!(text.ends_with('\n') && !text.ends_with("\n\n"), "{text:?}");
 }

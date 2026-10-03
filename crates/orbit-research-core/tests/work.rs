@@ -39,6 +39,15 @@ fn corpus() -> (TempDir, Corpus) {
     (temp, corpus)
 }
 
+/// Commit `research/<directory>/artifacts/<unit>/findings.md`, as a merged contribution does.
+fn commit_findings(root: &Path, directory: &str, unit: &str) {
+    let path = root.join(format!("research/{directory}/artifacts/{unit}"));
+    fs::create_dir_all(&path).unwrap();
+    fs::write(path.join("findings.md"), "Findings.\n").unwrap();
+    git(root, &["add", "."]);
+    git(root, &["commit", "-q", "-m", "contribution"]);
+}
+
 fn contribution(
     corpus: &Corpus,
     research_id: &str,
@@ -110,7 +119,9 @@ fn contribution_owns_disjoint_unit_paths() {
 
 #[test]
 fn synthesis_scopes_shared_summary_and_manifest() {
-    let (_temp, corpus) = corpus();
+    let (temp, corpus) = corpus();
+    commit_findings(temp.path(), "R001-study", "control-a");
+    commit_findings(temp.path(), "R001-study", "control-b");
     let plan = synthesis(&corpus, "R001", &["control-a".into(), "control-b".into()]).unwrap();
     assert_eq!(
         plan.context_files,
@@ -170,4 +181,45 @@ fn planning_uses_committed_content_while_browsing_ignores_uncommitted_edits() {
     );
     let after = investigation(&corpus, "R001", "Measure the control").unwrap();
     assert_eq!(after.context_files, before.context_files);
+}
+
+#[test]
+fn synthesis_refuses_a_contribution_that_was_never_committed() {
+    let (temp, corpus) = corpus();
+    commit_findings(temp.path(), "R001-study", "control-a");
+    let error = synthesis(&corpus, "R001", &["control-a".into(), "control-b".into()])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("no contribution named control-b"), "{error}");
+    assert!(error.contains("artifacts/control-b/findings.md"), "{error}");
+}
+
+#[test]
+fn investigation_titles_carry_a_short_form_of_the_objective() {
+    let (_temp, corpus) = corpus();
+    let plan = investigation(&corpus, "R001", "Reproduce the baseline.\nSecond line.").unwrap();
+    assert_eq!(plan.title, "Investigate R001: Reproduce the baseline.");
+    let long = "Measure how the cache warm-up step behaves when the workspace was restored from an older snapshot";
+    let plan = investigation(&corpus, "R001", long).unwrap();
+    assert_eq!(
+        plan.title,
+        "Investigate R001: Measure how the cache warm-up step behaves when the…"
+    );
+    let plan = contribution(&corpus, "R001", "control-a", "Measure it").unwrap();
+    assert_eq!(plan.title, "Contribute control-a to R001: Measure it");
+}
+
+#[test]
+fn investigation_of_a_done_item_is_refused() {
+    let (temp, corpus) = corpus();
+    let path = temp.path().join("research/R001-study/README.md");
+    let text = fs::read_to_string(&path).unwrap();
+    fs::write(&path, text.replace("status: planned", "status: done")).unwrap();
+    git(temp.path(), &["commit", "-q", "-am", "done"]);
+    let error = investigation(&corpus, "R001", "Again")
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("R001 is already done"), "{error}");
+    // Other shapes keep working: a done item can still gain a contribution plan.
+    assert!(contribution(&corpus, "R001", "control-a", "More").is_ok());
 }
