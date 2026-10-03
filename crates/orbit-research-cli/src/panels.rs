@@ -122,8 +122,8 @@ fn unavailable(shape: Shape, root: &Path, error: &Error) -> Value {
         };
         let more = match more {
             0 => String::new(),
-            1 => " (1 more problem)".to_owned(),
-            count => format!(" ({count} more problems)"),
+            1 => " 1 more problem not shown.".to_owned(),
+            count => format!(" {count} more problems not shown."),
         };
         (
             "Invalid",

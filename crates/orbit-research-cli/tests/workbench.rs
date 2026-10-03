@@ -203,7 +203,7 @@ fn invalid_corpus_check_fails_on_stderr_in_human_and_machine_modes() {
     let human = output_with_format(None, &check_args);
     assert_eq!(human.status.code(), Some(1));
     assert!(human.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&human.stderr).contains("Missing frontmatter"));
+    assert!(String::from_utf8_lossy(&human.stderr).contains("missing frontmatter"));
 
     for format in ["json", "ndjson"] {
         let failed = output_with_format(Some(format), &check_args);
@@ -215,14 +215,26 @@ fn invalid_corpus_check_fails_on_stderr_in_human_and_machine_modes() {
             error["error"]["message"]
                 .as_str()
                 .expect("error message")
-                .contains("Missing frontmatter")
+                .contains("missing frontmatter")
+        );
+        // Machine output carries every problem as {path, field, message}.
+        let problems = error["error"]["problems"].as_array().expect("problems");
+        assert_eq!(problems.len(), 1, "{error}");
+        assert_eq!(problems[0]["path"], "questions/Q001-invalid.md");
+        assert!(problems[0]["field"].is_null());
+        assert!(
+            problems[0]["message"]
+                .as_str()
+                .expect("problem message")
+                .starts_with("missing frontmatter"),
+            "{error}"
         );
     }
 
     let scripted = check_script(&corpus.join("_scripts/check.sh"));
     assert_eq!(scripted.status.code(), Some(1));
     assert!(scripted.stdout.is_empty());
-    assert!(String::from_utf8_lossy(&scripted.stderr).contains("Missing frontmatter"));
+    assert!(String::from_utf8_lossy(&scripted.stderr).contains("missing frontmatter"));
     assert_eq!(git(&corpus, &["rev-parse", "HEAD"]), head_before);
     assert_eq!(git(&corpus, &["status", "--porcelain"]), status_before);
 }

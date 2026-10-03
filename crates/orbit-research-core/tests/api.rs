@@ -467,7 +467,7 @@ fn check_rejects_an_invalid_corpus_without_changing_git_state() {
     let status_before = git(temp.path(), &["status", "--porcelain"]);
 
     let error = app.call("research.check", json!({})).unwrap_err();
-    assert!(error.to_string().contains("Missing frontmatter"));
+    assert!(error.to_string().contains("missing frontmatter"));
     assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head_before);
     assert_eq!(git(temp.path(), &["status", "--porcelain"]), status_before);
 }

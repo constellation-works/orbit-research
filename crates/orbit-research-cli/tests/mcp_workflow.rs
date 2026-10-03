@@ -217,7 +217,7 @@ fn every_advertised_research_tool_runs_through_the_real_mcp_transport() {
         stale["content"][0]["text"]
             .as_str()
             .expect("error text")
-            .contains("reload before editing"),
+            .contains("run `research show --id Q001` again and use its `git_blob`"),
         "{stale}"
     );
     let hypothesis = tool(&root, "research.show", json!({"id":"H001"}));

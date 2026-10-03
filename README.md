@@ -121,7 +121,9 @@ On Linux and macOS, new corpora include the local operational state needed for
 research request correlations. To prepare an existing corpus explicitly, run
 `orbit-research workspace prepare-operations PATH` against its primary checkout.
 Preparation leaves canonical research records and Git history unchanged; repeat
-calls report `changed: false`. Existing-corpus `workspace init` remains
+calls report `changed: false`. It also recreates a deleted
+`_data/orbit-research-operations/` (the old link records are gone) and makes Git ignore the
+plugin's `.orbit-research-tmp/` scratch directory through the repository's local exclude file. Existing-corpus `workspace init` remains
 validation only.
 
 `research plan` drafts work without creating a task or changing the corpus.
