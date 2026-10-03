@@ -8,8 +8,10 @@ metadata:
     validated snapshot, single-record detail and corpus health, generated
     from the shared operation registry rather than hand-duplicated schemas;
     task drafting and linking; the research_investigation job with its
-    validate delivery gate; and accept, which persists acceptance evidence
-    once delivery lands.
+    validate delivery gate; accept, which persists acceptance evidence
+    once delivery lands; four read-only dashboard panels (open questions,
+    results awaiting acceptance, hypotheses and assessments, corpus
+    health); and the orbit-research-native skill.
   publisher: constellation-works
   origin: orbit
   homepage: https://github.com/constellation-works/orbit-research
@@ -115,9 +117,75 @@ spec:
       execution_kind: mutating
       mcp_scope: workspace
       input_schema: { $ref: schemas/accept.request.json }
+    - name: open-questions
+      description: >-
+        Panel source. Lists the questions still open, each with its tags and
+        the Orbit tasks recorded on research items working on it. A workspace
+        with no usable corpus, or no open question, answers with one readable
+        status row instead of an error. Read-only.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/open-questions.request.json }
+    - name: awaiting-acceptance
+      description: >-
+        Panel source. Lists research results delivered by an investigation run
+        (committed with orbit.task and orbit.run) whose task has no
+        research-acceptance.json artifact, reading each task through the
+        orbit.task.show and orbit.task.artifact.get callbacks. A task that
+        cannot be read shows as acceptance unknown, never as accepted. Read-only.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/awaiting-acceptance.request.json }
+    - name: hypotheses
+      description: >-
+        Panel source. Lists each hypothesis with its current revision and
+        status and, per revision, the latest verdict from each research
+        result. Results that disagree on a revision keep separate rows and
+        mark the revision disputed. Read-only.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/hypotheses.request.json }
+    - name: corpus-health
+      description: >-
+        Panel source. Reports corpus validity, base revision and record counts
+        by kind and status as flat label/value pairs. A workspace with no
+        usable corpus answers with a readable status instead of an error.
+        Read-only.
+      execution_kind: read_only
+      mcp_scope: workspace
+      input_schema: { $ref: schemas/corpus-health.request.json }
 
   definitions:
     activities: [definitions/activities/*.yaml]
     jobs: [definitions/jobs/*.yaml]
+
+  skills: [skills/native]
+
+  web:
+    panels:
+      - id: open-questions
+        title: Open questions
+        source: tool:open-questions
+        render: table
+        group: operations
+        refresh_ms: 30000
+      - id: awaiting-acceptance
+        title: Results awaiting acceptance
+        source: tool:awaiting-acceptance
+        render: table
+        group: operations
+        refresh_ms: 60000
+      - id: hypotheses
+        title: Hypotheses and assessments
+        source: tool:hypotheses
+        render: table
+        group: operations
+        refresh_ms: 30000
+      - id: corpus-health
+        title: Corpus health
+        source: tool:corpus-health
+        render: kv
+        group: diagnostics
+        refresh_ms: 60000
 
   tests: [tests/conformance/*.yaml]

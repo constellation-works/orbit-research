@@ -1,0 +1,21 @@
+# Panel source. The conformance workspace is never a valid corpus, so this
+# pins the readable "no corpus" state the dashboard shows instead of an error
+# string. Real rows, the empty states of a valid corpus and the task callbacks
+# are covered by `cargo test -p orbit-research-cli` (src/tests/panels.rs) over
+# a real git-backed fixture.
+schemaVersion: 1
+kind: PluginTest
+tests:
+  - name: corpus_health_explains_that_the_workspace_has_no_corpus
+    tool: corpus-health
+    input: {}
+    expect:
+      output:
+        Corpus: No corpus
+        Detail: "This workspace has no research corpus yet. Run `orbit-research workspace init <path>` to create one."
+  - name: corpus_health_refuses_unknown_input_fields
+    tool: corpus-health
+    input: {"unexpected": true}
+    expect:
+      error:
+        code: invalid_request

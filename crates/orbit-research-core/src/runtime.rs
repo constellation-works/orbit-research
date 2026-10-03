@@ -43,6 +43,12 @@ impl Research {
         self.store.snapshot()
     }
 
+    /// Records and owner schema read from the checkout's HEAD commit, ignoring
+    /// uncommitted working-tree edits. Delivered results are judged here.
+    pub fn committed_snapshot(&self) -> Result<Snapshot> {
+        self.store.committed_snapshot()
+    }
+
     /// The delivery gate: check one research record in this checkout (a run
     /// worktree or the primary) against the checkout's HEAD. Read-only.
     pub fn validate_delivery(&self, expected: &Expected<'_>) -> Result<DeliveryReport> {

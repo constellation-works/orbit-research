@@ -10,11 +10,13 @@ and stderr is diagnostics. `src/mcp.rs` owns bounded stdio JSON-RPC transport;
 transports translate a wire protocol; tool definitions and application dispatch
 remain in Core.
 
-Parser, MCP and plugin-transport tests live under `src/tests/`, renderer tests
+Parser, MCP, plugin-transport and panel tests live under `src/tests/`, renderer tests
 under `src/output/tests/`; golden output fixtures live under `src/snapshots/`.
 Composed subprocess tests and the plugin schema/registry parity check stay
-under crate-root `tests/`. Shared research skills are packaged under Core’s
-`assets/skills/` and exposed by CLI. This crate has no packaged tool templates;
+under crate-root `tests/`. The shared research skill is the plugin's own
+`.orbit-plugin/skills/native/SKILL.md`, embedded by Core and exposed by CLI.
+`src/panels.rs` owns the four dashboard panel sources; their shapes follow Orbit's
+generic panel renderer (see ARCHITECTURE.md), and their tests are `src/tests/panels.rs`. This crate has no packaged tool templates;
 `.orbit-plugin/plugin.yaml`, `.orbit-plugin/schemas/*.request.json` and `.orbit-plugin/definitions/{jobs,activities}/`
 are the Orbit plugin manifest and definitions, not CLI assets.
 `tests/research_job.rs` drives the plugin job step by step against this binary.

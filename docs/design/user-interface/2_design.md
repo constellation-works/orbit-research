@@ -11,8 +11,8 @@ tags: [research-workbench]
 # Layout and state
 
 > **Superseded (2026-09-27):** the standalone dashboard (`orbit-research-web`) this
-> layout describes is removed. Research views become read-only Orbit plugin
-> panels; see the constellation `operations/research/orbit-research-plugin.md`
+> layout describes is removed. Research views are now four read-only Orbit plugin
+> panels (README, ARCHITECTURE.md); see the constellation `operations/research/orbit-research-plugin.md`
 > spec. Kept for history, not evidence of a current surface.
 
 Use a stable sidebar, concise page header, tag/search controls and a readable record

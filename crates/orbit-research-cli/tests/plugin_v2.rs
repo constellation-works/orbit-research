@@ -136,6 +136,50 @@ fn installed_plugin_serves_every_tool_over_cli_and_mcp() {
     fixture.assert_scientific_corpus_unchanged(&revision);
 }
 
+/// A panel source runs as a read-only tool for a caller that is not an
+/// operator, and `awaiting-acceptance` reads each delivered result's task
+/// through the `orbit.task.show` and `orbit.task.artifact.get` callbacks. This
+/// proves those callbacks answer for such a caller (an MCP session without
+/// `--operator`) and for the operator CLI alike: a delivered result whose task
+/// has no acceptance artifact is listed as awaiting, never as unknown.
+#[test]
+#[ignore = "requires ORBIT_RESEARCH_TEST_ORBIT_BIN and its native plugin sandbox"]
+fn awaiting_acceptance_reads_task_artifacts_through_callbacks() {
+    let fixture = Fixture::new();
+    fixture.install();
+    let link =
+        json!({"research_id":"R001", "request_key":"panel-link", "title":"Investigate R001"});
+    let created = json_output(fixture.cli_tool("link", &link), "link");
+    let task = created["task_id"].as_str().expect("created task id");
+    fixture.deliver_r001(task);
+    let expected = json!([{
+        "id": "R001",
+        "result": "Study",
+        "status": "awaiting acceptance",
+        "task": task,
+        "updated": created_date(&fixture),
+    }]);
+    let value = json_output(
+        fixture.cli_tool("awaiting-acceptance", &json!({})),
+        "awaiting-acceptance over CLI",
+    );
+    assert_eq!(value, expected, "operator CLI");
+    let mut mcp = Mcp::start(&fixture, false);
+    let result = mcp.call("awaiting-acceptance", json!({}));
+    assert_ne!(result["isError"], true, "{result}");
+    assert_eq!(result["structuredContent"], expected, "agent MCP session");
+}
+
+fn created_date(fixture: &Fixture) -> String {
+    let text = fs::read_to_string(fixture.repository.join("research/R001-study/README.md"))
+        .expect("delivered R001");
+    text.lines()
+        .find_map(|line| line.strip_prefix("updated: "))
+        .expect("updated date")
+        .trim_matches(['\'', '"'])
+        .to_owned()
+}
+
 fn read_requests() -> Vec<(&'static str, Value)> {
     vec![
         ("version", json!({})),
@@ -146,6 +190,10 @@ fn read_requests() -> Vec<(&'static str, Value)> {
             "plan",
             json!({"shape":"investigation", "research_id":"R001", "objective":"Reproduce the baseline"}),
         ),
+        ("open-questions", json!({})),
+        ("awaiting-acceptance", json!({})),
+        ("hypotheses", json!({})),
+        ("corpus-health", json!({})),
     ]
 }
 
@@ -167,8 +215,28 @@ fn assert_read(tool: &str, value: &Value) {
             json!(["dir:research/R001-study"]),
             "{value}"
         ),
+        // The fixture holds one reserved R: no question, hypothesis or delivered
+        // result, so each panel answers with its readable empty state.
+        "open-questions" => assert_status_row(value, "No questions captured yet"),
+        "awaiting-acceptance" => assert_status_row(value, "No delivered results yet"),
+        "hypotheses" => assert_status_row(value, "No hypotheses yet"),
+        "corpus-health" => {
+            assert_eq!(value["Corpus"], "Valid", "{value}");
+            assert_eq!(value["Records"], 1, "{value}");
+        }
         _ => panic!("unexpected read tool: {tool}"),
     }
+}
+
+fn assert_status_row(value: &Value, expected: &str) {
+    let rows = value.as_array().expect("table panel output");
+    assert_eq!(rows.len(), 1, "{value}");
+    assert!(
+        rows[0]["status"]
+            .as_str()
+            .is_some_and(|status| status.starts_with(expected)),
+        "{value}"
+    );
 }
 
 fn json_output(output: Output, context: &str) -> Value {
@@ -374,6 +442,34 @@ impl Fixture {
             .output()
             .expect("prepare the private existing corpus");
         assert!(output.status.success(), "{output:?}");
+    }
+
+    /// Commit R001 the way a finished run leaves it: done, with the run's
+    /// task and run recorded in its frontmatter.
+    fn deliver_r001(&self, task: &str) {
+        let path = self.repository.join("research/R001-study/README.md");
+        let text = fs::read_to_string(&path).expect("reserved R001");
+        let (front, body) = text
+            .strip_prefix("---\n")
+            .and_then(|rest| rest.split_once("\n---\n"))
+            .expect("R001 frontmatter");
+        let front = front.replace("status: planned", "status: done");
+        fs::write(
+            &path,
+            format!("---\n{front}\norbit:\n  task: {task}\n  run: jrun-fixture\n---\n{body}"),
+        )
+        .expect("deliver R001");
+        for args in [
+            vec!["add", "--", "research"],
+            vec!["commit", "-m", "Deliver R001 as a finished run would"],
+        ] {
+            let output = self
+                .command_for(Path::new("git"))
+                .args(&args)
+                .output()
+                .expect("commit the delivered fixture result");
+            assert!(output.status.success(), "{args:?}: {output:?}");
+        }
     }
 
     fn assert_task_count(&self, expected: usize) {

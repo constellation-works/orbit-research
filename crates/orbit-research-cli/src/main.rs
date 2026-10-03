@@ -14,6 +14,7 @@ mod acceptance;
 mod command;
 mod mcp;
 mod output;
+mod panels;
 mod parse;
 mod plugin;
 #[cfg(test)]

@@ -2,8 +2,9 @@
 
 The required local gate is `make test`. It covers the plugin request schemas,
 exec input limits, launcher failures and a real Git-backed fixture corpus.
-The plugin's eight conformance goldens cover its corpus-independent health
-response and deterministic refusals in Orbit's empty conformance workspace.
+The plugin's sixteen conformance goldens (twelve tools) cover its corpus-independent
+health response, deterministic refusals and the four panel tools' readable "no corpus"
+output in Orbit's empty conformance workspace.
 
 Before linking work in an existing corpus, prepare its operational journal
 outside the plugin sandbox:
@@ -29,8 +30,11 @@ ORBIT_RESEARCH_TEST_ORBIT_BIN=/absolute/path/to/orbit \
 
 This test copies the canonical plugin into a temporary directory, bundles the
 current executable and creates its own corpus, HOME and Orbit workspace. It
-invokes all eight advertised tools through both Orbit CLI and Orbit MCP:
-`version`, `list`, `show`, `check`, `plan`, `link`, `validate` and `accept`.
+invokes all twelve advertised tools through both Orbit CLI and Orbit MCP:
+`version`, `list`, `show`, `check`, `plan`, `link`, `validate`, `accept` and the four
+panel sources `open-questions`, `awaiting-acceptance`, `hypotheses` and `corpus-health`.
+The panel sources answer their readable empty state for the fixture's one reserved
+result.
 It checks real task creation and idempotent linking, including an omitted task
 description, and malformed `version` fields. It first models an unprepared
 legacy journal and requires both transports to refuse linking before any task
@@ -54,6 +58,21 @@ The same fixture feeds `assess`: the lookup that production composes reads what
 refusals, including through the real binary's CLI and MCP surfaces
 (`tests/assess_acceptance.rs`).
 
+The panels' rows are pinned the same way, over a fixture with open and answered
+questions, a hypothesis whose two results disagree, delivered and reserved
+results, an empty corpus, no corpus and an invalid corpus:
+
+```sh
+cargo test -p orbit-research-cli --bin orbit-research --locked tests::panels
+```
+
+A second installed test, `awaiting_acceptance_reads_task_artifacts_through_callbacks`,
+delivers the fixture result and calls `awaiting-acceptance` through the operator CLI
+and through an MCP session without operator capability (the capability a dashboard
+panel read uses). It requires the task to read `awaiting acceptance`, which proves the
+`orbit.task.show` and `orbit.task.artifact.get` callbacks answer a read-only panel
+source rather than leaving it `acceptance unknown`.
+
 These deterministic checks do not run an investigation provider. The installed
 test changes no existing Orbit workspace or plugin installation. It is ignored
 in the ordinary test suite because it needs Orbit's native sandbox; CI runs it
@@ -76,7 +95,7 @@ metadata access to its callback-session directory, preventing the callback
 resolver from recognizing the host's live identity even though the inherited
 descriptor remained open. The host fixed this in
 [the ancestor metadata grant change](https://github.com/constellation-works/orbit/commit/73beabbc1bfc6091ffdcbea719d234a8a062b825).
-The old host passed all eight empty-workspace conformance goldens but failed a
+The old host passed all eight empty-workspace conformance goldens it then had but failed a
 real installed `link` call. Installed callback checks therefore remain a
 separate required CI gate. The shared Linux/macOS manifest range keeps the
 plugin inactive on Orbit 0.24.0: validation exits successfully with a host

@@ -11,8 +11,8 @@ tags: [research-workbench]
 # Research dashboard
 
 > **Superseded (2026-09-27):** the standalone dashboard described here
-> (`orbit-research-web`) is removed. Research views become read-only Orbit
-> plugin panels; see the constellation `operations/research/orbit-research-plugin.md`
+> (`orbit-research-web`) is removed. Research views are now four read-only Orbit
+> plugin panels (README, ARCHITECTURE.md); see the constellation `operations/research/orbit-research-plugin.md`
 > spec's Capability set / Panels section. This document is kept for history and
 > is not evidence of a current surface.
 

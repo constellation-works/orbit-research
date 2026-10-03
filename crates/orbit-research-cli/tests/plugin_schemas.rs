@@ -89,6 +89,27 @@ fn version_schema_matches_the_shared_empty_input_shape() {
     );
 }
 
+/// The four panel tools take no input, like `version`: each pins to the same
+/// empty-object shape the registry derives from `Empty`, never a hand-written
+/// schema. Their verbs are not registry operations because each needs a view
+/// shaped for the dashboard renderer (see `src/panels.rs`).
+#[test]
+fn panel_tools_schema_matches_the_shared_empty_input_shape() {
+    let empty = registry_schema(Operation::List);
+    for file in [
+        "open-questions.request.json",
+        "awaiting-acceptance.request.json",
+        "hypotheses.request.json",
+        "corpus-health.request.json",
+    ] {
+        assert_eq!(
+            committed_schema(file, &empty),
+            empty,
+            ".orbit-plugin/schemas/{file} must match the registry's `Empty` input shape"
+        );
+    }
+}
+
 #[test]
 fn manifest_paths_stay_inside_the_plugin_root() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.orbit-plugin");
@@ -110,6 +131,17 @@ fn manifest_paths_stay_inside_the_plugin_root() {
             tool["input_schema"]["$ref"]
                 .as_str()
                 .expect("input_schema.$ref"),
+        );
+    }
+    for skill in manifest["spec"]["skills"].as_array().expect("skills") {
+        let skill = skill.as_str().expect("skill directory");
+        assert!(
+            !skill.starts_with('/') && !skill.split('/').any(|part| part == ".."),
+            "skill escapes plugin root: {skill}"
+        );
+        assert!(
+            root.join(skill).join("SKILL.md").is_file(),
+            "skill directory lacks SKILL.md: {skill}"
         );
     }
     for field in ["activities", "jobs"] {
