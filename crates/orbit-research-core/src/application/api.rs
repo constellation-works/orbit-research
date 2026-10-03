@@ -201,21 +201,16 @@ pub(super) fn assess(app: &Application, input: Assess) -> Result<Value> {
         strength: input.strength.as_str().into(),
         note: input.note,
     };
-    let reservation = app.corpus.store.assess(
-        &input.id,
-        &input.expected_blob,
-        &assessment,
-        |research| match app.acceptance.acceptance(research)? {
-            Some(acceptance) if acceptance.research_id == research => Ok(()),
-            Some(acceptance) => Err(Error::Invalid(format!(
-                "Acceptance lookup for {research} returned evidence for {}",
-                acceptance.research_id
-            ))),
-            None => Err(Error::Invalid(format!(
-                "{research} has no acceptance record; accept the delivered result before assessing it"
-            ))),
-        },
-    )?;
+    let reservation =
+        app.corpus
+            .store
+            .assess(&input.id, &input.expected_blob, &assessment, |snapshot| {
+                super::acceptance::require_acceptance(
+                    app.acceptance.as_ref(),
+                    snapshot,
+                    &assessment.research,
+                )
+            })?;
     Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)
 }
 

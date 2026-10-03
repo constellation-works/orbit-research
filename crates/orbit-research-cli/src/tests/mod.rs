@@ -1,3 +1,4 @@
+mod acceptance;
 mod mcp;
 mod parse;
 mod plugin;

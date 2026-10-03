@@ -867,7 +867,12 @@ fn assess_requires_acceptance_and_appends_in_order() {
             "H001",
             &blob(&corpus, "H001"),
             &assessment("supports"),
-            |id| Err(Error::Invalid(format!("{id} has no acceptance record"))),
+            |snapshot| {
+                Err(Error::Invalid(format!(
+                    "{} has no acceptance record",
+                    snapshot.records[0].id
+                )))
+            },
         )
         .unwrap_err();
     assert!(

@@ -21,8 +21,14 @@ with `orbit run job research_investigation --input task=<task-id>`. The run
 works in its own worktree, and the `validate` step fails it before commit when
 the written record is invalid. Research views become read-only Orbit plugin
 panels rather than a standalone dashboard; once delivery lands, `accept`
-persists `research-acceptance.json` as a task artifact, and `assess` requires
-it before appending a verdict.
+persists `research-acceptance.json` as a task artifact on the R's task.
+`research assess` (CLI and MCP) runs outside the plugin sandbox: it reads the R's
+`orbit.task`, fetches that artifact by running `orbit tool run` from the corpus
+checkout (the Orbit workspace; `orbit` is `$ORBIT_BIN` or the one on `PATH`), and
+appends the verdict only when the artifact names the R and the README blob it
+accepted is the README at HEAD. It refuses, never accepting by default, when the
+R has no task, the artifact is missing, malformed or for another record, the
+README changed since acceptance, or Orbit cannot be reached.
 
 ## Build and validate
 

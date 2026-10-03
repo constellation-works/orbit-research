@@ -96,7 +96,7 @@ fn reserved_corpus() -> TempDir {
 /// callbacks, so `link` goldens can exercise success, retry and refusal
 /// without a real Orbit installation (see DANI-10707's orchestrator note).
 #[derive(Default)]
-struct FakeTaskHost {
+pub(super) struct FakeTaskHost {
     tasks: Mutex<Vec<(String, String)>>,
     list_calls: Mutex<usize>,
     next_id: Mutex<u32>,
@@ -106,7 +106,7 @@ struct FakeTaskHost {
     /// Task id -> (status, job_run_id), as `accept` reads via `orbit.task.show`.
     task_states: Mutex<BTreeMap<String, (String, Option<String>)>>,
     /// (task id, artifact path) -> stored content, as `orbit.task.artifact.put` records.
-    artifacts: Mutex<BTreeMap<(String, String), Value>>,
+    pub(super) artifacts: Mutex<BTreeMap<(String, String), Value>>,
 }
 
 impl FakeTaskHost {
@@ -126,7 +126,7 @@ impl FakeTaskHost {
 
     /// Set the task state `accept` gates on: `status` and the delivering
     /// run's id.
-    fn seed_task_state(&self, id: &str, status: &str, job_run_id: Option<&str>) {
+    pub(super) fn seed_task_state(&self, id: &str, status: &str, job_run_id: Option<&str>) {
         self.task_states
             .lock()
             .expect("lock")
@@ -670,8 +670,8 @@ fn accept_input_schema_matches_the_committed_schema() {
 /// A primary corpus with reserved `R001` and a linked run worktree whose
 /// worktree-mode writer wrote a complete R001 for `task-1`/`run-1`, with one
 /// local input pinned by digest.
-struct Delivered {
-    primary: TempDir,
+pub(super) struct Delivered {
+    pub(super) primary: TempDir,
     _parent: TempDir,
     worktree: std::path::PathBuf,
 }
@@ -679,7 +679,7 @@ struct Delivered {
 const INPUT: &[u8] = b"a,b\n1,2\n";
 const README: &str = "research/R001-study/README.md";
 
-fn delivered() -> Delivered {
+pub(super) fn delivered() -> Delivered {
     let primary = reserved_corpus();
     let parent = tempfile::tempdir().expect("worktree parent");
     let worktree = parent.path().join("run");
@@ -753,7 +753,7 @@ impl Delivered {
     /// primary checkout, as the job's `git_commit`/`git_merge` steps do:
     /// `accept` reads the published commit off the primary checkout, never
     /// the run worktree.
-    fn merge_into_primary(&self) {
+    pub(super) fn merge_into_primary(&self) {
         let git = |args: &[&str]| {
             let output = Command::new("git")
                 .arg("-C")
@@ -898,7 +898,12 @@ fn validate_refuses_without_a_run_context_or_an_absolute_path() {
 
 /// Call `accept` bound to `primary` as the workspace, as the host resolves it
 /// for any workspace-scoped mutating tool.
-fn call_accept(primary: &Path, task_id: &str, research_id: &str, host: &dyn TaskHost) -> Value {
+pub(super) fn call_accept(
+    primary: &Path,
+    task_id: &str,
+    research_id: &str,
+    host: &dyn TaskHost,
+) -> Value {
     call_with_host(
         &envelope(
             "accept",

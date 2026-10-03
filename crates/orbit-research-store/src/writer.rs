@@ -221,13 +221,14 @@ impl Corpus {
     }
 
     /// Append an assessment to a hypothesis (primary mode only). `accepted`
-    /// refuses research results without acceptance evidence.
+    /// sees the checkout's snapshot, clean at HEAD by then, and refuses
+    /// research results without acceptance evidence.
     pub fn assess(
         &self,
         id: &str,
         expected_blob: &str,
         assessment: &Assessment,
-        accepted: impl FnOnce(&str) -> Result<()>,
+        accepted: impl FnOnce(&Snapshot) -> Result<()>,
     ) -> Result<Reservation> {
         let request_digest = digest(&serde_json::to_vec(&json!([
             "assess",
@@ -248,7 +249,7 @@ impl Corpus {
                     assessment,
                     &record::utc_date()?,
                 )?;
-                accepted(&assessment.research)?;
+                accepted(snapshot)?;
                 Ok(text)
             },
         )

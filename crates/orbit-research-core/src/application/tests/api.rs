@@ -2,7 +2,7 @@ use super::super::{
     Operation,
     acceptance::{Acceptance, AcceptanceLookup},
 };
-use crate::{Application, Error, Result};
+use crate::{AcceptanceFailure, Application, Error, Result};
 use serde_json::{Value, json};
 use std::{fs, path::Path, process::Command};
 use tempfile::TempDir;
@@ -28,6 +28,10 @@ fn git(root: &Path, args: &[&str]) -> String {
 
 /// A hypothesis and a delivered negative result: the run succeeded, its controls failed.
 fn negative_result_corpus() -> TempDir {
+    negative_result_corpus_with("orbit: {task: task-1, run: run-1}\n")
+}
+
+fn negative_result_corpus_with(orbit: &str) -> TempDir {
     let temp = tempfile::tempdir().expect("tempdir");
     let root = temp.path().join("corpus");
     fs::create_dir_all(root.join("_scripts")).expect("corpus dir");
@@ -48,7 +52,7 @@ fn negative_result_corpus() -> TempDir {
     fs::create_dir_all(research.join("data")).expect("research dir");
     fs::write(
         research.join("README.md"),
-        "---\nid: R001\ntitle: Negative\nstatus: done\ntags: []\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\ntests: [H001]\norbit: {task: task-1, run: run-1}\n---\n\n## Question\n\nDoes it exist?\n\n## Method\n\nOne run with positive and negative controls.\n\n## Result\n\nThe run completed successfully, but both controls failed.\n\n## Limitations\n\nNo usable signal.\n\n## Next\n\nFix the controls.\n",
+        format!("---\nid: R001\ntitle: Negative\nstatus: done\ntags: []\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\ntests: [H001]\n{orbit}---\n\n## Question\n\nDoes it exist?\n\n## Method\n\nOne run with positive and negative controls.\n\n## Result\n\nThe run completed successfully, but both controls failed.\n\n## Limitations\n\nNo usable signal.\n\n## Next\n\nFix the controls.\n"),
     )
     .expect("research");
     fs::write(research.join("data/manifest.json"), "{\"inputs\":[]}\n").expect("manifest");
@@ -61,18 +65,56 @@ fn root(temp: &TempDir) -> std::path::PathBuf {
     temp.path().join("corpus")
 }
 
-/// Fixture lookup: a successful run whose result was accepted.
-struct Accepted(&'static str);
+/// The accepted README's blob, as `accept` stores it: the R README at HEAD.
+fn readme_blob(temp: &TempDir) -> String {
+    git(
+        &root(temp),
+        &["rev-parse", "HEAD:research/R001-negative/README.md"],
+    )
+}
 
-impl AcceptanceLookup for Accepted {
-    fn acceptance(&self, research_id: &str) -> Result<Option<Acceptance>> {
-        Ok((research_id == self.0).then(|| Acceptance {
-            research_id: research_id.into(),
-            commit: "0".repeat(40),
-            blob: "0".repeat(40),
-            run_id: "run-1".into(),
-            artifact_digests: Default::default(),
-        }))
+fn acceptance(research: &str, blob: &str) -> Acceptance {
+    Acceptance {
+        research_id: research.into(),
+        commit: "0".repeat(40),
+        blob: blob.into(),
+        run_id: "run-1".into(),
+        artifact_digests: Default::default(),
+    }
+}
+
+/// Fixture lookup answering with a fixed result and recording each query.
+struct Lookup {
+    answer: Box<dyn Fn() -> Result<Option<Acceptance>>>,
+    queries: std::sync::Mutex<Vec<(String, String)>>,
+}
+
+impl Lookup {
+    fn new(answer: impl Fn() -> Result<Option<Acceptance>> + 'static) -> Self {
+        Self {
+            answer: Box::new(answer),
+            queries: Default::default(),
+        }
+    }
+
+    fn accepting(acceptance: Acceptance) -> Self {
+        Self::new(move || Ok(Some(acceptance.clone())))
+    }
+}
+
+impl AcceptanceLookup for Lookup {
+    fn acceptance(&self, research_id: &str, task: &str) -> Result<Option<Acceptance>> {
+        self.queries
+            .lock()
+            .expect("queries")
+            .push((research_id.into(), task.into()));
+        (self.answer)()
+    }
+}
+
+impl AcceptanceLookup for std::rc::Rc<Lookup> {
+    fn acceptance(&self, research_id: &str, task: &str) -> Result<Option<Acceptance>> {
+        self.as_ref().acceptance(research_id, task)
     }
 }
 
@@ -83,7 +125,7 @@ impl AcceptanceLookup for Accepted {
 struct FromStoredArtifact(Value);
 
 impl AcceptanceLookup for FromStoredArtifact {
-    fn acceptance(&self, research_id: &str) -> Result<Option<Acceptance>> {
+    fn acceptance(&self, research_id: &str, _: &str) -> Result<Option<Acceptance>> {
         let acceptance: Acceptance =
             serde_json::from_value(self.0.clone()).expect("valid research-acceptance.json");
         Ok((acceptance.research_id == research_id).then_some(acceptance))
@@ -96,7 +138,7 @@ fn assess_succeeds_once_the_lookup_deserializes_accepts_stored_artifact_shape() 
     let artifact = json!({
         "research_id": "R001",
         "commit": "0".repeat(40),
-        "blob": "0".repeat(40),
+        "blob": readme_blob(&temp),
         "run_id": "run-1",
         "artifact_digests": {"input.csv": "0".repeat(64)},
     });
@@ -128,25 +170,120 @@ fn assess(app: &Application, verdict: Option<&str>, revision: u64) -> Result<Val
     app.execute(Operation::Assess, input)
 }
 
+/// Assess against `app` and require the refusal to leave HEAD and the tree untouched.
+fn assess_refused(temp: &TempDir, app: &Application) -> AcceptanceFailure {
+    let head = git(&root(temp), &["rev-parse", "HEAD"]);
+    let error = assess(app, Some("inconclusive"), 1)
+        .expect_err("assessment requires verifiable acceptance");
+    assert_eq!(git(&root(temp), &["rev-parse", "HEAD"]), head);
+    assert!(git(&root(temp), &["status", "--porcelain"]).is_empty());
+    match error {
+        Error::Acceptance(failure) => failure,
+        other => panic!("expected an acceptance refusal, got {other:?}"),
+    }
+}
+
 #[test]
-fn assess_refuses_research_without_an_acceptance_record() {
+fn assess_asks_the_lookup_for_the_records_own_task_and_accepts_a_matching_blob() {
     let temp = negative_result_corpus();
-    let head = git(&root(&temp), &["rev-parse", "HEAD"]);
-    for app in [
-        Application::local(&root(&temp)).expect("default app"),
+    let lookup = std::rc::Rc::new(Lookup::accepting(acceptance("R001", &readme_blob(&temp))));
+    let app = Application::local(&root(&temp))
+        .expect("app")
+        .with_acceptance(lookup.clone());
+    assess(&app, Some("inconclusive"), 1).expect("matching acceptance");
+    assert_eq!(
+        *lookup.queries.lock().expect("queries"),
+        [("R001".to_owned(), "task-1".to_owned())]
+    );
+}
+
+#[test]
+fn assess_refuses_the_default_lookup_as_missing_acceptance() {
+    let temp = negative_result_corpus();
+    let app = Application::local(&root(&temp)).expect("default app");
+    let failure = assess_refused(&temp, &app);
+    assert!(
+        matches!(&failure, AcceptanceFailure::Missing { research, task }
+            if research == "R001" && task == "task-1"),
+        "{failure:?}"
+    );
+    assert!(failure.to_string().contains("`accept`"), "{failure}");
+}
+
+#[test]
+fn assess_refuses_every_unverifiable_acceptance_without_writing() {
+    let temp = negative_result_corpus();
+    let blob = readme_blob(&temp);
+    let app = |lookup: Lookup| {
         Application::local(&root(&temp))
             .expect("app")
-            .with_acceptance(Accepted("R999")),
+            .with_acceptance(std::rc::Rc::new(lookup))
+    };
+
+    let failure = assess_refused(&temp, &app(Lookup::new(|| Ok(None))));
+    assert!(
+        matches!(failure, AcceptanceFailure::Missing { .. }),
+        "{failure:?}"
+    );
+
+    let failure = assess_refused(&temp, &app(Lookup::accepting(acceptance("R999", &blob))));
+    assert!(
+        matches!(&failure, AcceptanceFailure::WrongResearch { found, .. } if found == "R999"),
+        "{failure:?}"
+    );
+
+    let stale = "1".repeat(40);
+    let failure = assess_refused(&temp, &app(Lookup::accepting(acceptance("R001", &stale))));
+    assert!(
+        matches!(&failure, AcceptanceFailure::StaleBlob { accepted, current, .. }
+            if *accepted == stale && *current == blob),
+        "{failure:?}"
+    );
+
+    let unreachable: fn() -> AcceptanceFailure = || AcceptanceFailure::Unreachable {
+        research: "R001".into(),
+        task: "task-1".into(),
+        reason: "orbit not found".into(),
+    };
+    let malformed: fn() -> AcceptanceFailure = || AcceptanceFailure::Malformed {
+        research: "R001".into(),
+        task: "task-1".into(),
+        reason: "bad json".into(),
+    };
+    let failure = assess_refused(&temp, &app(Lookup::new(move || Err(unreachable().into()))));
+    assert!(
+        matches!(failure, AcceptanceFailure::Unreachable { .. }),
+        "{failure:?}"
+    );
+    let failure = assess_refused(&temp, &app(Lookup::new(move || Err(malformed().into()))));
+    assert!(
+        matches!(failure, AcceptanceFailure::Malformed { .. }),
+        "{failure:?}"
+    );
+}
+
+#[test]
+fn assess_refuses_a_research_record_with_no_task() {
+    for orbit in [
+        "",
+        "orbit: {run: run-1}\n",
+        "orbit: {task: '', run: run-1}\n",
     ] {
-        let error = assess(&app, Some("inconclusive"), 1)
-            .expect_err("assessment requires accepted research evidence");
+        let temp = negative_result_corpus_with(orbit);
+        let lookup = std::rc::Rc::new(Lookup::accepting(acceptance("R001", &readme_blob(&temp))));
+        let app = Application::local(&root(&temp))
+            .expect("app")
+            .with_acceptance(lookup.clone());
+        let failure = assess_refused(&temp, &app);
         assert!(
-            error.to_string().contains("R001 has no acceptance record"),
-            "{error}"
+            matches!(&failure, AcceptanceFailure::NoTask { research } if research == "R001"),
+            "{orbit:?}: {failure:?}"
+        );
+        assert!(
+            lookup.queries.lock().expect("queries").is_empty(),
+            "no task, so nothing to look up"
         );
     }
-    assert_eq!(git(&root(&temp), &["rev-parse", "HEAD"]), head);
-    assert!(git(&root(&temp), &["status", "--porcelain"]).is_empty());
 }
 
 #[test]
@@ -154,7 +291,7 @@ fn negative_result_is_assessed_inconclusive_never_supported() {
     let temp = negative_result_corpus();
     let app = Application::local(&root(&temp))
         .expect("app")
-        .with_acceptance(Accepted("R001"));
+        .with_acceptance(Lookup::accepting(acceptance("R001", &readme_blob(&temp))));
 
     // Execution success and acceptance supply no verdict: the author must give one.
     let error = assess(&app, None, 1).expect_err("assessment requires an explicit verdict");
@@ -182,7 +319,7 @@ fn revised_hypothesis_keeps_earlier_assessments_on_their_revision() {
     let temp = negative_result_corpus();
     let app = Application::local(&root(&temp))
         .expect("app")
-        .with_acceptance(Accepted("R001"));
+        .with_acceptance(Lookup::accepting(acceptance("R001", &readme_blob(&temp))));
     assess(&app, Some("inconclusive"), 1).expect("first assessment");
     let revised = app
         .execute(

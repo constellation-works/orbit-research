@@ -204,7 +204,7 @@ fn every_advertised_research_tool_runs_through_the_real_mcp_transport() {
         assessment["content"][0]["text"]
             .as_str()
             .expect("error text")
-            .contains("no acceptance record")
+            .contains("no `orbit.task`")
     );
     let cli_assessment = command()
         .args(["--json", "research", "assess", "--corpus"])
@@ -232,7 +232,7 @@ fn every_advertised_research_tool_runs_through_the_real_mcp_transport() {
         error["error"]["message"]
             .as_str()
             .expect("CLI diagnostic")
-            .contains("no acceptance record")
+            .contains("no `orbit.task`")
     );
     assert_eq!(git(&root, &["rev-parse", "HEAD"]), head);
     assert!(git(&root, &["status", "--porcelain"]).is_empty());

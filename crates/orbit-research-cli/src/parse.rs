@@ -231,7 +231,8 @@ pub(crate) enum ResearchOperation {
         mode: ModeArg,
     },
     /// Append a verdict to a hypothesis's assessments (primary mode only).
-    /// Needs an existing revision and an accepted research record.
+    /// Needs an existing revision and an accepted research record, verified through
+    /// Orbit (`orbit` from `$ORBIT_BIN` or `PATH`, run from the corpus checkout).
     Assess {
         /// Path to the canonical research corpus.
         #[arg(long)]

@@ -45,6 +45,7 @@ fn error_code(error: &Error) -> &'static str {
         Error::NotFound(_) => "record_not_found",
         Error::Conflict(_) => "conflict",
         Error::Refused(_) => "refused",
+        Error::Acceptance(_) => "acceptance_required",
         Error::Invalid(_) => "corpus_unavailable",
         Error::Internal(_) => "internal",
         Error::Io(_) => "io_error",
@@ -114,17 +115,33 @@ pub(crate) trait TaskHost {
 /// `permissions.orbit_tools` is host-mediated, not an arbitrary subprocess.
 pub(crate) struct OrbitCliTaskHost;
 
-fn orbit_binary() -> String {
+/// The `orbit` executable: `ORBIT_BIN` when set, else `orbit` on `PATH`. The
+/// plugin transport and the writer's acceptance lookup resolve it identically.
+pub(crate) fn orbit_binary() -> String {
     std::env::var("ORBIT_BIN").unwrap_or_else(|_| "orbit".into())
 }
 
 fn run_orbit_tool(name: &str, input: &Value) -> Result<Value> {
-    let output = Command::new(orbit_binary())
-        .args(["tool", "run", name, "--input", &input.to_string()])
-        .output()
-        .map_err(|error| {
-            Error::Internal(format!("failed to invoke `orbit tool run {name}`: {error}"))
-        })?;
+    run_orbit_tool_with(&orbit_binary(), None, name, input)
+}
+
+/// Run `orbit tool run <name> --input <json>` with `orbit` as the executable
+/// and, when given, `cwd` as the working directory (how Orbit selects the
+/// workspace outside a plugin sandbox).
+pub(crate) fn run_orbit_tool_with(
+    orbit: &str,
+    cwd: Option<&Path>,
+    name: &str,
+    input: &Value,
+) -> Result<Value> {
+    let mut command = Command::new(orbit);
+    command.args(["tool", "run", name, "--input", &input.to_string()]);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    let output = command.output().map_err(|error| {
+        Error::Internal(format!("failed to invoke `orbit tool run {name}`: {error}"))
+    })?;
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr);
         return Err(Error::Internal(format!(
@@ -137,6 +154,48 @@ fn run_orbit_tool(name: &str, input: &Value) -> Result<Value> {
             "`orbit tool run {name}` returned non-JSON output: {error}"
         ))
     })
+}
+
+/// The text of a task's stored artifact, or `None` when the task has never
+/// stored one. `orbit.task.artifact.get` errors on a missing artifact, so list
+/// first with `orbit.task.show` and keep a never-stored artifact distinct from
+/// a spurious failure.
+pub(crate) fn read_task_artifact(
+    orbit: &str,
+    cwd: Option<&Path>,
+    id: &str,
+    path: &str,
+) -> Result<Option<String>> {
+    let listed = run_orbit_tool_with(
+        orbit,
+        cwd,
+        "orbit.task.show",
+        &json!({"id": id, "fields": ["artifacts"]}),
+    )?;
+    let artifacts = listed.get("artifacts").cloned().unwrap_or(listed);
+    let present = artifacts
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|artifact| artifact.get("path").and_then(Value::as_str) == Some(path));
+    if !present {
+        return Ok(None);
+    }
+    let output = run_orbit_tool_with(
+        orbit,
+        cwd,
+        "orbit.task.artifact.get",
+        &json!({"id": id, "path": path}),
+    )?;
+    output
+        .get("content")
+        .and_then(Value::as_str)
+        .map(|content| Some(content.to_owned()))
+        .ok_or_else(|| {
+            Error::Internal(format!(
+                "orbit.task.artifact.get did not return text content for {path}"
+            ))
+        })
 }
 
 impl TaskHost for OrbitCliTaskHost {
@@ -204,32 +263,10 @@ impl TaskHost for OrbitCliTaskHost {
     }
 
     fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>> {
-        // `orbit.task.artifact.get` errors on a missing artifact; list first
-        // with `orbit.task.show` so a never-accepted task is `None`, not a
-        // spurious internal failure.
-        let listed = run_orbit_tool(
-            "orbit.task.show",
-            &json!({"id": id, "fields": ["artifacts"]}),
-        )?;
-        let artifacts = listed.get("artifacts").cloned().unwrap_or(listed);
-        let present = artifacts
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|artifact| artifact.get("path").and_then(Value::as_str) == Some(path));
-        if !present {
+        let Some(content) = read_task_artifact(&orbit_binary(), None, id, path)? else {
             return Ok(None);
-        }
-        let output = run_orbit_tool("orbit.task.artifact.get", &json!({"id": id, "path": path}))?;
-        let content = output
-            .get("content")
-            .and_then(Value::as_str)
-            .ok_or_else(|| {
-                Error::Internal(format!(
-                    "orbit.task.artifact.get did not return text content for {path}"
-                ))
-            })?;
-        serde_json::from_str(content)
+        };
+        serde_json::from_str(&content)
             .map(Some)
             .map_err(|error| Error::Internal(format!("stored {path} is not valid JSON: {error}")))
     }
@@ -418,7 +455,7 @@ pub(crate) struct AcceptInput {
     research_id: String,
 }
 
-const ACCEPTANCE_ARTIFACT_PATH: &str = "research-acceptance.json";
+pub(crate) const ACCEPTANCE_ARTIFACT_PATH: &str = "research-acceptance.json";
 /// Scratch write root for `accept`'s own staged artifact file, granted under
 /// `permissions.fs.write`. Never `.orbit`/`.git`: the sandbox refuses any
 /// write root that reaches workspace metadata.

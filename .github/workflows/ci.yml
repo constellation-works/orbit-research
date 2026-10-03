@@ -99,3 +99,7 @@ jobs:
         env:
           ORBIT_RESEARCH_TEST_ORBIT_BIN: ${{ runner.temp }}/orbit
         run: cargo test -p orbit-research-cli --test plugin_v2 --locked -- --ignored
+      - name: Assess against acceptance stored on a real Orbit task
+        env:
+          ORBIT_RESEARCH_TEST_ORBIT_BIN: ${{ runner.temp }}/orbit
+        run: cargo test -p orbit-research-cli --test assess_installed_orbit --locked -- --ignored

@@ -100,8 +100,18 @@ workspace leaf; no workspace crate dependency is permitted.
   drift-checked and its goldens (success, idempotent retry, and each refusal) are pinned in
   `src/tests/plugin.rs`/`src/snapshots/plugin-accept.json`, over the same in-memory `TaskHost` fake
   used for `link`. `assess`'s `AcceptanceLookup` (`application/acceptance.rs`) deserializes directly
-  from this artifact's shape; `Application::local`'s default lookup still finds nothing until a
-  caller wires a real one.
+  from this artifact's shape. The plugin sandbox never runs `assess`; the CLI's writer does, see
+  the acceptance lookup below.
+- **The CLI's acceptance lookup** (`src/acceptance.rs`, composed in `command/application.rs` for
+  both the research commands and `mcp`) is the production `AcceptanceLookup` for `assess`. The
+  writer runs outside the plugin sandbox, so the lookup may spawn `orbit tool run` (the
+  `orbit.task.show` artifact listing, then `orbit.task.artifact.get`) from the corpus checkout,
+  which is the Orbit workspace. It resolves `orbit` as the plugin transport does
+  (`ORBIT_BIN`, else `PATH`; both share `plugin.rs`'s `read_task_artifact`). The lookup only
+  fetches and decodes `research-acceptance.json` for the task Core names: a never-stored
+  artifact is `None`, and a failed or unreachable Orbit or an unreadable artifact is a typed
+  `AcceptanceFailure`, never an accept. It adds no crate dependency edge; Core still never
+  spawns a process.
 - **Plugin definitions** live under `.orbit-plugin/definitions/`, declared under `spec.definitions`:
   `definitions/jobs/research_investigation.yaml` and `definitions/activities/research_{investigate,validate}.yaml`. The job
   runs shipped `worktree_setup` → the `research_investigate` agent → `research_validate`, a
@@ -135,10 +145,16 @@ orbit-research-core/
 before appending a verdict, and the `Acceptance` shape mirrors
 `research-acceptance.json`, the task artifact the plugin's `accept` tool
 persists, so a lookup backed by that artifact deserializes it directly. The
-default lookup (`Application::local`'s starting point) still finds nothing,
-so `assess` refuses until a caller wires a real one with `with_acceptance`;
-tests supply fixture lookups. Acceptance never supplies a verdict: the caller
-always states it.
+default lookup (`Application::local`'s starting point) finds nothing, so
+`assess` refuses until a caller wires a real one with `with_acceptance`; the CLI
+wires the Orbit-backed lookup and tests supply fixtures. Core owns what the
+evidence must say, inside the writer's lock on a clean checkout: the R must
+exist and carry `orbit.task`, the lookup is asked for that task's acceptance,
+and the artifact must name the R and the exact README blob at HEAD. Each
+failure is a distinct `AcceptanceFailure` (`NoTask`, `Missing`, `Unreachable`,
+`Malformed`, `WrongResearch`, `StaleBlob`) carried by `Error::Acceptance`. The
+store's `assess` hands the callback its snapshot for this check. Acceptance
+never supplies a verdict: the caller always states it.
 
 Transports invoke application use cases. Bootstrap fixes the corpus scope at
 startup; runtime contains its state. Application operations own research policy
