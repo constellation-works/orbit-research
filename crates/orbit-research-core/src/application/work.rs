@@ -54,7 +54,7 @@ pub(crate) fn find_research<'a>(
     }
 }
 
-fn research_directory(record: &Record) -> Result<String> {
+pub(crate) fn research_directory(record: &Record) -> Result<String> {
     Ok(std::path::Path::new(&record.path)
         .parent()
         .ok_or_else(|| Error::Invalid("Missing research directory".into()))?
@@ -77,6 +77,59 @@ fn checked_unit(unit: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+/// The task scope each plan shape drafts. `plan` and `link` both read these, so
+/// the scope `link` accepts is by construction the scope `plan` emits.
+fn investigation_scope(directory: &str) -> Vec<String> {
+    vec![format!("dir:{directory}")]
+}
+
+fn contribution_scope(directory: &str, unit: &str) -> Vec<String> {
+    vec![
+        format!("dir:{directory}/code/{unit}"),
+        format!("dir:{directory}/artifacts/{unit}"),
+    ]
+}
+
+fn synthesis_scope(record: &Record, directory: &str) -> Vec<String> {
+    vec![
+        format!("file:{}", record.path),
+        format!("file:{directory}/data/manifest.json"),
+    ]
+}
+
+/// The task scope a link may carry for `record`: the default (the research
+/// directory) when `supplied` is absent, otherwise `supplied` only when it
+/// equals a scope `plan` derives for this record, for some valid shape and unit.
+/// A contribution's unit is read back from its own `code/` path and the whole
+/// scope re-derived from it, so a mismatched pair, an invalid unit name or any
+/// path outside the reserved research directory never matches.
+pub(crate) fn resolve_link_scope(
+    record: &Record,
+    research_id: &str,
+    supplied: Option<&[String]>,
+) -> Result<Vec<String>> {
+    let directory = research_directory(record)?;
+    let investigation = investigation_scope(&directory);
+    let Some(supplied) = supplied else {
+        return Ok(investigation);
+    };
+    let synthesis = synthesis_scope(record, &directory);
+    let contribution = supplied
+        .first()
+        .and_then(|first| first.strip_prefix(&format!("dir:{directory}/code/")))
+        .filter(|unit| checked_unit(unit).is_ok())
+        .map(|unit| contribution_scope(&directory, unit));
+    if supplied == investigation
+        || supplied == synthesis
+        || contribution.is_some_and(|derived| supplied == derived)
+    {
+        return Ok(supplied.to_vec());
+    }
+    Err(Error::InvalidInput(format!(
+        "`context_files` {supplied:?} is not a task scope `plan` drafts for {research_id}; link never widens or changes it. Pass the `context_files` of a `plan` for this research item (the investigation scope {investigation:?}, a contribution's [\"dir:{directory}/code/<unit>\", \"dir:{directory}/artifacts/<unit>\"] for one valid unit, or the synthesis scope {synthesis:?}), or omit `context_files` to use {investigation:?}"
+    )))
 }
 
 /// The objective's first line, cut at a word boundary, for use in a task title.
@@ -129,7 +182,7 @@ impl Corpus {
                         format!("{directory}/data/manifest.json is reconciled with the delivered artifacts"),
                         "The published result is bound to the executing Orbit task/run and passes validate".into(),
                     ],
-                    context_files: vec![format!("dir:{directory}")],
+                    context_files: investigation_scope(&directory),
                 })
             }
             PlanShape::Contribution { unit, objective } => {
@@ -159,7 +212,7 @@ impl Corpus {
                             "No edits outside {code}/ and {artifacts}/, and no change to hypothesis assessments"
                         ),
                     ],
-                    context_files: vec![format!("dir:{code}"), format!("dir:{artifacts}")],
+                    context_files: contribution_scope(&directory, &unit),
                 })
             }
             PlanShape::Synthesis { units } => {
@@ -188,6 +241,7 @@ impl Corpus {
                     }
                 }
                 let manifest = format!("{directory}/data/manifest.json");
+                let context_files = synthesis_scope(record, &directory);
                 Ok(TaskDraft {
                     title: format!("Synthesize {research_id} from {}", units.join(", ")),
                     description: format!(
@@ -203,7 +257,7 @@ impl Corpus {
                         format!("{manifest} is reconciled and retains all contribution source and artifacts"),
                         "Publication evidence is bound to the final commit, record blob and artifact digests".into(),
                     ],
-                    context_files: vec![format!("file:{}", record.path), format!("file:{manifest}")],
+                    context_files,
                 })
             }
         }

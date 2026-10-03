@@ -20,7 +20,7 @@ fn installed_plugin_serves_every_tool_over_cli_and_mcp() {
     fixture.assert_scientific_corpus_unchanged(&revision);
     orbit_research_core::application::api::Application::local(&fixture.repository)
         .expect("private corpus application")
-        .link_intent("legacy-pending", "R001")
+        .link_intent("legacy-pending", "R001", None)
         .expect("seed an uncertain previous link without creating a task");
     fixture.restore_unprepared_legacy_journal();
     let legacy = fixture.repository.join(".git/orbit-research-operations");

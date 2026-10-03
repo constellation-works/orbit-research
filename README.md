@@ -35,8 +35,13 @@ hypothesis `status` from the owner schema's `verdict_status` for the current
 revision: the last assessment appended on that revision wins, an earlier revision's
 assessment never changes it, and a `dropped` hypothesis stays dropped.
 `link` takes `plan`'s output as is: add `research_id` and `request_key` to the
-plan's JSON and pass it, `context_files` included. `link` derives that scope itself
-and refuses a different value, so it never widens a task. An accepted result is not
+plan's JSON and pass it, `context_files` included. The task is scoped to that
+field: the R directory for an investigation, one unit's `code/<unit>/` and
+`artifacts/<unit>/` for a contribution, the README and manifest for a synthesis.
+`link` accepts only a value `plan` derives for that R (any other path, another
+unit, or a widened list is refused) and omitting it scopes the task to the R
+directory. A request key stays bound to its first scope: the same key with a
+different scope is a conflict, not an adoption. An accepted result is not
 re-accepted with different evidence; to revise it, reserve a new R derived from it.
 The plugin's `orbit-research-native` skill (`.orbit-plugin/skills/native/`) walks the whole loop.
 
