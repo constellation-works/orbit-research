@@ -23,6 +23,12 @@ impl Application {
         operation.execute(self, input)
     }
 
+    /// The `context_files` a task linked to a reserved research item carries.
+    /// Records nothing; the plugin's `link` tool compares caller input to it.
+    pub fn link_context_files(&self, research_id: &str) -> Result<Vec<String>> {
+        self.corpus.link_context_files(research_id)
+    }
+
     /// Record (or recall) intent to link a reserved research item to an
     /// Orbit task. Not an `Operation`: only a transport that can reach Orbit
     /// (the plugin's `link` tool) calls this, never Core itself.

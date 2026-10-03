@@ -60,7 +60,11 @@ pub fn init(path: &Path) -> Result<Value> {
         "#!/bin/sh\nset -eu\n# Validate and print the base revision and record/tag counts.\nexec orbit-research research check --corpus \"$(CDPATH= cd -- \"$(dirname -- \"$0\")/..\" && pwd)\"\n",
     )?;
     make_check_executable(path)?;
+    // The job's `base_branch` defaults to `main`. `symbolic-ref` names the unborn
+    // branch on every Git version, unlike `init -b` (Git 2.28+), and ignores
+    // `init.defaultBranch`.
     if let Err(error) = run_git(path, &["init", "-q"])
+        .and_then(|()| run_git(path, &["symbolic-ref", "HEAD", "refs/heads/main"]))
         .and_then(|()| prepare_new_operations(path))
         .and_then(|()| commit_scaffold(path))
     {

@@ -9,6 +9,10 @@ set -eu
 
 usage() {
     echo "usage: $0 [--binary PATH] [PLUGIN_ROOT]" >&2
+}
+
+fail_usage() {
+    usage
     exit 2
 }
 
@@ -16,9 +20,10 @@ research_binary=""
 plugin_root=""
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --binary) [ "$#" -ge 2 ] && [ -n "$2" ] || usage; research_binary=$2; shift 2 ;;
-        -*) usage ;;
-        *) [ -z "$plugin_root" ] || usage; plugin_root=$1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --binary) [ "$#" -ge 2 ] && [ -n "$2" ] || fail_usage; research_binary=$2; shift 2 ;;
+        -*) fail_usage ;;
+        *) [ -z "$plugin_root" ] || fail_usage; plugin_root=$1; shift ;;
     esac
 done
 

@@ -64,7 +64,11 @@ workspace leaf; no workspace crate dependency is permitted.
   spawning `orbit tool run` the same way a person would — never a `requires.programs` grant,
   which fails every deterministic `plugin.tool_call` step. Its `TaskHost` trait is production-real
   (`OrbitCliTaskHost`, one subprocess per callback) or a test fake driving
-  `serve_plugin_tool_call_with_host` directly. `link` refuses a blank title before recording an
+  `serve_plugin_tool_call_with_host` directly. `link` accepts the optional `context_files` that `plan` emits, so plan's output
+  passes through unchanged, but it always derives the value itself
+  (`Application::link_context_files`) and refuses a different one before recording an
+  intent or calling Orbit: caller input never widens task scope. Only the investigation
+  plan equals the derived value. `link` refuses a blank title before recording an
   intent, and uses that title as the task description when the optional description is absent
   or blank, satisfying Orbit's nonempty-description requirement. Before recording an intent
   or invoking a callback, it requires shared request storage prepared by
@@ -219,6 +223,9 @@ configuration overrides so Git acts on the explicit corpus. Author/committer ide
 and ordinary Git configuration remain available. In-process discovery also denies
 ambient repository/object selectors and inline configuration overrides. A reader cannot reach
 a spawning function without leaving `read.rs`.
+`workspace.rs` creates a fresh corpus's repository on `main` (`git init`, then
+`symbolic-ref HEAD refs/heads/main`, which works on every Git version) so the research
+job's default `base_branch` holds whatever `init.defaultBranch` says.
 `writer.rs` owns write-mode detection, the common checkout lock and the durable
 primary-mode transaction behind create, capture, revise and assess.
 `worktree.rs` owns worktree mode: in a linked run worktree it writes only the

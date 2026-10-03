@@ -122,6 +122,83 @@ fn plan_and_help_touch_nothing() {
 }
 
 #[test]
+fn plan_reflects_the_given_corpus_crew_and_evidence() {
+    let harness = Harness::new();
+    let corpus = harness.root.join("fresh-corpus");
+    let evidence = harness.root.join("elsewhere/evidence");
+    let output = harness.script(
+        &[
+            "--plan",
+            "--corpus",
+            corpus.to_str().expect("UTF-8"),
+            "--crew",
+            "terra",
+            "--evidence",
+            evidence.to_str().expect("UTF-8"),
+            "--workspace",
+            "named-workspace",
+            "--verdict",
+            "refutes",
+        ],
+        false,
+    );
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for expected in [
+        corpus.to_str().expect("UTF-8"),
+        evidence.to_str().expect("UTF-8"),
+        "crew:       terra",
+        "named-workspace",
+        "refutes",
+    ] {
+        assert!(
+            stdout.contains(expected),
+            "expected `{expected}` in {stdout}"
+        );
+    }
+    // Without --workspace and --evidence the defaults derive from the corpus.
+    let output = harness.script(
+        &[
+            "--plan",
+            "--corpus",
+            corpus.to_str().expect("UTF-8"),
+            "--crew",
+            "sol",
+        ],
+        false,
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("research-live-fresh-corpus"), "{stdout}");
+    assert!(
+        stdout.contains(&format!("{}.evidence", corpus.display())),
+        "{stdout}"
+    );
+    assert_eq!(harness.stub_calls(), "");
+    assert!(
+        !corpus.exists() && !evidence.exists(),
+        "--plan creates nothing"
+    );
+}
+
+#[test]
+fn usage_names_live_and_keeps_the_guard_in_the_help_text() {
+    let harness = Harness::new();
+    let output = harness.script(&["--help"], false);
+    assert!(output.status.success(), "{output:?}");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let usage = stdout.lines().next().expect("usage line");
+    assert!(
+        usage.contains("--corpus DIR") && usage.contains("--crew NAME") && usage.contains("--live"),
+        "{usage}"
+    );
+    assert!(
+        stdout.contains("ORBIT_RESEARCH_LIVE_CONFIRM=yes"),
+        "{stdout}"
+    );
+    assert_eq!(harness.stub_calls(), "");
+}
+
+#[test]
 fn live_refuses_an_existing_or_nested_corpus_before_any_orbit_call() {
     let harness = Harness::new();
 

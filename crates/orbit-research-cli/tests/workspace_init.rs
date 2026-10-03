@@ -220,6 +220,36 @@ fn check_script_is_executable_and_committed_with_executable_mode() {
     assert!(git(root, &["ls-files", "-s", "_scripts/check.sh"]).starts_with("100755 "));
 }
 
+/// A fresh corpus is on `main` whatever Git's own default branch says: the
+/// `research_investigation` job's `base_branch` defaults to `main`.
+#[test]
+fn fresh_corpus_is_on_main_regardless_of_git_configuration() {
+    let fixture = tempfile::tempdir().expect("private fixture");
+    let trunk = fixture.path().join("trunk.gitconfig");
+    fs::write(&trunk, "[init]\n\tdefaultBranch = trunk\n").expect("write Git config");
+    let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+    for (name, global) in [("null", Path::new(null)), ("trunk", trunk.as_path())] {
+        let corpus = fixture.path().join(name);
+        let output = Command::new(env!("CARGO_BIN_EXE_orbit-research"))
+            .args(["--format", "json", "workspace", "init"])
+            .arg(&corpus)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("GIT_CONFIG_GLOBAL", global)
+            .env("GIT_CONFIG_SYSTEM", null)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_AUTHOR_NAME", "Research fixture")
+            .env("GIT_AUTHOR_EMAIL", "fixture@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Research fixture")
+            .env("GIT_COMMITTER_EMAIL", "fixture@example.invalid")
+            .output()
+            .expect("run corpus initialization");
+        assert!(output.status.success(), "{name}: {output:?}");
+        assert_eq!(git(&corpus, &["symbolic-ref", "--short", "HEAD"]), "main");
+        assert_eq!(git(&corpus, &["rev-parse", "--abbrev-ref", "HEAD"]), "main");
+    }
+}
+
 // Each subprocess has a fixture identity and no system/global Git config.
 // The application itself never invents an author or mutates user configuration.
 mod workspace {

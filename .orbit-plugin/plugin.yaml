@@ -90,7 +90,9 @@ spec:
         tagged research-request:<key> with context_files naming the
         reserved research item. Idempotent by request key: an identical
         retry adopts the one task already tagged with that key instead of
-        creating another. The title must contain non-whitespace text; an
+        creating another. Accepts plan's output unchanged; an optional
+        context_files must equal the research item's directory, which link
+        derives itself, and any other value is refused. The title must contain non-whitespace text; an
         omitted or blank description uses the title.
       execution_kind: mutating
       mcp_scope: workspace

@@ -30,7 +30,14 @@ checkout (the Orbit workspace; `orbit` is `$ORBIT_BIN` or the one on `PATH`), an
 appends the verdict only when the artifact names the R and the README blob it
 accepted is the README at HEAD. It refuses, never accepting by default, when the
 R has no task, the artifact is missing, malformed or for another record, the
-README changed since acceptance, or Orbit cannot be reached.
+README changed since acceptance, or Orbit cannot be reached. It also sets the
+hypothesis `status` from the owner schema's `verdict_status` for the current
+revision: the last assessment appended on that revision wins, an earlier revision's
+assessment never changes it, and a `dropped` hypothesis stays dropped.
+`link` takes `plan`'s output as is: add `research_id` and `request_key` to the
+plan's JSON and pass it, `context_files` included. `link` derives that scope itself
+and refuses a different value, so it never widens a task. An accepted result is not
+re-accepted with different evidence; to revise it, reserve a new R derived from it.
 The plugin's `orbit-research-native` skill (`.orbit-plugin/skills/native/`) walks the whole loop.
 
 ### Dashboard panels
@@ -106,7 +113,10 @@ orbit-research research show --corpus ./observatory --id Q001
 orbit-research --format json research list --corpus ./observatory
 ```
 
-Use `workspace init PATH` to create a new corpus or validate an existing one.
+Use `workspace init PATH` to create a new corpus (a Git repository on branch `main`,
+whatever `init.defaultBranch` says, which is the `research_investigation` job's default
+`base_branch`; pass `--input base_branch=<branch>` to the job for an existing corpus on
+another branch) or validate an existing one.
 On Linux and macOS, new corpora include the local operational state needed for
 research request correlations. To prepare an existing corpus explicitly, run
 `orbit-research workspace prepare-operations PATH` against its primary checkout.
