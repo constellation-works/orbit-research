@@ -212,6 +212,17 @@ fn the_operation_input_keeps_omitted_fields_and_clears_tags_with_an_empty_list()
     let temp = corpus();
     let root = path(temp.path());
     let before = capture(root);
+    // This test commits in-process, so the identity must live in the repository.
+    for (key, value) in [
+        ("user.name", "Fixture"),
+        ("user.email", "fixture@example.invalid"),
+    ] {
+        let set = Command::new("git")
+            .args(["-C", root, "config", key, value])
+            .status()
+            .expect("git config");
+        assert!(set.success());
+    }
     let application = orbit_research_core::api::Application::local(temp.path()).expect("corpus");
     application
         .call(
