@@ -721,7 +721,7 @@ fn v1_research_loop_on_a_disposable_corpus() {
         "the task records the delivering run",
         lab.orbit_tool(
             "orbit.task.show",
-            &json!({"id": t1, "fields": ["job_run_id"]}),
+            &json!({"id": t1, "fields": ["status", "job_run_id"]}),
         )["job_run_id"]
             .clone(),
         json!(run1.id),
@@ -922,7 +922,7 @@ fn v1_research_loop_on_a_disposable_corpus() {
         );
         let artifacts = lab.orbit_tool(
             "orbit.task.show",
-            &json!({"id": task, "fields": ["artifacts"]}),
+            &json!({"id": task, "fields": ["status", "artifacts"]}),
         );
         s.check(
             "the refused accept stored nothing",
