@@ -4,6 +4,7 @@
 //! reply. All research operations delegate to Core, as MCP does; this
 //! transport speaks the plugin envelope instead of JSON-RPC and always exits
 //! `0`, carrying failure in `ok:false` rather than a process exit code.
+use crate::panels;
 use orbit_research_core::{
     Error, Research, Result,
     api::Application,
@@ -53,7 +54,7 @@ fn error_code(error: &Error) -> &'static str {
     }
 }
 
-fn error_envelope(code: &str, message: impl Into<String>) -> Value {
+pub(crate) fn error_envelope(code: &str, message: impl Into<String>) -> Value {
     json!({"ok": false, "error": {"code": code, "message": message.into(), "retryable": false}})
 }
 
@@ -689,6 +690,9 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     }
     if verb(tool) == "accept" {
         return accept_output(input, &workspace_root, host);
+    }
+    if panels::is_panel_verb(verb(tool)) {
+        return panels::serve(verb(tool), input, &workspace_root, host);
     }
     let Some(operation) = operation_for_verb(verb(tool)) else {
         return error_envelope(
