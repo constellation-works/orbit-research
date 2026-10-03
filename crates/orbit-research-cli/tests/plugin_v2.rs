@@ -103,7 +103,7 @@ fn installed_plugin_serves_every_tool_over_cli_and_mcp() {
     for (tool, input) in reads {
         let result = mcp.call(tool, input);
         assert_ne!(result["isError"], true, "{tool}: {result}");
-        assert_read(tool, &result["structuredContent"]);
+        assert_read(tool, &mcp_output(&result));
     }
     let link = json!({"research_id":"R001", "request_key":"mcp-link", "title":"Investigate R001"});
     let created = mcp.call("link", link.clone());
@@ -167,7 +167,7 @@ fn awaiting_acceptance_reads_task_artifacts_through_callbacks() {
     let mut mcp = Mcp::start(&fixture, false);
     let result = mcp.call("awaiting-acceptance", json!({}));
     assert_ne!(result["isError"], true, "{result}");
-    assert_eq!(result["structuredContent"], expected, "agent MCP session");
+    assert_eq!(mcp_output(&result), expected, "agent MCP session");
 }
 
 fn created_date(fixture: &Fixture) -> String {
@@ -225,6 +225,18 @@ fn assert_read(tool: &str, value: &Value) {
             assert_eq!(value["Records"], 1, "{value}");
         }
         _ => panic!("unexpected read tool: {tool}"),
+    }
+}
+
+/// MCP structured content must be an object, so Orbit wraps an array output
+/// (every table panel) as `{"items": [...]}`; the dashboard reads the bare array.
+fn mcp_output(result: &Value) -> Value {
+    let content = &result["structuredContent"];
+    match content.as_object() {
+        Some(object) if object.len() == 1 && object.contains_key("items") => {
+            content["items"].clone()
+        }
+        _ => content.clone(),
     }
 }
 

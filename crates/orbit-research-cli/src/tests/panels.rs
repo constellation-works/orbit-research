@@ -358,8 +358,7 @@ fn awaiting_acceptance_only_counts_results_committed_at_head() {
 
 #[test]
 fn an_empty_corpus_gets_one_intentional_status_row_per_table() {
-    let temp = tempfile::tempdir().expect("temporary directory");
-    orbit_research_core::init_workspace(temp.path()).expect("initialize empty corpus");
+    let temp = corpus_with(&[]);
     let host = ArtifactHost::default();
     assert_eq!(
         panel("open-questions", temp.path(), &host),
