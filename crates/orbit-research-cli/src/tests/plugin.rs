@@ -502,6 +502,50 @@ fn link_uses_the_title_when_optional_description_is_missing_or_blank() {
 }
 
 #[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_accepts_plans_output_unchanged_and_refuses_a_different_scope() {
+    let temp = reserved_corpus();
+    let host = FakeTaskHost::default();
+    let plan = call(&envelope(
+        "plan",
+        json!({"shape": "investigation", "research_id": "R001", "objective": "Reproduce the baseline."}),
+        Some(temp.path()),
+    ));
+    assert_eq!(plan["ok"], true, "{plan}");
+    let mut input = plan["output"].clone();
+    assert!(input["context_files"].is_array());
+    input["research_id"] = json!("R001");
+    input["request_key"] = json!("plan-passthrough");
+
+    let mut other = input.clone();
+    for context in [
+        json!(["dir:research/R001-study", "dir:questions"]),
+        json!(["dir:research"]),
+        json!([]),
+    ] {
+        other["context_files"] = context;
+        let reply = call_with_host(&envelope("link", other.clone(), Some(temp.path())), &host);
+        assert_eq!(reply["error"]["code"], "invalid_request", "{reply}");
+        let message = reply["error"]["message"].as_str().expect("message");
+        assert!(
+            message.contains("context_files") && message.contains("dir:research/R001-study"),
+            "{message}"
+        );
+    }
+    assert!(host.tasks.lock().expect("tasks").is_empty());
+    let research = orbit_research_core::Research::open(temp.path()).expect("open corpus");
+    assert!(
+        research.work_links().expect("work links").is_empty(),
+        "a refused scope does not record an intent"
+    );
+
+    let reply = call_with_host(&envelope("link", input, Some(temp.path())), &host);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["output"]["created"], true);
+    assert_eq!(host.tasks.lock().expect("tasks").len(), 1);
+}
+
+#[test]
 fn link_refuses_blank_titles_before_persisting_an_intent_or_calling_the_host() {
     let temp = reserved_corpus();
     let host = FakeTaskHost::default();

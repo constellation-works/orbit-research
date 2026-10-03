@@ -35,15 +35,10 @@ impl Corpus {
         self.store.request_log()?.list()
     }
 
-    /// Record intent to link `research_id` under `request_key`, or recall an
-    /// identical retry's prior intent. Refuses when `research_id` was never
-    /// reserved, or when the key was already used for a different item.
-    pub fn link_intent(&self, request_key: &str, research_id: &str) -> Result<LinkPreparation> {
-        if request_key.is_empty() || request_key.len() > 256 {
-            return Err(Error::Invalid(
-                "Request key must contain 1-256 bytes".into(),
-            ));
-        }
+    /// The `context_files` a task linked to `research_id` carries: the reserved
+    /// research item's directory. Refuses when `research_id` was never
+    /// reserved. Reads only the committed snapshot; records nothing.
+    pub fn link_context_files(&self, research_id: &str) -> Result<Vec<String>> {
         let snapshot = self.store.committed_snapshot()?;
         let record = snapshot
             .records
@@ -59,7 +54,19 @@ impl Corpus {
             .ok_or_else(|| Error::Invalid("Missing research directory".into()))?
             .to_string_lossy()
             .into_owned();
-        let context_files = vec![format!("dir:{directory}")];
+        Ok(vec![format!("dir:{directory}")])
+    }
+
+    /// Record intent to link `research_id` under `request_key`, or recall an
+    /// identical retry's prior intent. Refuses when `research_id` was never
+    /// reserved, or when the key was already used for a different item.
+    pub fn link_intent(&self, request_key: &str, research_id: &str) -> Result<LinkPreparation> {
+        if request_key.is_empty() || request_key.len() > 256 {
+            return Err(Error::Invalid(
+                "Request key must contain 1-256 bytes".into(),
+            ));
+        }
+        let context_files = self.link_context_files(research_id)?;
 
         let log = self.store.request_log()?;
         let key = digest(request_key.as_bytes());

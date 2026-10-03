@@ -31,7 +31,7 @@ set -eu
 
 usage() {
     cat <<'EOF'
-usage: scripts/e2e-live.sh --corpus DIR --crew NAME [options]
+usage: scripts/e2e-live.sh --corpus DIR --crew NAME --live [options]
 
   --corpus DIR       Disposable corpus to create. Refused if it exists and is
                      not empty, or if it lies inside a Git work tree.
@@ -111,10 +111,36 @@ RESULT_TITLE="Fair coin against a biased control"
 OBJECTIVE="Write a small Python script under code/ that flips random.Random(42) 100,000 times for a fair coin and for a control coin with P(heads)=0.6, records both heads rates in artifacts/result.json and states whether each lies in [49%, 51%]. The control must fall outside the band; if it does not, the result is inconclusive."
 
 print_plan() {
+    # Show the settings exactly as given (or their defaults), without resolving
+    # or creating any path.
+    plan_corpus=${corpus:-"(not set; --corpus DIR is required to run)"}
+    plan_crew=${crew:-"(not set; --crew NAME is required to run)"}
+    plan_crew_step=${crew:+"crew $crew"}
+    plan_crew_step=${plan_crew_step:-"the crew"}
+    if [ -n "$workspace" ]; then
+        plan_workspace=$workspace
+    elif [ -n "$corpus" ]; then
+        plan_workspace="research-live-$(basename -- "$corpus" | tr -c 'A-Za-z0-9\n' '-')"
+    else
+        plan_workspace="research-live-<corpus directory name>"
+    fi
+    if [ -n "$evidence" ]; then
+        plan_evidence=$evidence
+    elif [ -n "$corpus" ]; then
+        plan_evidence="$corpus.evidence"
+    else
+        plan_evidence="<corpus>.evidence"
+    fi
     cat <<EOF
+Settings:
+  corpus:     $plan_corpus
+  crew:       $plan_crew
+  workspace:  $plan_workspace
+  evidence:   $plan_evidence
+
 Steps (nothing is executed by --plan):
-  1. preflight: orbit and the research plugin (installed and enabled), the crew, orbit-research, git, python3
-  2. create the disposable corpus with \`orbit-research workspace init\` and register it as an Orbit workspace
+  1. preflight: orbit and the research plugin (installed and enabled), $plan_crew_step, orbit-research, git, python3
+  2. create the disposable corpus $plan_corpus with \`orbit-research workspace init\` and register it as the Orbit workspace $plan_workspace
   3. capture the question:
        $QUESTION
   4. create the hypothesis and reserve the result, then draft (\`plan\`) and \`link\` its task
@@ -123,7 +149,7 @@ Steps (nothing is executed by --plan):
   7. validate and accept (\`accept\` re-validates; a second call must be idempotent)
   8. assess the hypothesis ($verdict, $strength; the script never infers a verdict)
   9. print the four dashboard panels
- 10. write the evidence directory and print the cleanup commands
+ 10. write the evidence to $plan_evidence and print the cleanup commands
 EOF
 }
 
