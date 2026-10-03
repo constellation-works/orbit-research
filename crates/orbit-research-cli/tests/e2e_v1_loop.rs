@@ -1254,7 +1254,7 @@ fn v1_research_loop_on_a_disposable_corpus() {
     s.contains(
         "a stale expected blob refuses",
         &refused,
-        "changed since it was opened",
+        "has changed since you read it",
     );
 
     // ---- 9. sandbox -------------------------------------------------------
