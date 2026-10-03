@@ -627,6 +627,36 @@ fn v1_research_loop_on_a_disposable_corpus() {
         json!(r1_task),
     );
     s.eq("the retry created nothing", lab.tasks().len(), plan.len());
+    // A contribution plan's narrower scope passes link only for its own unit
+    // and only inside the reserved R; a mismatch reaches Orbit as no task.
+    // (The accepted contribution and synthesis scopes are pinned against a
+    // stub host in the plugin unit tests; creating one here would add a task
+    // to the question's panel rows.)
+    let contribution = lab.plugin(
+        "plan",
+        &json!({"shape": "contribution", "research_id": "R007", "unit": "alpha",
+                "objective": "Measure alpha"}),
+    );
+    let mut mismatched = contribution.clone();
+    let directory = lab.readme_path("R007");
+    let directory = directory.trim_end_matches("/README.md");
+    mismatched["context_files"] = json!([
+        format!("dir:{directory}/code/alpha"),
+        format!("dir:{directory}/artifacts/beta")
+    ]);
+    mismatched["research_id"] = json!("R007");
+    mismatched["request_key"] = json!("link-R007-mismatch");
+    let refused = lab.plugin_refusal("link", &mismatched);
+    s.eq(
+        "a mismatched contribution scope is refused",
+        refused["code"].clone(),
+        json!("invalid_request"),
+    );
+    s.eq(
+        "the refused scope created no task",
+        lab.tasks().len(),
+        plan.len(),
+    );
     let shown = lab.orbit_tool(
         "orbit.task.show",
         &json!({"id": r1_task, "fields": ["status", "tags", "context_files", "resolved_crew"]}),

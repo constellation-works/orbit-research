@@ -59,7 +59,7 @@ fn confirmed_link_retries_preserve_the_original_task() {
     let (temp, app) = fixture();
     create_r(&app, "link-reservation");
     let preparation = app
-        .link_intent("link-request", "R001")
+        .link_intent("link-request", "R001", None)
         .expect("record link intent");
     assert!(preparation.is_new);
     assert!(preparation.link.task_id.is_none());
@@ -81,7 +81,7 @@ fn confirmed_link_retries_preserve_the_original_task() {
     assert!(!message.contains("task-competing"));
     let reopened = Application::local(temp.path()).expect("reopen fixture application");
     let recalled = reopened
-        .link_intent("link-request", "R001")
+        .link_intent("link-request", "R001", None)
         .expect("recall persisted link");
     assert!(!recalled.is_new);
     assert_eq!(recalled.link.task_id.as_deref(), Some("task-first"));
@@ -101,11 +101,11 @@ fn link_requests_share_confirmations_across_worktrees_without_git_on_path() {
         let primary = Application::local(Path::new(&primary)).expect("open primary without Git");
         let linked = Application::local(Path::new(&linked)).expect("open worktree without Git");
         let intent = primary
-            .link_intent("git-free-link", "R001")
+            .link_intent("git-free-link", "R001", None)
             .expect("persist intent without spawning Git");
         assert!(intent.is_new);
         let recalled = linked
-            .link_intent("git-free-link", "R001")
+            .link_intent("git-free-link", "R001", None)
             .expect("worktree recalls the primary intent without spawning Git");
         assert!(!recalled.is_new);
         linked
@@ -181,7 +181,7 @@ fn link_request_io_failures_identify_the_operation_and_path() {
             fs::write(&log_root, "preserve this file").expect("file blocking the log directory");
             ("create request-log directory", log_root.clone())
         };
-        let error = match app.link_intent("io-context-link", "R001") {
+        let error = match app.link_intent("io-context-link", "R001", None) {
             Err(error) => error,
             Ok(_) => panic!("blocked request log must fail before saving an intent"),
         };
@@ -218,7 +218,7 @@ fn request_log_permission_errors_keep_io_kind_and_original_source() {
     use std::os::unix::fs::PermissionsExt;
     let (temp, app) = fixture();
     create_r(&app, "permission-reservation");
-    app.link_intent("permission-link", "R001")
+    app.link_intent("permission-link", "R001", None)
         .expect("initial intent");
     let root = temp.path().join(".git/orbit-research-operations");
     fs::set_permissions(&root, fs::Permissions::from_mode(0o500))
@@ -239,7 +239,7 @@ fn request_log_permission_errors_keep_io_kind_and_original_source() {
             .contains("create request-log temporary file")
     );
     assert!(
-        app.link_intent("permission-link", "R001")
+        app.link_intent("permission-link", "R001", None)
             .expect("recall unchanged intent")
             .link
             .task_id
@@ -253,9 +253,9 @@ fn preparation_preserves_pending_intents_and_confirmed_task_links() {
     let (temp, app) = fixture();
     create_r(&app, "pending-reservation");
     let pending = app
-        .link_intent("pending-request", "R001")
+        .link_intent("pending-request", "R001", None)
         .expect("legacy uncertain intent");
-    app.link_intent("confirmed-request", "R001")
+    app.link_intent("confirmed-request", "R001", None)
         .expect("legacy confirmed intent");
     app.link_confirm("confirmed-request", "task-original")
         .expect("legacy confirmation");
@@ -278,7 +278,7 @@ fn preparation_preserves_pending_intents_and_confirmed_task_links() {
         assert_eq!(fs::read(new.join(name)).expect("moved bytes"), bytes);
     }
     let recalled = app
-        .link_intent("pending-request", "R001")
+        .link_intent("pending-request", "R001", None)
         .expect("recall uncertain outcome");
     assert!(!recalled.is_new);
     assert_eq!(recalled.link.correlation_tag, pending.link.correlation_tag);
@@ -295,7 +295,7 @@ fn preparation_preserves_pending_intents_and_confirmed_task_links() {
         .expect("plugin guard recognizes prepared state");
     assert_eq!(
         reopened
-            .link_intent("confirmed-request", "R001")
+            .link_intent("confirmed-request", "R001", None)
             .expect("confirmed retry")
             .link
             .task_id
@@ -478,7 +478,8 @@ fn work_links_list_oldest_first_whatever_their_keys() {
     let (temp, app) = fixture();
     create_r(&app, "links-reservation");
     for key in ["zeta", "alpha", "mid"] {
-        app.link_intent(key, "R001").expect("record link intent");
+        app.link_intent(key, "R001", None)
+            .expect("record link intent");
     }
     // Directory order and key order are both arbitrary; the listing follows
     // when each correlation was last written.

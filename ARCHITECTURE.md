@@ -66,10 +66,20 @@ workspace leaf; no workspace crate dependency is permitted.
   which fails every deterministic `plugin.tool_call` step. Its `TaskHost` trait is production-real
   (`OrbitCliTaskHost`, one subprocess per callback) or a test fake driving
   `serve_plugin_tool_call_with_host` directly. `link` accepts the optional `context_files` that `plan` emits, so plan's output
-  passes through unchanged, but it always derives the value itself
-  (`Application::link_context_files`) and refuses a different one before recording an
-  intent or calling Orbit: caller input never widens task scope. Only the investigation
-  plan equals the derived value. `link` refuses a blank title before recording an
+  passes through unchanged and the task is scoped to it. Core derives the accepted
+  scopes from the same helpers `plan` drafts with (`work.rs`): the research
+  directory, one contribution unit's `code/<unit>` and `artifacts/<unit>` pair (the
+  unit is read back from the `code/` path, validated like `plan`'s unit, and the
+  pair re-derived and compared whole), or the synthesis README and manifest. Any
+  other value, including a path outside the reserved R, refuses
+  (`Corpus::link_intent`) before an intent is recorded or Orbit is called, so caller
+  input never widens task scope; no shape descriptor travels with the plan, since the
+  scope is self-describing. Omitted, the scope is the research directory. The
+  persisted link intent records its scope (a pre-scope record means the research
+  directory), so the same request key with a different scope refuses as a conflict
+  rather than adopting the earlier task. Adoption by correlation tag after a lost
+  local intent cannot check the scope, because `orbit.task.list` returns ids only.
+  `link` refuses a blank title before recording an
   intent, and uses that title as the task description when the optional description is absent
   or blank, satisfying Orbit's nonempty-description requirement. Before recording an intent
   or invoking a callback, it requires shared request storage prepared by
@@ -343,6 +353,11 @@ README or input manifest. A subsequent synthesis task owns those shared files
 and depends on completed contributions. Separate investigations with their own
 questions and conclusions use separate R items and `derived_from` lineage.
 Orbit owns tasks, worktrees, file reservations, run state and delivery history.
+`link` scopes each contribution task to its own unit's `dir:` selectors; Orbit's
+overlap rule (`orbit-common` `fs/selector.rs`, `OverlapScope::overlaps`) treats a
+`dir:` selector as overlapping its own anchor and paths beneath it, so
+`code/alpha` and `code/beta` do not conflict, while an investigation's `dir:` on the
+whole R overlaps every unit.
 
 ## Standards and validation
 

@@ -223,3 +223,46 @@ fn investigation_of_a_done_item_is_refused() {
     // Other shapes keep working: a done item can still gain a contribution plan.
     assert!(contribution(&corpus, "R001", "control-a", "More").is_ok());
 }
+
+#[test]
+fn link_accepts_exactly_the_scopes_plan_derives() {
+    let (temp, corpus) = corpus();
+    commit_findings(temp.path(), "R001-study", "control-a");
+    let plans = [
+        investigation(&corpus, "R001", "Measure the control").unwrap(),
+        contribution(&corpus, "R001", "control-a", "Measure it").unwrap(),
+        contribution(&corpus, "R001", "control-b", "Measure it").unwrap(),
+        synthesis(&corpus, "R001", &["control-a".into()]).unwrap(),
+    ];
+    for (index, plan) in plans.iter().enumerate() {
+        let linked = corpus
+            .link_intent(&format!("scope-{index}"), "R001", Some(&plan.context_files))
+            .unwrap();
+        assert_eq!(linked.context_files, plan.context_files);
+        assert_eq!(linked.link.context_files, plan.context_files);
+    }
+    let default = corpus.link_intent("default", "R001", None).unwrap();
+    assert_eq!(default.context_files, plans[0].context_files);
+
+    for scope in [
+        vec!["dir:research/R001-study/code/control-a".to_owned()],
+        vec![
+            "dir:research/R001-study/code/control-a".to_owned(),
+            "dir:research/R001-study/artifacts/control-b".to_owned(),
+        ],
+        vec![
+            "dir:research/R001-study/code/Control".to_owned(),
+            "dir:research/R001-study/artifacts/Control".to_owned(),
+        ],
+        vec!["dir:research".to_owned()],
+    ] {
+        let error = corpus
+            .link_intent("refused", "R001", Some(&scope))
+            .unwrap_err();
+        assert!(matches!(error, orbit_research_core::Error::InvalidInput(_)));
+    }
+    let error = corpus
+        .link_intent("scope-0", "R001", Some(&plans[1].context_files))
+        .unwrap_err();
+    assert!(matches!(error, orbit_research_core::Error::Conflict(_)));
+}

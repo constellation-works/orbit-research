@@ -103,6 +103,8 @@ pub(super) struct FakeTaskHost {
     fail_create: Mutex<bool>,
     fail_put: Mutex<bool>,
     created_descriptions: Mutex<Vec<String>>,
+    /// The `context_files` each created task was given, in creation order.
+    created_scopes: Mutex<Vec<Vec<String>>>,
     /// Task id -> (status, job_run_id), as `accept` reads via `orbit.task.show`.
     task_states: Mutex<BTreeMap<String, (String, Option<String>)>>,
     /// (task id, artifact path) -> stored content, as `orbit.task.artifact.put` records.
@@ -162,7 +164,7 @@ impl TaskHost for FakeTaskHost {
         title: &str,
         description: &str,
         _acceptance_criteria: &[String],
-        _context_files: &[String],
+        context_files: &[String],
     ) -> Result<TaskRef> {
         if *self.fail_create.lock().expect("lock") {
             return Err(Error::Internal("simulated orbit.task.add failure".into()));
@@ -177,6 +179,10 @@ impl TaskHost for FakeTaskHost {
             .lock()
             .expect("descriptions")
             .push(description.into());
+        self.created_scopes
+            .lock()
+            .expect("scopes")
+            .push(context_files.to_vec());
         let mut next = self.next_id.lock().expect("lock");
         *next += 1;
         let id = format!("TEST-{next}");
@@ -428,7 +434,7 @@ fn link_refuses_unprepared_operations_before_persisting_intent_or_calling_host()
     let temp = reserved_corpus();
     let research = orbit_research_core::Research::open(temp.path()).expect("open corpus");
     research
-        .link_intent("legacy-pending", "R001")
+        .link_intent("legacy-pending", "R001", None)
         .expect("existing intent");
     let prepared = temp.path().join("_data/orbit-research-operations");
     let legacy = temp.path().join(".git/orbit-research-operations");
@@ -543,6 +549,263 @@ fn link_accepts_plans_output_unchanged_and_refuses_a_different_scope() {
     assert_eq!(reply["ok"], true, "{reply}");
     assert_eq!(reply["output"]["created"], true);
     assert_eq!(host.tasks.lock().expect("tasks").len(), 1);
+}
+
+/// Commit `artifacts/<unit>/findings.md` under R001, as a merged contribution does.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn commit_findings(root: &Path, unit: &str) {
+    let path = root.join(format!("research/R001-study/artifacts/{unit}"));
+    fs::create_dir_all(&path).expect("contribution directory");
+    fs::write(path.join("findings.md"), "Findings.\n").expect("findings");
+    for args in [vec!["add", "."], vec!["commit", "-q", "-m", "contribution"]] {
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(root)
+            .args(args)
+            .status()
+            .expect("run fixture Git");
+        assert!(status.success());
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn plan_output(root: &Path, shape: Value) -> Value {
+    let mut input = json!({"research_id": "R001"});
+    input
+        .as_object_mut()
+        .expect("object")
+        .extend(shape.as_object().expect("shape").clone());
+    let plan = call(&envelope("plan", input, Some(root)));
+    assert_eq!(plan["ok"], true, "{plan}");
+    plan["output"].clone()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_plan(root: &Path, host: &FakeTaskHost, plan: &Value, key: &str) -> Value {
+    let mut input = plan.clone();
+    input["research_id"] = json!("R001");
+    input["request_key"] = json!(key);
+    call_with_host(&envelope("link", input, Some(root)), host)
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_passes_every_plan_shape_through_and_scopes_the_task_to_it() {
+    let temp = reserved_corpus();
+    commit_findings(temp.path(), "alpha");
+    commit_findings(temp.path(), "beta");
+    let host = FakeTaskHost::default();
+    let plans = [
+        plan_output(
+            temp.path(),
+            json!({"shape": "investigation", "objective": "Reproduce the baseline."}),
+        ),
+        plan_output(
+            temp.path(),
+            json!({"shape": "contribution", "unit": "alpha", "objective": "Measure alpha."}),
+        ),
+        plan_output(
+            temp.path(),
+            json!({"shape": "contribution", "unit": "beta", "objective": "Measure beta."}),
+        ),
+        plan_output(
+            temp.path(),
+            json!({"shape": "synthesis", "units": ["alpha", "beta"]}),
+        ),
+    ];
+    let expected = [
+        json!(["dir:research/R001-study"]),
+        json!([
+            "dir:research/R001-study/code/alpha",
+            "dir:research/R001-study/artifacts/alpha"
+        ]),
+        json!([
+            "dir:research/R001-study/code/beta",
+            "dir:research/R001-study/artifacts/beta"
+        ]),
+        json!([
+            "file:research/R001-study/README.md",
+            "file:research/R001-study/data/manifest.json"
+        ]),
+    ];
+    for (index, (plan, scope)) in plans.iter().zip(&expected).enumerate() {
+        assert_eq!(&plan["context_files"], scope, "plan {index}");
+        let reply = link_plan(temp.path(), &host, plan, &format!("shape-{index}"));
+        assert_eq!(reply["ok"], true, "plan {index}: {reply}");
+        assert_eq!(reply["output"]["created"], true);
+    }
+    let created = host.created_scopes.lock().expect("scopes").clone();
+    assert_eq!(
+        created,
+        expected.map(|scope| serde_json::from_value::<Vec<String>>(scope).expect("scope"))
+    );
+
+    // With the field omitted the task keeps covering the research directory.
+    let mut plain = plans[1].clone();
+    plain
+        .as_object_mut()
+        .expect("object")
+        .remove("context_files");
+    let reply = link_plan(temp.path(), &host, &plain, "omitted");
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(
+        host.created_scopes
+            .lock()
+            .expect("scopes")
+            .last()
+            .expect("scope"),
+        &vec!["dir:research/R001-study".to_owned()]
+    );
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn link_refuses_scopes_that_plan_would_not_derive() {
+    let temp = reserved_corpus();
+    let host = FakeTaskHost::default();
+    let contribution = plan_output(
+        temp.path(),
+        json!({"shape": "contribution", "unit": "alpha", "objective": "Measure alpha."}),
+    );
+    let base = "research/R001-study";
+    let refused = [
+        // Outside the reserved R.
+        json!(["dir:questions"]),
+        json!(["dir:research"]),
+        json!([format!("dir:{base}/code/alpha"), "dir:questions".to_owned()]),
+        json!([
+            "dir:research/R002-other/code/alpha",
+            "dir:research/R002-other/artifacts/alpha"
+        ]),
+        // Traversal and path-shaped or malformed units.
+        json!([
+            format!("dir:{base}/code/../.."),
+            format!("dir:{base}/artifacts/../..")
+        ]),
+        json!([
+            format!("dir:{base}/code/a/b"),
+            format!("dir:{base}/artifacts/a/b")
+        ]),
+        json!([
+            format!("dir:{base}/code/Alpha"),
+            format!("dir:{base}/artifacts/Alpha")
+        ]),
+        json!([
+            format!("dir:{base}/code/"),
+            format!("dir:{base}/artifacts/")
+        ]),
+        // A mismatched unit, a half scope and a reordered scope.
+        json!([
+            format!("dir:{base}/code/alpha"),
+            format!("dir:{base}/artifacts/beta")
+        ]),
+        json!([format!("dir:{base}/code/alpha")]),
+        json!([
+            format!("dir:{base}/artifacts/alpha"),
+            format!("dir:{base}/code/alpha")
+        ]),
+        // A wider or different selector kind over the same paths.
+        json!([
+            format!("file:{base}/code/alpha"),
+            format!("file:{base}/artifacts/alpha")
+        ]),
+        json!([format!("dir:{base}"), format!("file:{base}/README.md")]),
+        json!([format!("file:{base}/README.md")]),
+        json!([]),
+    ];
+    for scope in refused {
+        let mut plan = contribution.clone();
+        plan["context_files"] = scope.clone();
+        let reply = link_plan(temp.path(), &host, &plan, "refused");
+        assert_eq!(reply["ok"], false, "{scope}: {reply}");
+        assert_eq!(
+            reply["error"]["code"], "invalid_request",
+            "{scope}: {reply}"
+        );
+    }
+    assert!(host.tasks.lock().expect("tasks").is_empty());
+    let research = orbit_research_core::Research::open(temp.path()).expect("open corpus");
+    assert!(
+        research.work_links().expect("work links").is_empty(),
+        "a refused scope records no intent, so its key stays usable"
+    );
+    assert_eq!(
+        link_plan(temp.path(), &host, &contribution, "refused")["ok"],
+        true
+    );
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn a_request_key_is_bound_to_the_scope_it_was_first_linked_with() {
+    let temp = reserved_corpus();
+    let host = FakeTaskHost::default();
+    let alpha = plan_output(
+        temp.path(),
+        json!({"shape": "contribution", "unit": "alpha", "objective": "Measure alpha."}),
+    );
+    let beta = plan_output(
+        temp.path(),
+        json!({"shape": "contribution", "unit": "beta", "objective": "Measure beta."}),
+    );
+    let mut plain = alpha.clone();
+    plain
+        .as_object_mut()
+        .expect("object")
+        .remove("context_files");
+
+    let first = link_plan(temp.path(), &host, &alpha, "bound");
+    assert_eq!(first["output"]["created"], true, "{first}");
+    let again = link_plan(temp.path(), &host, &alpha, "bound");
+    assert_eq!(again["output"]["created"], false, "{again}");
+    assert_eq!(again["output"]["task_id"], first["output"]["task_id"]);
+
+    for different in [&beta, &plain] {
+        let reply = link_plan(temp.path(), &host, different, "bound");
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error"]["code"], "conflict", "{reply}");
+        assert!(
+            reply["error"]["message"]
+                .as_str()
+                .is_some_and(
+                    |message| message.contains("code/alpha") && message.contains("new scope")
+                ),
+            "{reply}"
+        );
+    }
+    assert_eq!(host.tasks.lock().expect("tasks").len(), 1, "no second task");
+
+    // A link recorded before scopes were persisted always meant the directory.
+    let log_dir = temp.path().join("_data/orbit-research-operations");
+    let legacy_plan = plan_output(
+        temp.path(),
+        json!({"shape": "investigation", "objective": "Reproduce the baseline."}),
+    );
+    let before: Vec<_> = fs::read_dir(&log_dir)
+        .expect("request log")
+        .map(|entry| entry.expect("entry").path())
+        .collect();
+    let reply = link_plan(temp.path(), &host, &legacy_plan, "legacy");
+    assert_eq!(reply["output"]["created"], true, "{reply}");
+    let entry = fs::read_dir(&log_dir)
+        .expect("request log")
+        .map(|entry| entry.expect("entry").path())
+        .find(|path| !before.contains(path) && path.extension().is_some_and(|e| e == "json"))
+        .expect("the legacy key's log entry");
+    let mut stored: Value =
+        serde_json::from_slice(&fs::read(&entry).expect("entry")).expect("json");
+    assert!(
+        stored
+            .as_object_mut()
+            .expect("object")
+            .remove("context_files")
+            .is_some()
+    );
+    fs::write(&entry, serde_json::to_vec(&stored).expect("json")).expect("rewrite as legacy");
+    let retry = link_plan(temp.path(), &host, &legacy_plan, "legacy");
+    assert_eq!(retry["output"]["created"], false, "{retry}");
+    let narrowed = link_plan(temp.path(), &host, &alpha, "legacy");
+    assert_eq!(narrowed["error"]["code"], "conflict", "{narrowed}");
 }
 
 #[test]

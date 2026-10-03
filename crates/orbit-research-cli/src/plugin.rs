@@ -297,12 +297,13 @@ impl TaskHost for OrbitCliTaskHost {
 
 // `link`'s own input contract. Not a Core `Operation`: only this transport
 // can reach the `orbit.task.add`/`orbit.task.list` callbacks, and Core never
-// shells out to Orbit (see ARCHITECTURE.md). `link` always derives
-// `context_files` itself from the reserved research item, so the acceptance
-// invariant ("context_files names the reserved R") cannot be bypassed by
-// caller input. `plan` emits the field, so `link` accepts it only to let that
-// output pass through unchanged, and refuses any value that differs from the
-// derived one. A plain (non-doc) comment: schemars would lift a
+// shells out to Orbit (see ARCHITECTURE.md). `plan` emits `context_files`, so
+// `link` accepts it to let that output pass through unchanged, but only when it
+// equals a scope `plan` derives for the reserved research item (the research
+// directory, one contribution unit's `code/` and `artifacts/` paths, or the
+// synthesis files; `Application::link_intent` decides), so caller input never
+// widens a task past the reserved R. Omitted, the scope is the research
+// directory. A plain (non-doc) comment: schemars would lift a
 // doc comment into the schema's `description`, which schemas/link.request.json
 // (checked for drift in src/tests/plugin.rs) does not carry.
 #[derive(Deserialize, JsonSchema)]
@@ -338,17 +339,12 @@ fn link(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Result<Valu
     // An unusable key is the caller's mistake: say so before touching the corpus.
     check_request_key(&input.request_key)?;
     let app = Application::local(workspace_root)?;
-    if let Some(supplied) = &input.context_files {
-        let derived = app.link_context_files(&input.research_id)?;
-        if *supplied != derived {
-            return Err(Error::InvalidInput(format!(
-                "`context_files` {supplied:?} does not match {derived:?}, the task scope link derives for {}; link never widens or changes it. Omit `context_files`, or pass the value `plan` drafted for an investigation",
-                input.research_id
-            )));
-        }
-    }
     app.require_prepared_operations()?;
-    let preparation = app.link_intent(&input.request_key, &input.research_id)?;
+    let preparation = app.link_intent(
+        &input.request_key,
+        &input.research_id,
+        input.context_files.as_deref(),
+    )?;
     let workspace = workspace_root.to_string_lossy();
     let tag = &preparation.link.correlation_tag;
     let matches = host.list_by_tag(&workspace, tag)?;

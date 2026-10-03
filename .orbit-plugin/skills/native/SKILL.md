@@ -72,14 +72,19 @@ orbit-research --json research plan --corpus "$corpus" --shape investigation --r
 6. **Link.** The plugin's `link` tool creates the Orbit task from the plan,
    tagged `research-request:<key>`. Its input is the plan's JSON object plus
    `research_id` and `request_key`, so pass the plan straight through,
-   `context_files` included. `link` derives `context_files` itself, the reserved
-   R's directory, and refuses a different value with a message naming both: it
-   never widens or changes a task's scope. Only the investigation plan matches;
-   a contribution or synthesis plan names narrower paths, so delete its
-   `context_files` before linking (the task then covers the R directory, and its
-   criteria carry the limits). An identical retry adopts the one task already
-   tagged; it never creates a second. Mutating plugin tools need the operator
-   override described below.
+   `context_files` included. The task's scope is that field: the R directory
+   for an investigation, one unit's `code/<unit>/` and `artifacts/<unit>/` for a
+   contribution, the R's README and manifest for a synthesis. `link` accepts
+   exactly what `plan` derives for that R, a unit's paths only as a matched
+   pair, and refuses anything else (another unit, a path outside the R, a
+   widened list) with a message naming the accepted forms; it never widens a
+   task's scope. Omit `context_files` and the task covers the whole R
+   directory. Contributions to one R with different units therefore do not
+   hold each other's context locks. A request key is bound to the scope it was
+   first linked with: an identical retry (same scope) adopts the one task
+   already tagged and never creates a second, and the same key with a
+   different scope is a conflict, so use a new key. Mutating plugin tools need
+   the operator override described below.
 
 ```sh orbit
 ORBIT_OPERATOR=1 orbit tool run orbit.research.link --input "$(jq --arg id R001 --arg key link-R001 '. + {research_id: $id, request_key: $key}' plan.json)"

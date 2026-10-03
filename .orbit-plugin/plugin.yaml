@@ -87,13 +87,16 @@ spec:
     - name: link
       description: >-
         Create the Orbit task from a plan via the orbit.task.add callback,
-        tagged research-request:<key> with context_files naming the
-        reserved research item. Idempotent by request key: an identical
-        retry adopts the one task already tagged with that key instead of
-        creating another. Accepts plan's output unchanged; an optional
-        context_files must equal the research item's directory, which link
-        derives itself, and any other value is refused. The title must contain non-whitespace text; an
-        omitted or blank description uses the title.
+        tagged research-request:<key> with plan's context_files as the task
+        scope. Idempotent by request key: an identical retry adopts the one
+        task already tagged with that key instead of creating another, and
+        the same key with a different scope conflicts. Accepts plan's output
+        unchanged; an optional context_files must equal what plan derives for
+        that research item (its directory, one contribution unit's code and
+        artifacts paths, or the synthesis files) and any other value is
+        refused. Omitted, the task covers the research item's directory. The
+        title must contain non-whitespace text; an omitted or blank
+        description uses the title.
       execution_kind: mutating
       mcp_scope: workspace
       input_schema: { $ref: schemas/link.request.json }
