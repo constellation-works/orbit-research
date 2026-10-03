@@ -48,6 +48,19 @@ impl Cli {
         command
     }
 
+    /// A conflict error carrying `research plan`'s own usage line.
+    fn plan_error(message: String) -> clap::Error {
+        let mut command = Self::command();
+        command.build();
+        if let Some(plan) = command
+            .find_subcommand_mut("research")
+            .and_then(|research| research.find_subcommand_mut("plan"))
+        {
+            return plan.error(ErrorKind::ArgumentConflict, message);
+        }
+        command.error(ErrorKind::ArgumentConflict, message)
+    }
+
     pub(crate) fn try_parse_checked_from(args: &[std::ffi::OsString]) -> Result<Self, clap::Error> {
         let mut matches = Self::protocol_command().try_get_matches_from(args)?;
         let cli = <Self as clap::FromArgMatches>::from_arg_matches_mut(&mut matches)?;
@@ -79,10 +92,9 @@ impl Cli {
                         PlanShape::Contribution => "contribution",
                         PlanShape::Synthesis => "synthesis",
                     };
-                    return Err(Self::command().error(
-                        ErrorKind::ArgumentConflict,
-                        format!("{flag} cannot be used with --shape {shape}"),
-                    ));
+                    return Err(Self::plan_error(format!(
+                        "{flag} cannot be used with --shape {shape}"
+                    )));
                 }
             }
         }
@@ -221,18 +233,22 @@ pub(crate) enum ResearchOperation {
         /// Git blob the record had when read (`show` reports it as git_blob).
         #[arg(long)]
         expected_blob: String,
-        /// New title; the record path stays frozen.
+        /// New title; the record path stays frozen. Omitted keeps the current title.
         #[arg(long)]
         title: Option<String>,
-        /// New Markdown body. A hypothesis title or body change bumps its revision.
+        /// New Markdown body. Omitted keeps the current body. A hypothesis title
+        /// or body change bumps its revision; a hypothesis or theory body cannot be empty.
         #[arg(long, conflicts_with = "body_file")]
         body: Option<String>,
         /// Read the new Markdown body from a file.
         #[arg(long)]
         body_file: Option<PathBuf>,
-        /// Replacement tag; repeat for multiple tags.
-        #[arg(long = "tag")]
+        /// Replacement tag; repeat for multiple tags. Omitted keeps the current tags.
+        #[arg(long = "tag", conflicts_with = "clear_tags")]
         tags: Vec<String>,
+        /// Remove every tag.
+        #[arg(long)]
+        clear_tags: bool,
         /// New status, as the owner schema allows for the record's kind.
         #[arg(long)]
         status: Option<String>,
@@ -254,6 +270,11 @@ pub(crate) enum ResearchOperation {
     /// Append a verdict to a hypothesis's assessments (primary mode only).
     /// Needs an existing revision and an accepted research record, verified through
     /// Orbit (`orbit` from `$ORBIT_BIN` or `PATH`, run from the corpus checkout).
+    ///
+    /// Also sets the hypothesis status the owner schema maps the verdict to, when
+    /// the verdict is about the hypothesis's current revision: the last assessment
+    /// wins, an assessment of an earlier revision leaves the status alone, and a
+    /// dropped hypothesis stays dropped.
     Assess {
         /// Path to the canonical research corpus.
         #[arg(long)]
@@ -282,7 +303,9 @@ pub(crate) enum ResearchOperation {
         #[command(flatten)]
         mode: ModeArg,
     },
-    /// Revise a question's title, body and tags under its expected blob (primary mode only).
+    /// Revise a question under its expected blob (primary mode only). Give at
+    /// least one of --title, --body, --tag or --clear-tags; omitted fields keep
+    /// their current values.
     ReviseQuestion {
         /// Path to the canonical research corpus.
         #[arg(long)]
@@ -293,15 +316,18 @@ pub(crate) enum ResearchOperation {
         /// Git blob the question had when read.
         #[arg(long)]
         expected_blob: String,
-        /// New title; the record path stays frozen.
+        /// New title; the record path stays frozen. Omitted keeps the current title.
         #[arg(long)]
-        title: String,
-        /// New Markdown body.
-        #[arg(long, default_value = "")]
-        body: String,
-        /// Replacement tag; repeat for multiple tags.
-        #[arg(long = "tag")]
+        title: Option<String>,
+        /// New Markdown body. Omitted keeps the current body.
+        #[arg(long)]
+        body: Option<String>,
+        /// Replacement tag; repeat for multiple tags. Omitted keeps the current tags.
+        #[arg(long = "tag", conflicts_with = "clear_tags")]
         tags: Vec<String>,
+        /// Remove every tag.
+        #[arg(long)]
+        clear_tags: bool,
         #[command(flatten)]
         mode: ModeArg,
     },

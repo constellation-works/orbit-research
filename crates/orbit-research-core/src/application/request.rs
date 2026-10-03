@@ -24,6 +24,7 @@ pub(super) struct Create {
     pub(super) mode: Option<Mode>,
 }
 
+/// Omitted fields keep their current values; `tags: []` clears the tags.
 #[derive(Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ReviseQuestion {
@@ -32,9 +33,9 @@ pub(super) struct ReviseQuestion {
     #[schemars(length(min = 1))]
     pub(super) expected_blob: String,
     #[schemars(length(min = 1))]
-    pub(super) title: String,
-    pub(super) body: String,
-    pub(super) tags: Vec<String>,
+    pub(super) title: Option<String>,
+    pub(super) body: Option<String>,
+    pub(super) tags: Option<Vec<String>>,
     #[serde(default)]
     pub(super) mode: Option<Mode>,
 }

@@ -539,3 +539,341 @@ fn a_missing_corpus_suggests_workspace_init() {
     assert_eq!(code, "corpus_unavailable");
     assert!(message.contains("workspace init"), "{message}");
 }
+
+fn write_record(root: &Path, relative: &str, text: &str) {
+    std::fs::write(root.join(relative), text).expect("fixture record");
+}
+
+fn question_text(id: &str, fields: &str) -> String {
+    format!(
+        "---\nid: {id}\ntitle: Title {id}\nslug: title-{}\nanswered_by: []\ntags: []\n{fields}---\nbody\n",
+        id.to_lowercase()
+    )
+}
+
+#[test]
+fn reference_problems_are_reported_in_the_same_pass_as_record_problems() {
+    let temp = corpus();
+    write_record(
+        temp.path(),
+        "questions/Q001-title-q001.md",
+        &question_text(
+            "Q001",
+            "status: open\nderived_from: [Q007, Q002]\ncreated: 2026-01-01\nupdated: 2026-01-01\n",
+        ),
+    );
+    write_record(
+        temp.path(),
+        "questions/Q002-title-q002.md",
+        &question_text(
+            "Q002",
+            "status: bogus\nderived_from: [Q009]\ncreated: 2026-01-01\nupdated: 2026-01-01\n",
+        ),
+    );
+    let text = failure(&["research", "check", "--corpus", path(temp.path())]);
+    assert!(text.contains("3 problems in the corpus:"), "{text}");
+    assert!(
+        text.contains("Q002-title-q002.md: status: \"bogus\" is not allowed"),
+        "{text}"
+    );
+    // The reference to the unreadable Q002 is not called missing; the others are.
+    assert!(
+        text.contains(
+            "Q001-title-q001.md: derived_from: references Q007, which is not in the corpus"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "Q002-title-q002.md: derived_from: references Q009, which is not in the corpus"
+        ),
+        "{text}"
+    );
+    assert!(!text.contains("references Q002"), "{text}");
+}
+
+#[test]
+fn a_long_problem_list_names_the_corpus_in_its_rerun_command() {
+    let temp = corpus();
+    for number in 1..=25 {
+        let id = format!("Q{number:03}");
+        write_record(
+            temp.path(),
+            &format!("questions/{id}-title-{}.md", id.to_lowercase()),
+            &question_text(
+                &id,
+                "status: bogus\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n",
+            ),
+        );
+    }
+    let text = failure(&["research", "check", "--corpus", path(temp.path())]);
+    assert!(text.contains("25 problems in the corpus:"), "{text}");
+    assert!(
+        text.contains(&format!(
+            "+5 more; fix these and run `orbit-research research check --corpus {}` again",
+            temp.path().display()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn impossible_calendar_dates_fail_the_check() {
+    let temp = corpus();
+    for (created, updated) in [
+        ("2026-02-30", "2026-01-01"),
+        ("2026-01-01", "9999-99-99"),
+        ("2026-13-45", "2026-01-01"),
+    ] {
+        write_record(
+            temp.path(),
+            "questions/Q001-title-q001.md",
+            &question_text(
+                "Q001",
+                &format!(
+                    "status: open\nderived_from: []\ncreated: {created}\nupdated: {updated}\n"
+                ),
+            ),
+        );
+        let text = failure(&["research", "check", "--corpus", path(temp.path())]);
+        let bad = if created == "2026-01-01" {
+            updated
+        } else {
+            created
+        };
+        assert!(
+            text.contains(&format!("\"{bad}\" is not a date; expected YYYY-MM-DD")),
+            "{text}"
+        );
+    }
+    write_record(
+        temp.path(),
+        "questions/Q001-title-q001.md",
+        &question_text(
+            "Q001",
+            "status: open\nderived_from: []\ncreated: 2024-02-29\nupdated: 2026-12-31\n",
+        ),
+    );
+    let ok = run(&["research", "check", "--corpus", path(temp.path())]);
+    assert!(ok.status.success(), "a real leap day is a date: {ok:?}");
+}
+
+#[test]
+fn an_empty_value_is_reported_once_per_field() {
+    let temp = corpus();
+    write_record(
+        temp.path(),
+        "questions/Q001-title-q001.md",
+        &question_text(
+            "Q001",
+            "status:\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\n",
+        ),
+    );
+    let text = failure(&["research", "check", "--corpus", path(temp.path())]);
+    assert!(
+        text.contains("Q001-title-q001.md: status: must be text, not empty"),
+        "{text}"
+    );
+    assert_eq!(text.matches("status:").count(), 1, "{text}");
+    assert!(!text.contains("the empty value is not allowed"), "{text}");
+}
+
+#[test]
+fn a_corrupt_schema_file_is_named() {
+    let temp = corpus();
+    std::fs::write(temp.path().join("_scripts/schema.json"), "{\"$defs\": ").expect("corrupt");
+    let schema = temp.path().join("_scripts/schema.json");
+    for verb in ["check", "list"] {
+        let text = failure(&["research", verb, "--corpus", path(temp.path())]);
+        assert!(
+            text.contains(&format!(
+                "{}: the file is not valid JSON",
+                schema.canonicalize().expect("schema path").display()
+            )),
+            "{verb}: {text}"
+        );
+    }
+}
+
+#[test]
+fn an_unknown_id_suggests_listing_the_corpus() {
+    let temp = corpus();
+    let root = path(temp.path());
+    let text = failure(&["research", "show", "--corpus", root, "--id", "Q999"]);
+    assert!(
+        text.contains(&format!(
+            "Unknown research record id: Q999; run `orbit-research research list --corpus {root}` to see the ids that exist"
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn plan_names_the_empty_field_and_its_conflicts_show_plans_usage() {
+    let temp = corpus();
+    let root = path(temp.path());
+    let text = failure(&[
+        "research",
+        "plan",
+        "--corpus",
+        root,
+        "--shape",
+        "contribution",
+        "--research-id",
+        "R001",
+        "--objective",
+        "x",
+        "--unit",
+        "",
+    ]);
+    assert!(
+        text.contains("`unit` is required and must not be empty"),
+        "{text}"
+    );
+    assert!(!text.contains("the input is not valid"), "{text}");
+
+    let output = run(&[
+        "research",
+        "plan",
+        "--corpus",
+        root,
+        "--shape",
+        "investigation",
+        "--research-id",
+        "R001",
+        "--objective",
+        "x",
+        "--unit",
+        "u",
+    ]);
+    assert_eq!(output.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        text.contains("--unit cannot be used with --shape investigation"),
+        "{text}"
+    );
+    assert!(
+        text.contains("Usage: orbit-research research plan"),
+        "{text}"
+    );
+}
+
+#[test]
+fn assess_checks_the_blob_before_it_asks_orbit_for_acceptance() {
+    let temp = corpus();
+    let root = path(temp.path());
+    for (kind, title) in [("H", "A claim"), ("R", "A study")] {
+        let created = run(&[
+            "research",
+            "create",
+            "--corpus",
+            root,
+            "--kind",
+            kind,
+            "--title",
+            title,
+            "--request-key",
+            title,
+        ]);
+        assert!(created.status.success(), "{created:?}");
+    }
+    let text = failure(&[
+        "research",
+        "assess",
+        "--corpus",
+        root,
+        "--id",
+        "H001",
+        "--expected-blob",
+        "deadbeef",
+        "--research",
+        "R001",
+        "--revision",
+        "1",
+        "--verdict",
+        "supports",
+        "--strength",
+        "strong",
+    ]);
+    assert!(
+        text.contains("H001 has changed since you read it"),
+        "{text}"
+    );
+    assert!(!text.contains("orbit.task"), "{text}");
+    assert!(!text.contains("Orbit could not"), "{text}");
+}
+
+#[test]
+fn workspace_init_refusals_name_the_path_and_the_next_step() {
+    let temp = tempfile::tempdir().expect("fixture step");
+    let base = temp.path();
+    let full = base.join("full");
+    std::fs::create_dir(&full).expect("fixture step");
+    std::fs::write(full.join("notes.txt"), "mine").expect("fixture step");
+    let text = failure(&["workspace", "init", path(&full)]);
+    assert!(
+        text.contains(&format!(
+            "{} is not empty and holds no research corpus",
+            full.display()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            "`orbit-research workspace init {}`",
+            full.join("observatory").display()
+        )),
+        "{text}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(full.join("notes.txt")).expect("kept"),
+        "mine"
+    );
+
+    let file = base.join("a-file");
+    std::fs::write(&file, "x").expect("fixture step");
+    let text = failure(&["workspace", "init", path(&file)]);
+    assert!(
+        text.contains(&format!("{} is a file, not a directory", file.display())),
+        "{text}"
+    );
+    let under = file.join("corpus");
+    let text = failure(&["workspace", "init", path(&under)]);
+    assert!(
+        text.contains(&format!(
+            "Cannot create {}: {} is a file",
+            under.display(),
+            file.display()
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("os error"), "{text}");
+}
+
+#[cfg(unix)]
+#[test]
+fn workspace_init_in_an_unwritable_parent_says_nothing_was_created() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().expect("fixture step");
+    let locked = temp.path().join("locked");
+    std::fs::create_dir(&locked).expect("fixture step");
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).expect("lock");
+    let target = locked.join("corpus");
+    // A superuser can write anywhere; the refusal only exists for everyone else.
+    let output = run(&["workspace", "init", path(&target)]);
+    if output.status.success() {
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).ok();
+        return;
+    }
+    let text = String::from_utf8_lossy(&output.stderr).into_owned();
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).expect("unlock");
+    assert!(
+        text.contains(&format!(
+            "Cannot create the research corpus at {}: Permission denied. Nothing was created",
+            target.display()
+        )),
+        "{text}"
+    );
+    assert!(!text.contains("os error"), "{text}");
+    assert!(!target.exists());
+}

@@ -23,12 +23,86 @@ pub fn init(path: &Path) -> Result<Value> {
             "revision": snapshot.revision,
         }));
     }
-    if path.exists() && fs::read_dir(path)?.next().is_some() {
-        return Err(Error::Invalid(
-            "Refusing to scaffold into a nonempty directory without an existing corpus contract"
-                .into(),
-        ));
+    refuse_unusable_target(path)?;
+    let created_root = !path.exists();
+    // The job's `base_branch` defaults to `main`. `symbolic-ref` names the unborn
+    // branch on every Git version, unlike `init -b` (Git 2.28+), and ignores
+    // `init.defaultBranch`.
+    let scaffolded = write_scaffold(path)
+        .and_then(|()| run_git(path, &["init", "-q"]))
+        .and_then(|()| run_git(path, &["symbolic-ref", "HEAD", "refs/heads/main"]))
+        .and_then(|()| prepare_new_operations(path))
+        .and_then(|()| commit_scaffold(path));
+    if let Err(error) = scaffolded {
+        cleanup_scaffold(path, created_root);
+        return Err(match error {
+            Error::Io(error) => Error::Invalid(format!(
+                "Cannot create the research corpus at {}: {}. Nothing was created; choose a writable location",
+                path.display(),
+                plain_io(&error)
+            )),
+            error => error,
+        });
     }
+    let corpus = Corpus::open(path)?;
+    Ok(json!({
+        "corpus": corpus.root(),
+        "created": true,
+        "records": 0,
+        "revision": corpus.snapshot()?.revision,
+    }))
+}
+
+/// A scaffold target must be a new path under a directory, or an empty
+/// directory; anything else is refused with the reason and the next step.
+fn refuse_unusable_target(path: &Path) -> Result<()> {
+    if path.is_file() {
+        return Err(Error::Invalid(format!(
+            "{} is a file, not a directory; give a new or empty directory to `orbit-research workspace init`",
+            path.display()
+        )));
+    }
+    if !path.exists() {
+        // The nearest existing ancestor must be a directory we can create under.
+        if let Some(ancestor) = path.ancestors().skip(1).find(|ancestor| ancestor.exists())
+            && !ancestor.is_dir()
+        {
+            return Err(Error::Invalid(format!(
+                "Cannot create {}: {} is a file, not a directory; choose a path under a directory",
+                path.display(),
+                ancestor.display()
+            )));
+        }
+        return Ok(());
+    }
+    let mut entries = fs::read_dir(path).map_err(|error| {
+        Error::Invalid(format!(
+            "Cannot read {}: {}",
+            path.display(),
+            plain_io(&error)
+        ))
+    })?;
+    if entries.next().is_some() {
+        return Err(Error::Invalid(format!(
+            "{} is not empty and holds no research corpus (it has no _scripts/schema.json), so `workspace init` will not write into it. Choose a new or empty directory, such as `orbit-research workspace init {}`",
+            path.display(),
+            path.join("observatory").display()
+        )));
+    }
+    Ok(())
+}
+
+/// An I/O failure without its trailing `(os error N)`, which tells a reader nothing.
+fn plain_io(error: &std::io::Error) -> String {
+    let text = error.to_string();
+    match text.rfind(" (os error ") {
+        Some(end) => text[..end].to_owned(),
+        None => text,
+    }
+}
+
+/// Every scaffold file except the Git repository.
+fn write_scaffold(path: &Path) -> Result<()> {
     fs::create_dir_all(path)?;
     for directory in [
         "questions",
@@ -60,24 +134,7 @@ pub fn init(path: &Path) -> Result<Value> {
         "#!/bin/sh\nset -eu\n# Validate and print the base revision and record/tag counts.\nexec orbit-research research check --corpus \"$(CDPATH= cd -- \"$(dirname -- \"$0\")/..\" && pwd)\"\n",
     )?;
     make_check_executable(path)?;
-    // The job's `base_branch` defaults to `main`. `symbolic-ref` names the unborn
-    // branch on every Git version, unlike `init -b` (Git 2.28+), and ignores
-    // `init.defaultBranch`.
-    if let Err(error) = run_git(path, &["init", "-q"])
-        .and_then(|()| run_git(path, &["symbolic-ref", "HEAD", "refs/heads/main"]))
-        .and_then(|()| prepare_new_operations(path))
-        .and_then(|()| commit_scaffold(path))
-    {
-        cleanup_scaffold(path);
-        return Err(error);
-    }
-    let corpus = Corpus::open(path)?;
-    Ok(json!({
-        "corpus": corpus.root(),
-        "created": true,
-        "records": 0,
-        "revision": corpus.snapshot()?.revision,
-    }))
+    Ok(())
 }
 
 fn prepare_new_operations(path: &Path) -> Result<()> {
@@ -116,14 +173,35 @@ fn run_git(path: &Path, args: &[&str]) -> Result<()> {
     if output.status.success() {
         return Ok(());
     }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if lacks_identity(&stderr) {
+        return Err(Error::Invalid(format!(
+            "Git has no author identity to commit the scaffold with, so nothing was created. Set one, then rerun `orbit-research workspace init {}`:\n  git config --global user.name \"Your Name\"\n  git config --global user.email you@example.com",
+            path.display()
+        )));
+    }
     Err(Error::Internal(format!(
-        "Scaffold is incomplete and can be resumed with orbit-research workspace init {}: {}",
+        "`git {}` failed while creating the research corpus at {}, so nothing was created; fix the cause and rerun `orbit-research workspace init {}`: {}",
+        args.join(" "),
         path.display(),
-        String::from_utf8_lossy(&output.stderr).trim()
+        path.display(),
+        stderr.trim()
     )))
 }
 
-fn cleanup_scaffold(path: &Path) {
+/// Git's refusal to commit without a name and email, which it explains at length.
+fn lacks_identity(stderr: &str) -> bool {
+    [
+        "Please tell me who you are",
+        "Author identity unknown",
+        "unable to auto-detect email address",
+    ]
+    .iter()
+    .any(|marker| stderr.contains(marker))
+}
+
+/// Remove what a failed scaffold wrote, and the directory itself when this run created it.
+fn cleanup_scaffold(path: &Path, created_root: bool) {
     for entry in [
         ".git",
         ".gitignore",
@@ -141,6 +219,9 @@ fn cleanup_scaffold(path: &Path) {
         } else {
             let _ = fs::remove_file(target);
         }
+    }
+    if created_root {
+        let _ = fs::remove_dir(path);
     }
 }
 

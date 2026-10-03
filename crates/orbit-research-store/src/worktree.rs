@@ -19,6 +19,13 @@ pub struct WorktreeWrite {
     /// Git blob of the written record; the expected blob for the next revise.
     pub blob: String,
     pub files: Vec<String>,
+    /// Present (false) only when every file already held these exact bytes.
+    #[serde(skip_serializing_if = "is_changed")]
+    pub changed: bool,
+}
+
+fn is_changed(changed: &bool) -> bool {
+    *changed
 }
 
 /// Names the one reserved R this worktree writes, set by its first write.
@@ -86,6 +93,8 @@ impl Corpus {
         for (path, _) in &files {
             refuse_unsafe_path(self.root(), path)?;
         }
+        // A retry that adopts its own bytes reports the write it completes, not "no change".
+        let mut changed = true;
         if record.git_blob != expected_blob {
             // An identical retry finds its own bytes already in place and adopts them.
             let applied = files.iter().all(|(path, text)| {
@@ -97,6 +106,9 @@ impl Corpus {
                 )));
             }
         } else {
+            changed = files.iter().any(|(path, text)| {
+                fs::read(self.root().join(path)).ok().as_deref() != Some(text.as_bytes())
+            });
             for (path, text) in &files {
                 let path = self.root().join(path);
                 let parent = path
@@ -114,6 +126,7 @@ impl Corpus {
             path: record.path.clone(),
             blob: self.hash_bytes(files[0].1.as_bytes())?,
             files: files.into_iter().map(|(path, _)| path).collect(),
+            changed,
         })
     }
 }

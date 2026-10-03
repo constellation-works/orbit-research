@@ -105,7 +105,7 @@ operations! {
         "research.revise",
         Revise,
         revise,
-        "Revise a record only if expected_blob still matches. Primary mode commits Q/H/T edits; a hypothesis statement change bumps its revision. Worktree mode writes only the run's reserved R (README and data/manifest.json) and does not commit. The result names the mode."
+        "Revise a record only if expected_blob still matches. Omitted fields keep their current values; tags: [] clears the tags; a hypothesis or theory body cannot be set empty. Primary mode commits Q/H/T edits; a hypothesis statement change bumps its revision. Worktree mode writes only the run's reserved R (README and data/manifest.json) and does not commit. The result names the mode."
     ),
     Assess => (
         "research.assess",
@@ -117,7 +117,7 @@ operations! {
         "research.revise_question",
         ReviseQuestion,
         revise_question,
-        "Commit a question revision only if expected_blob still matches. Frozen path and lineage are preserved; requires clean primary checkout."
+        "Commit a question revision only if expected_blob still matches. Omitted title, body and tags keep their current values (tags: [] clears them); give at least one. Frozen path and lineage are preserved; requires clean primary checkout."
     ),
     Plan => (
         "research.plan",
@@ -142,7 +142,23 @@ fn decode<T: DeserializeOwned + JsonSchema>(
         .as_ref()
         .map_err(|error| Error::Internal(format!("Invalid built-in request schema: {error}")))?;
     if let Err(errors) = validator.validate(&input) {
-        let mut messages: Vec<String> = errors.map(|error| input_message(&error)).collect();
+        let mut unresolved_variant = false;
+        let mut messages: Vec<String> = errors
+            .map(|error| {
+                unresolved_variant |= (&error.instance_path).into_iter().next().is_none()
+                    && matches!(
+                        error.kind,
+                        jsonschema::error::ValidationErrorKind::OneOfNotValid
+                            | jsonschema::error::ValidationErrorKind::AnyOf
+                    );
+                input_message(&error)
+            })
+            .collect();
+        // A tagged union reports only that no variant matched; name the field
+        // that broke the variant the caller chose.
+        if unresolved_variant && let Some(specific) = variant_messages::<T>(&input) {
+            messages = specific;
+        }
         messages.dedup();
         if messages.is_empty() {
             messages.push("Invalid operation arguments".into());
@@ -150,6 +166,34 @@ fn decode<T: DeserializeOwned + JsonSchema>(
         return Err(Error::InvalidInput(messages.join("; ")));
     }
     Ok(request)
+}
+
+/// The input-schema failures of the one variant of a tagged union (such as
+/// `plan`'s `shape`) that the input selects, in plain words. `None` when the
+/// schema is not a union or the input selects no variant.
+fn variant_messages<T: JsonSchema>(input: &Value) -> Option<Vec<String>> {
+    let schema = serde_json::to_value(schemars::schema_for!(T)).ok()?;
+    let mut variant = schema["oneOf"]
+        .as_array()?
+        .iter()
+        .find(|variant| {
+            variant["properties"].as_object().is_some_and(|fields| {
+                fields.iter().any(|(name, field)| {
+                    let chosen = input.get(name);
+                    chosen.is_some()
+                        && field["enum"].as_array().is_some_and(|options| {
+                            options.len() == 1 && Some(&options[0]) == chosen
+                        })
+                })
+            })
+        })?
+        .clone();
+    if let Some(definitions) = schema.get("definitions") {
+        variant["definitions"] = definitions.clone();
+    }
+    let validator = jsonschema::JSONSchema::compile(&variant).ok()?;
+    let errors = validator.validate(input).err()?;
+    Some(errors.map(|error| input_message(&error)).collect())
 }
 
 /// One input-schema failure in plain words, naming the argument. Raw validator

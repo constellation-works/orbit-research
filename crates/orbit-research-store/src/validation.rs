@@ -31,13 +31,24 @@ pub(crate) struct Contract {
 }
 
 fn compile_schema(schema: &Value) -> Result<jsonschema::JSONSchema> {
+    // Draft 2020-12 treats `format` as an annotation unless asked, which would
+    // let `2026-02-30` through the `date` format; the pattern alone checks shape.
     jsonschema::JSONSchema::options()
         .with_draft(jsonschema::Draft::Draft202012)
+        .should_validate_formats(true)
         .compile(schema)
         .map_err(|e| Error::Invalid(format!("Invalid owner schema: {e}")))
 }
 
 impl Contract {
+    /// The contract in a `_scripts/schema.json` file's bytes. A file that is not
+    /// JSON is an invalid contract, not an I/O or serialization fault.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let schema = serde_json::from_slice(bytes)
+            .map_err(|error| Error::Invalid(format!("the file is not valid JSON: {error}")))?;
+        Self::compile(schema)
+    }
+
     pub(crate) fn compile(schema: Value) -> Result<Self> {
         let Some(declared) = schema["x-observatory"]["kinds"].as_object() else {
             return Err(Error::Invalid(
@@ -84,14 +95,37 @@ impl Contract {
         let Err(errors) = validator.validate(metadata) else {
             return Vec::new();
         };
-        errors
-            .flat_map(|error| self.describe(&error))
-            .map(|(field, message)| CorpusIssue {
+        let mut found: Vec<(bool, Option<String>, String)> = Vec::new();
+        for error in errors {
+            let is_type = matches!(error.kind, ValidationErrorKind::Type { .. });
+            found.extend(
+                self.describe(&error)
+                    .into_iter()
+                    .map(|(field, message)| (is_type, field, message)),
+            );
+        }
+        // A value of the wrong type (an empty one, say) also fails every enum
+        // or pattern beside it; the type is the one problem to fix.
+        let typed: BTreeSet<Option<String>> = found
+            .iter()
+            .filter(|(is_type, ..)| *is_type)
+            .map(|(_, field, _)| field.clone())
+            .collect();
+        let mut issues: Vec<CorpusIssue> = Vec::new();
+        for (is_type, field, message) in found {
+            if !is_type && field.is_some() && typed.contains(&field) {
+                continue;
+            }
+            let issue = CorpusIssue {
                 path: path.to_owned(),
                 field,
                 message,
-            })
-            .collect()
+            };
+            if !issues.contains(&issue) {
+                issues.push(issue);
+            }
+        }
+        issues
     }
 
     /// Plain problems with a `data/manifest.json` value, or `None` when the
@@ -310,8 +344,21 @@ fn show_value(value: &Value) -> String {
 }
 
 pub(crate) fn validate_records(records: &BTreeMap<String, Record>) -> Result<()> {
+    validate_readable(records, &BTreeSet::new(), &BTreeSet::new())
+}
+
+/// The whole-corpus rules over the records that could be read. `unreadable`
+/// holds the ids of records that could not be read at all: they count toward
+/// numbering and cannot be called missing or of the wrong kind. `flawed` holds
+/// the ids of records in `records` that break the owner schema: a reference
+/// the schema already rejected is not reported a second time.
+pub(crate) fn validate_readable(
+    records: &BTreeMap<String, Record>,
+    unreadable: &BTreeSet<String>,
+    flawed: &BTreeSet<String>,
+) -> Result<()> {
     let mut issues = Vec::new();
-    check_numbering(records, &mut issues);
+    check_numbering(records, unreadable, &mut issues);
     for record in records.values() {
         let issue = |field: &str, message: String| CorpusIssue {
             path: record.path.clone(),
@@ -328,13 +375,21 @@ pub(crate) fn validate_records(records: &BTreeMap<String, Record>) -> Result<()>
             if let Some(refs) = record.metadata[field].as_array() {
                 for (index, target) in refs.iter().enumerate() {
                     let Some(target) = target.as_str() else {
-                        issues.push(issue(
-                            &format!("{field}[{index}]"),
-                            "must be a record id like Q001".into(),
-                        ));
+                        if !flawed.contains(&record.id) {
+                            issues.push(issue(
+                                &format!("{field}[{index}]"),
+                                "must be a record id like Q001".into(),
+                            ));
+                        }
                         continue;
                     };
+                    if flawed.contains(&record.id) && !is_record_id(target) {
+                        continue;
+                    }
                     let Some(target_record) = records.get(target) else {
+                        if unreadable.contains(target) {
+                            continue;
+                        }
                         issues.push(issue(
                             field,
                             format!("references {target}, which is not in the corpus"),
@@ -358,13 +413,19 @@ pub(crate) fn validate_records(records: &BTreeMap<String, Record>) -> Result<()>
             for (index, assessment) in assessments.iter().enumerate() {
                 let field = format!("assessments[{index}]");
                 let Some(target) = assessment["research"].as_str() else {
-                    issues.push(issue(
-                        &format!("{field}.research"),
-                        "must be a research id like R001".into(),
-                    ));
+                    if !flawed.contains(&record.id) {
+                        issues.push(issue(
+                            &format!("{field}.research"),
+                            "must be a research id like R001".into(),
+                        ));
+                    }
                     continue;
                 };
+                if flawed.contains(&record.id) && !is_record_id(target) {
+                    continue;
+                }
                 match records.get(target) {
+                    None if unreadable.contains(target) => {}
                     None => issues.push(issue(
                         &format!("{field}.research"),
                         format!("references {target}, which is not in the corpus"),
@@ -404,6 +465,14 @@ pub(crate) fn validate_records(records: &BTreeMap<String, Record>) -> Result<()>
     }
 }
 
+/// A kind letter and three digits, like `Q001`.
+fn is_record_id(text: &str) -> bool {
+    let mut characters = text.chars();
+    text.len() == 4
+        && characters.next().is_some_and(|kind| "QHTR".contains(kind))
+        && characters.all(|digit| digit.is_ascii_digit())
+}
+
 fn kind_name(kind: &str) -> &str {
     match kind {
         "Q" => "question",
@@ -416,8 +485,18 @@ fn kind_name(kind: &str) -> &str {
 
 /// Ids run 001, 002, ... per kind. Only the first break in a kind is reported:
 /// every later id then looks off by one, and saying so repeatedly buries the cause.
-fn check_numbering(records: &BTreeMap<String, Record>, issues: &mut Vec<CorpusIssue>) {
-    let mut numbers: BTreeMap<&str, Vec<(u32, &Record)>> = BTreeMap::new();
+fn check_numbering(
+    records: &BTreeMap<String, Record>,
+    unreadable: &BTreeSet<String>,
+    issues: &mut Vec<CorpusIssue>,
+) {
+    let mut numbers: BTreeMap<&str, Vec<(u32, Option<&Record>)>> = BTreeMap::new();
+    for id in unreadable {
+        if let (Some(kind), Some(number)) = (id.get(..1), id.get(1..).and_then(|n| n.parse().ok()))
+        {
+            numbers.entry(kind).or_default().push((number, None));
+        }
+    }
     for record in records.values() {
         match record
             .id
@@ -427,7 +506,7 @@ fn check_numbering(records: &BTreeMap<String, Record>, issues: &mut Vec<CorpusIs
             Some(number) => numbers
                 .entry(&record.kind)
                 .or_default()
-                .push((number, record)),
+                .push((number, Some(record))),
             None => issues.push(CorpusIssue {
                 path: record.path.clone(),
                 field: Some("id".into()),
@@ -440,14 +519,16 @@ fn check_numbering(records: &BTreeMap<String, Record>, issues: &mut Vec<CorpusIs
         for (index, (number, record)) in values.into_iter().enumerate() {
             let expected = index as u32 + 1;
             if number != expected {
-                issues.push(CorpusIssue {
-                    path: record.path.clone(),
-                    field: Some("id".into()),
-                    message: format!(
-                        "{} leaves a gap: expected {kind}{expected:03} next (ids run from 001 with no gaps)",
-                        record.id
-                    ),
-                });
+                if let Some(record) = record {
+                    issues.push(CorpusIssue {
+                        path: record.path.clone(),
+                        field: Some("id".into()),
+                        message: format!(
+                            "{} leaves a gap: expected {kind}{expected:03} next (ids run from 001 with no gaps)",
+                            record.id
+                        ),
+                    });
+                }
                 break;
             }
         }

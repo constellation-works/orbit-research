@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::io::{self, Write};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use super::detail::is_bidi_control;
 use super::sink::{Mode, OutputSink};
 
 const HEADERS: [&str; 6] = ["ID", "KIND", "STATUS", "TITLE", "TAGS", "PATH"];
@@ -51,6 +52,20 @@ fn render_table(
         }
     }
 
+    // Name what the uniform-column rule hid, so a reader is not left wondering
+    // why a column is missing. Width-dropped columns announce themselves below.
+    let uniform: Vec<String> = (0..6)
+        .filter(|column| !visible[*column])
+        .filter_map(|column| Some(format!("{}={}", HEADERS[column], rows.first()?[column])))
+        .collect();
+    if !uniform.is_empty() {
+        writeln!(
+            diagnostics,
+            "Hidden columns, the same in every row: {}.",
+            uniform.join(", ")
+        )?;
+    }
+
     let mut widths = natural_widths(&rows);
     if sink.width > 0 {
         shrink_to_width(&mut widths, &mut visible, sink.width, diagnostics)?;
@@ -82,6 +97,7 @@ fn row(record: &Value, missing: &str, tsv: bool) -> [String; 6] {
         metadata
             .and_then(|value| value.get("tags"))
             .and_then(Value::as_array)
+            .filter(|tags| !tags.is_empty())
             .map(|tags| {
                 tags.iter()
                     .map(|tag| field(Some(tag), missing, tsv))
@@ -110,7 +126,7 @@ fn escape_controls(value: &str, escape_backslash: bool) -> String {
             '\t' => escaped.push_str("\\t"),
             '\n' => escaped.push_str("\\n"),
             '\r' => escaped.push_str("\\r"),
-            character if character.is_control() => {
+            character if character.is_control() || is_bidi_control(character) => {
                 use std::fmt::Write as _;
                 let _ = write!(escaped, "\\u{{{:x}}}", character as u32);
             }

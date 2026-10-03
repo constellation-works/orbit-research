@@ -143,13 +143,26 @@ impl Corpus {
             .iter()
             .find(|entry| entry.path == reserved.path)
             .cloned();
-        let record = match entry.map(|entry| {
+        let record = match entry.as_ref().map(|entry| {
             self.working_bytes(&entry.path)
-                .and_then(|bytes| self.decode_record(&self.contract, &entry, &bytes))
+                .and_then(|bytes| self.decode_record(&self.contract, entry, &bytes))
         }) {
             Some(Ok(record)) => record,
             Some(Err(error)) => {
-                report.fail(Reason::RecordInvalid, error.to_string());
+                report.fail(
+                    Reason::RecordInvalid,
+                    format!(
+                        "{error}; the provenance, manifest and reference checks run once the record is valid"
+                    ),
+                );
+                // The sections need only a readable body, so report them in the same pass.
+                if let Some(entry) = &entry
+                    && let Ok(bytes) = self.working_bytes(&entry.path)
+                    && let Ok(text) = std::str::from_utf8(&bytes)
+                    && let Ok((_, body)) = record::parse(&entry.path, text)
+                {
+                    self.check_sections(&entry.path, &body, &mut report);
+                }
                 return Ok(report);
             }
             None => {
@@ -162,7 +175,7 @@ impl Corpus {
         };
         report.blob = Some(record.git_blob.clone());
 
-        self.check_sections(&record, &mut report);
+        self.check_sections(&record.path, &record.body, &mut report);
         check_provenance(&record, expected, &mut report);
         self.check_manifest(&record, &mut report);
         self.check_lineage(&record, &entries, &mut report);
@@ -203,12 +216,12 @@ impl Corpus {
     }
 
     /// The owner schema's README sections, present in order and written.
-    fn check_sections(&self, record: &Record, report: &mut DeliveryReport) {
+    fn check_sections(&self, path: &str, body: &str, report: &mut DeliveryReport) {
         let wanted: Vec<&str> = self.contract.schema["x-observatory"]["readme_sections"]
             .as_array()
             .map(|names| names.iter().filter_map(Value::as_str).collect())
             .unwrap_or_else(|| vec!["Question", "Method", "Result", "Limitations", "Next"]);
-        let sections = sections(&record.body);
+        let sections = sections(body);
         let found: Vec<&str> = sections
             .iter()
             .map(|(name, _)| *name)
@@ -218,8 +231,7 @@ impl Corpus {
             report.fail(
                 Reason::SectionMissing,
                 format!(
-                    "{}: sections must be exactly `## {}` in that order; found {}",
-                    record.path,
+                    "{path}: sections must be exactly `## {}` in that order; found {}",
                     wanted.join("`, `## "),
                     if found.is_empty() {
                         "none".into()
@@ -238,8 +250,7 @@ impl Corpus {
             report.fail(
                 Reason::SectionPlaceholder,
                 format!(
-                    "{}: `## {}` still empty or holding the reserved stub's text",
-                    record.path,
+                    "{path}: `## {}` still empty or holding the reserved stub's text",
                     placeholders.join("`, `## ")
                 ),
             );

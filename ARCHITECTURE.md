@@ -281,7 +281,9 @@ a spawning function without leaving `read.rs`.
 `symbolic-ref HEAD refs/heads/main`, which works on every Git version) so the research
 job's default `base_branch` holds whatever `init.defaultBranch` says.
 `writer.rs` owns write-mode detection, the common checkout lock and the durable
-primary-mode transaction behind create, capture, revise and assess.
+primary-mode transaction behind create, capture, revise and assess. `revise` and
+`revise_question` keep every field the caller omits (`tags: []` clears the tags);
+a write that leaves the record as it was makes no commit and reports `changed: false`.
 `worktree.rs` owns worktree mode: in a linked run worktree it writes only the
 reserved R (README and `data/manifest.json`), never allocates IDs and never
 commits. `edit.rs` owns the record edit policy (frozen identity and lineage,

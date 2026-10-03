@@ -12,5 +12,5 @@ use crate::output::Invalid;
 pub(crate) fn compose(corpus: &Path) -> Result<orbit_research_core::api::Application, Invalid> {
     orbit_research_core::api::Application::local(corpus)
         .map(|application| application.with_acceptance(OrbitAcceptance::for_corpus(corpus)))
-        .map_err(|error| Invalid::from(&error))
+        .map_err(|error| Invalid::for_corpus(&error, corpus))
 }

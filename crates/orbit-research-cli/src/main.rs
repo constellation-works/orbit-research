@@ -166,7 +166,7 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
             Ok((
                 compose(&corpus)?
                     .execute(operation, input)
-                    .map_err(|error| Invalid::from(&error))?,
+                    .map_err(|error| Invalid::for_corpus(&error, &corpus))?,
                 0,
             ))
         }

@@ -60,6 +60,12 @@ pub const ISSUE_DISPLAY_LIMIT: usize = 20;
 /// One line for a single problem; otherwise a count and the first
 /// [`ISSUE_DISPLAY_LIMIT`] problems, one per line, then `+N more`.
 pub fn render_issues(issues: &[CorpusIssue]) -> String {
+    render_issues_with(issues, "orbit-research research check")
+}
+
+/// [`render_issues`] with the command a caller should run again after fixing
+/// the problems, so a CLI can name the corpus it was given.
+pub fn render_issues_with(issues: &[CorpusIssue], rerun: &str) -> String {
     if let [only] = issues {
         return only.to_string();
     }
@@ -70,7 +76,7 @@ pub fn render_issues(issues: &[CorpusIssue]) -> String {
     }
     if issues.len() > ISSUE_DISPLAY_LIMIT {
         text.push_str(&format!(
-            "\n+{} more; fix these and run `orbit-research research check` again",
+            "\n+{} more; fix these and run `{rerun}` again",
             issues.len() - ISSUE_DISPLAY_LIMIT
         ));
     }
@@ -116,7 +122,7 @@ pub enum AcceptanceFailure {
         found: String,
     },
     #[error(
-        "{research} changed after task {task} accepted it (accepted blob {accepted}, current blob {current}); validate and accept the current result again before assessing"
+        "{research} changed after task {task} accepted it (accepted blob {accepted}, current blob {current}); accept refuses different evidence for a task that already has some, so reserve a new research record derived from it with `research create --kind R --status planned --derived-from {research}` and assess against that"
     )]
     StaleBlob {
         research: String,
@@ -161,4 +167,16 @@ pub struct Reservation {
     /// earlier, already committed write and changed nothing.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub replayed: bool,
+    /// Present (false) only when the write left the record exactly as it was,
+    /// so no commit was made. Absent means the write changed the corpus.
+    #[serde(default = "changed_by_default", skip_serializing_if = "is_changed")]
+    pub changed: bool,
+}
+
+fn changed_by_default() -> bool {
+    true
+}
+
+fn is_changed(changed: &bool) -> bool {
+    *changed
 }

@@ -196,16 +196,35 @@ fn unborn_repository_with_schema_is_refused_without_mutation() {
 }
 
 #[test]
-fn failed_initial_commit_can_be_resumed_without_manual_git_repair() {
+fn a_missing_git_identity_is_summarized_and_leaves_nothing_behind() {
     let temp = tempfile::tempdir().expect("workspace fixture operation");
     let root = temp.path();
     let failed = workspace::init_without_identity(root);
     assert!(!failed.status.success());
+    let error: Value = serde_json::from_slice(&failed.stderr).expect("structured error");
+    let stderr = error["error"]["message"].as_str().expect("message");
+    // The refusal says what is true (nothing was created) and gives the exact
+    // commands, instead of Git's multi-line "Please tell me who you are".
+    assert!(stderr.contains("nothing was created"), "{stderr}");
     assert!(
-        String::from_utf8_lossy(&failed.stderr).contains("can be resumed"),
-        "{}",
-        String::from_utf8_lossy(&failed.stderr)
+        stderr.contains("git config --global user.name \"Your Name\""),
+        "{stderr}"
     );
+    assert!(
+        stderr.contains("git config --global user.email you@example.com"),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("rerun `orbit-research workspace init "),
+        "{stderr}"
+    );
+    for raw in [
+        "Please tell me who you are",
+        "Scaffold is incomplete",
+        "can be resumed",
+    ] {
+        assert!(!stderr.contains(raw), "{raw}: {stderr}");
+    }
     assert!(
         fs::read_dir(root)
             .expect("failed scaffold root remains inspectable")

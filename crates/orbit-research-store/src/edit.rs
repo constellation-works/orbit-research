@@ -72,6 +72,21 @@ pub(crate) fn revise(
             "tests, orbit and manifest apply only to research records".into(),
         ));
     }
+    if matches!(record.kind.as_str(), "H" | "T")
+        && edit
+            .body
+            .as_deref()
+            .is_some_and(|body| body.trim().is_empty())
+    {
+        let kind = if record.kind == "H" {
+            "hypothesis"
+        } else {
+            "theory"
+        };
+        return Err(Error::InvalidInput(format!(
+            "A {kind} needs a body: an empty body would erase it. Omit the body to keep the current one"
+        )));
+    }
     let mut metadata = record.metadata.clone();
     let old_title = metadata["title"].as_str().unwrap_or_default().to_owned();
     let title = match &edit.title {
