@@ -153,7 +153,6 @@ fn awaiting_acceptance_reads_task_artifacts_through_callbacks() {
     fixture.deliver_r001(task);
     let expected = json!([{
         "id": "R001",
-        "reason": null,
         "result": "Study",
         "status": "awaiting acceptance",
         "task": task,

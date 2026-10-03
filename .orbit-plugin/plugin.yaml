@@ -125,22 +125,30 @@ spec:
     - name: open-questions
       description: >-
         Panel source. Lists the questions still open, each with its tags and
-        the Orbit tasks recorded on research items working on it. A workspace
-        with no usable corpus, or no open question, answers with one readable
-        status row instead of an error. Read-only.
+        the Orbit tasks recorded on research items working on it, at most 200
+        rows. A workspace with no usable corpus, or no open question, answers
+        with one readable status row instead of an error. Read-only.
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/open-questions.request.json }
     - name: awaiting-acceptance
       description: >-
         Panel source. Lists research results delivered by an investigation run
-        (committed with orbit.task and orbit.run) whose task has no
-        research-acceptance.json artifact, reading each task through the
-        orbit.task.show and orbit.task.artifact.get callbacks. A task that
-        cannot be read shows as acceptance unknown with a short reason, never as
-        accepted. A result counts as accepted only when the artifact names it and
-        its current README blob. Changes no research record; its only write is a
-        best-effort cache of positive answers in the plugin's state directory.
+        (committed with orbit.task and orbit.run) that are not yet accepted,
+        reading each task's research-acceptance.json through the
+        orbit.task.show and orbit.task.artifact.get callbacks, each call
+        stopped after 5 seconds. A result counts as accepted only when the
+        artifact reads as the full acceptance and names it and its current
+        README blob, the check assess applies. A task that cannot be checked
+        shows as acceptance unknown with a short reason (orbit not available,
+        timed out, task or artifact unreadable). Changes no research record.
+        Declared read_only because Orbit requires that of panel sources, but
+        its one write is the best-effort acceptance cache: a small file per
+        confirmed (result, task, README blob) in the plugin's own state
+        directory, which a later refresh trusts without calling Orbit, even
+        while Orbit is unreachable. The cache is trusted local state under the
+        plugin's write grant (a forged well-formed entry hides a row) and can
+        only hide rows, never add one.
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/awaiting-acceptance.request.json }
@@ -149,7 +157,7 @@ spec:
         Panel source. Lists each hypothesis with its current revision and
         status and, per revision, the latest verdict from each research
         result. Results that disagree on a revision keep separate rows and
-        mark the revision disputed. Read-only.
+        mark the revision disputed. At most 200 rows. Read-only.
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/hypotheses.request.json }

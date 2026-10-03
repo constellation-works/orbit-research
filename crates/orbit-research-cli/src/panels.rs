@@ -19,13 +19,21 @@
 //!   `kv` panel, a `Corpus`/`Detail` pair) rather than an error, because the
 //!   renderer would show a failed tool call as a raw error string.
 //!
-//! None of these tools writes. `awaiting-acceptance` additionally reads task
-//! artifacts through the same `orbit.task.show`/`orbit.task.artifact.get`
-//! callbacks `accept` uses; a callback that fails leaves that row's status
-//! `acceptance unknown` instead of guessing.
+//! - A table is capped at [`Limits::max_rows`] rows. The last row says how
+//!   many were left out and the command that lists them all, so a large corpus
+//!   cannot make the dashboard reply unbounded.
+//!
+//! None of these tools writes a research record. `awaiting-acceptance`
+//! additionally reads task artifacts through the same
+//! `orbit.task.show`/`orbit.task.artifact.get` callbacks `accept` uses, each
+//! call bounded in time so the panel always answers inside the plugin
+//! backend's own timeout; a callback that fails leaves that row's status
+//! `acceptance unknown` instead of guessing. Its only write is the
+//! best-effort positive-answer cache in [`acceptance_cache`].
+use crate::acceptance::decode_value;
 use crate::acceptance_cache;
-use crate::plugin::{ACCEPTANCE_ARTIFACT_PATH, TaskHost, error_envelope};
-use orbit_research_core::{Error, Record, Research, Result, Snapshot};
+use crate::plugin::{ACCEPTANCE_ARTIFACT_PATH, CallError, CallLimit, TaskHost, error_envelope};
+use orbit_research_core::{AcceptanceFailure, Error, Record, Research, Result, Snapshot};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -44,15 +52,37 @@ pub(crate) const VERBS: [&str; 4] = [
 const TITLE_WIDTH: usize = 80;
 /// Longest corpus problem shown in the unavailable state.
 const PROBLEM_WIDTH: usize = 160;
-/// How long `awaiting-acceptance` may spend on Orbit callbacks. The backend's
-/// own timeout is 30 s; stopping earlier lets the panel still answer.
-const CALLBACK_BUDGET: Duration = Duration::from_secs(20);
-/// Consecutive callback failures, with no success yet, after which the
-/// remaining rows are reported unknown without more attempts.
-const CALLBACK_GIVE_UP: usize = 3;
+/// What bounds one panel call: how many rows a table shows and how long
+/// `awaiting-acceptance` may wait on Orbit.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    /// Rows a table panel shows before the last row summarizes the rest.
+    pub(crate) max_rows: usize,
+    /// Longest any single `orbit` call may run before it is killed.
+    pub(crate) per_call: Duration,
+    /// Total time `awaiting-acceptance` may spend on Orbit callbacks. The
+    /// backend's own timeout is 30 s; stopping earlier lets the panel answer.
+    pub(crate) budget: Duration,
+    /// Callback failures, with no success yet, after which the remaining rows
+    /// are reported unknown without more attempts.
+    pub(crate) give_up_after: usize,
+}
 
-const NO_CORPUS: &str = "This workspace has no research corpus yet. \
-     Run `orbit-research workspace init <path>` to create one.";
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_rows: 200,
+            per_call: Duration::from_secs(5),
+            budget: Duration::from_secs(20),
+            give_up_after: 3,
+        }
+    }
+}
+
+const NO_CORPUS: &str = "This workspace has no research corpus. The plugin reads the workspace \
+     root as the corpus, and `orbit-research workspace init` refuses a non-empty directory, \
+     so a research corpus needs its own new, empty directory: create it with \
+     `orbit-research workspace init <dir>` and register that directory as an Orbit workspace.";
 
 // The panel tools take no input; an unknown field is a mistake, not ignored.
 #[derive(Deserialize)]
@@ -65,17 +95,38 @@ pub(crate) fn is_panel_verb(verb: &str) -> bool {
 
 /// Serve one panel tool call and return the complete plugin reply.
 pub(crate) fn serve(verb: &str, input: Value, workspace_root: &Path, host: &dyn TaskHost) -> Value {
+    serve_with(verb, input, workspace_root, host, Limits::default())
+}
+
+/// [`serve`] with explicit [`Limits`], so tests need not wait out real timeouts.
+pub(crate) fn serve_with(
+    verb: &str,
+    input: Value,
+    workspace_root: &Path,
+    host: &dyn TaskHost,
+    limits: Limits,
+) -> Value {
     if let Err(error) = serde_json::from_value::<PanelInput>(input) {
         return error_envelope("invalid_request", error.to_string());
     }
     let (shape, built) = match verb {
-        "open-questions" => (Shape::Table, build(workspace_root, open_questions)),
-        "hypotheses" => (Shape::Table, build(workspace_root, hypotheses)),
+        "open-questions" => (
+            Shape::Table,
+            build(workspace_root, |snapshot| {
+                open_questions(snapshot, workspace_root, &limits)
+            }),
+        ),
+        "hypotheses" => (
+            Shape::Table,
+            build(workspace_root, |snapshot| {
+                hypotheses(snapshot, workspace_root, &limits)
+            }),
+        ),
         "corpus-health" => (Shape::Kv, build(workspace_root, corpus_health)),
         _ => (
             Shape::Table,
             build(workspace_root, |snapshot| {
-                awaiting_acceptance(snapshot, host, workspace_root)
+                awaiting_acceptance(snapshot, host, workspace_root, &limits)
             }),
         ),
     };
@@ -148,6 +199,23 @@ fn unavailable(shape: Shape, root: &Path, error: &Error) -> Value {
 /// The one-row table that stands in for an empty or unavailable result.
 fn status_rows(message: impl Into<String>) -> Value {
     json!([{"status": message.into()}])
+}
+
+/// Cap a table at `limits.max_rows`. The extra last row puts its sentence in
+/// `column`, a column every row of that panel already has, so the cap adds no
+/// column of its own.
+fn capped(mut rows: Vec<Value>, column: &str, root: &Path, limits: &Limits) -> Value {
+    if rows.len() > limits.max_rows {
+        let hidden = rows.len() - limits.max_rows;
+        rows.truncate(limits.max_rows);
+        rows.push(json!({
+            column: format!(
+                "+{hidden} more not shown; use `orbit-research research list --corpus {}`",
+                root.display()
+            ),
+        }));
+    }
+    Value::Array(rows)
 }
 
 fn sentence(text: &str) -> String {
@@ -246,7 +314,7 @@ fn records_of<'a>(snapshot: &'a Snapshot, kind: &'a str) -> impl Iterator<Item =
 
 /// Keys sort as: id, question, tags, tasks, updated. Newest update first,
 /// ties by id descending, so recent captures lead and the order is stable.
-fn open_questions(snapshot: &Snapshot) -> Value {
+fn open_questions(snapshot: &Snapshot, root: &Path, limits: &Limits) -> Value {
     let total = records_of(snapshot, "Q").count();
     let mut open: Vec<&Record> = records_of(snapshot, "Q")
         .filter(|question| text(question, "status") == Some("open"))
@@ -264,19 +332,19 @@ fn open_questions(snapshot: &Snapshot) -> Value {
             .cmp(&updated_key(a))
             .then_with(|| b.id.cmp(&a.id))
     });
-    Value::Array(
-        open.into_iter()
-            .map(|question| {
-                json!({
-                    "id": question.id,
-                    "question": title_cell(question),
-                    "tags": joined_cell(ids(question, "tags")),
-                    "tasks": tasks_cell(linked_tasks(snapshot, question)),
-                    "updated": date_cell(text(question, "updated")),
-                })
+    let rows = open
+        .into_iter()
+        .map(|question| {
+            json!({
+                "id": question.id,
+                "question": title_cell(question),
+                "tags": joined_cell(ids(question, "tags")),
+                "tasks": tasks_cell(linked_tasks(snapshot, question)),
+                "updated": date_cell(text(question, "updated")),
             })
-            .collect(),
-    )
+        })
+        .collect();
+    capped(rows, "question", root, limits)
 }
 
 /// The `YYYY-MM-DD` of a record's `updated`, which sorts as a date; a missing
@@ -341,15 +409,81 @@ fn linked_tasks<'a>(snapshot: &'a Snapshot, question: &'a Record) -> Vec<&'a str
 
 // ---- Results awaiting acceptance ------------------------------------------
 
-/// Keys sort as: id, reason, result, status, task, updated. `reason` is set
-/// only for `acceptance unknown`, saying in a few words why Orbit could not be
+/// Where one delivered result stands. The order is the order of the rows:
+/// what needs accepting first, what needs re-accepting next, what could not
+/// be checked last.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Standing {
+    Awaiting,
+    Changed,
+    Unknown,
+}
+
+impl Standing {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Awaiting => "awaiting acceptance",
+            Self::Changed => "result changed since accepted",
+            Self::Unknown => "acceptance unknown",
+        }
+    }
+}
+
+struct PendingRow<'a> {
+    item: &'a Record,
+    task: &'a str,
+    standing: Standing,
+    /// A status that does not fit [`Standing::label`]; the standing still
+    /// orders the row.
+    status: Option<&'static str>,
+    reason: Option<&'static str>,
+}
+
+/// Why one callback failed, in a few words.
+fn failure_reason(error: &CallError, past_deadline: bool) -> &'static str {
+    match error {
+        CallError::Unavailable(_) => "orbit not available",
+        CallError::TimedOut(_) if past_deadline => "time budget exceeded",
+        CallError::TimedOut(_) => "orbit call timed out",
+        CallError::Failed(_) => "task unreadable",
+    }
+}
+
+/// The one bar for accepted, shared with `assess`: the artifact must decode as
+/// the full `Acceptance` and name this research id and this README blob.
+fn judge(item: &Record, task: &str, artifact: Value) -> std::result::Result<(), AcceptanceFailure> {
+    match decode_value(&item.id, task, artifact) {
+        Ok(acceptance) => acceptance.verify(&item.id, task, &item.git_blob),
+        Err(Error::Acceptance(failure)) => Err(failure),
+        Err(other) => Err(AcceptanceFailure::Malformed {
+            research: item.id.clone(),
+            task: task.into(),
+            reason: other.to_string(),
+        }),
+    }
+}
+
+/// Keys sort as: id, reason, result, status, task, updated. Rows are ordered
+/// by status (awaiting acceptance, result changed since accepted, acceptance
+/// unknown), then id. `reason` appears only when some row is `acceptance
+/// unknown` or otherwise has one, and then on every row (a table's columns are
+/// the union of its rows' keys); it says in a few words why Orbit could not be
 /// asked or did not answer.
 ///
-/// A result counts as accepted only when its task's artifact names this
-/// research id and this exact README blob at HEAD, the same bar `assess`
-/// applies. Positive answers are remembered per (id, task, blob) by
-/// [`acceptance_cache`], which can only ever hide a row, never invent one.
-fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost, workspace: &Path) -> Value {
+/// A result counts as accepted only when its task's artifact reads as the full
+/// [`Acceptance`](orbit_research_core::application::acceptance::Acceptance)
+/// `assess` reads and passes the same [`verify`](orbit_research_core::application::acceptance::Acceptance::verify)
+/// check against the README blob in the working tree. An artifact that does
+/// not parse that way, such as one missing its commit or run id, is
+/// `acceptance unknown` ("artifact unreadable") and never cached. Positive
+/// answers are remembered per (id, task, blob) by [`acceptance_cache`], which
+/// can only ever hide a row, never invent one.
+fn awaiting_acceptance(
+    snapshot: &Snapshot,
+    host: &dyn TaskHost,
+    workspace: &Path,
+    limits: &Limits,
+) -> Value {
     // Delivered: committed with both an Orbit task and run recorded, which is
     // what a finished `research_investigation` run writes.
     let delivered: Vec<(&Record, &str)> = records_of(snapshot, "R")
@@ -362,57 +496,74 @@ fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost, workspace: &Pat
         );
     }
     let started = Instant::now();
+    let limit = CallLimit {
+        per_call: limits.per_call,
+        deadline: started + limits.budget,
+    };
     let (mut failures, mut successes) = (0, 0);
-    let mut rows = Vec::new();
+    // Set once Orbit could not even be started: asking again cannot help.
+    let mut unavailable = false;
+    let mut last_failure: Option<&'static str> = None;
+    let mut pending = Vec::new();
     for (item, task) in &delivered {
         if acceptance_cache::is_accepted(workspace, &item.id, task, &item.git_blob) {
             continue;
         }
-        let giving_up =
-            (failures >= CALLBACK_GIVE_UP && successes == 0) || started.elapsed() > CALLBACK_BUDGET;
-        let (status, reason) = if giving_up {
-            let reason = if started.elapsed() > CALLBACK_BUDGET {
+        let row = |standing, status, reason| PendingRow {
+            item,
+            task,
+            standing,
+            status,
+            reason,
+        };
+        let out_of_time = started.elapsed() >= limits.budget;
+        if unavailable || out_of_time || (failures >= limits.give_up_after && successes == 0) {
+            let reason = if unavailable {
+                "orbit not available"
+            } else if out_of_time {
                 "time budget exceeded"
             } else {
-                "earlier tasks unreadable"
+                last_failure
+                    .filter(|reason| *reason != "task unreadable")
+                    .unwrap_or("earlier tasks unreadable")
             };
-            (Some("acceptance unknown"), Some(reason))
-        } else {
-            match host.get_artifact(task, ACCEPTANCE_ARTIFACT_PATH) {
-                Ok(None) => {
-                    successes += 1;
-                    (Some("awaiting acceptance"), None)
-                }
-                Ok(Some(artifact)) => {
-                    successes += 1;
-                    let field = |name: &str| artifact.get(name).and_then(Value::as_str);
-                    if field("research_id") != Some(&item.id) {
-                        (Some("acceptance names another result"), None)
-                    } else if field("blob") != Some(&item.git_blob) {
-                        (Some("result changed since accepted"), None)
-                    } else {
+            pending.push(row(Standing::Unknown, None, Some(reason)));
+            continue;
+        }
+        match host.get_artifact_limited(task, ACCEPTANCE_ARTIFACT_PATH, limit) {
+            Ok(None) => {
+                successes += 1;
+                pending.push(row(Standing::Awaiting, None, None));
+            }
+            Ok(Some(artifact)) => {
+                successes += 1;
+                match judge(item, task, artifact) {
+                    Ok(()) => {
                         acceptance_cache::record(workspace, &item.id, task, &item.git_blob);
-                        (None, None)
+                    }
+                    Err(AcceptanceFailure::WrongResearch { .. }) => pending.push(row(
+                        Standing::Changed,
+                        Some("acceptance names another result"),
+                        None,
+                    )),
+                    Err(AcceptanceFailure::StaleBlob { .. }) => {
+                        pending.push(row(Standing::Changed, None, None));
+                    }
+                    Err(_) => {
+                        pending.push(row(Standing::Unknown, None, Some("artifact unreadable")))
                     }
                 }
-                Err(_) => {
-                    failures += 1;
-                    (Some("acceptance unknown"), Some("task unreadable"))
-                }
             }
-        };
-        if let Some(status) = status {
-            rows.push(json!({
-                "id": item.id,
-                "reason": reason,
-                "result": title_cell(item),
-                "status": status,
-                "task": task,
-                "updated": date_cell(text(item, "updated")),
-            }));
+            Err(error) => {
+                failures += 1;
+                let reason = failure_reason(&error, Instant::now() >= limit.deadline);
+                unavailable |= matches!(error, CallError::Unavailable(_));
+                last_failure = Some(reason);
+                pending.push(row(Standing::Unknown, None, Some(reason)));
+            }
         }
     }
-    if rows.is_empty() {
+    if pending.is_empty() {
         return status_rows(match delivered.len() {
             1 => "Nothing awaiting acceptance. The only delivered result is accepted.".to_owned(),
             count => {
@@ -420,7 +571,31 @@ fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost, workspace: &Pat
             }
         });
     }
-    Value::Array(rows)
+    pending.sort_by(|a, b| {
+        a.standing
+            .cmp(&b.standing)
+            .then_with(|| a.item.id.cmp(&b.item.id))
+    });
+    let with_reason = pending.iter().any(|row| row.reason.is_some());
+    let rows = pending
+        .into_iter()
+        .map(|row| {
+            let mut cells = Map::new();
+            cells.insert("id".into(), json!(row.item.id));
+            if with_reason {
+                cells.insert("reason".into(), json!(row.reason));
+            }
+            cells.insert("result".into(), title_cell(row.item));
+            cells.insert(
+                "status".into(),
+                json!(row.status.unwrap_or_else(|| row.standing.label())),
+            );
+            cells.insert("task".into(), json!(row.task));
+            cells.insert("updated".into(), date_cell(text(row.item, "updated")));
+            Value::Object(cells)
+        })
+        .collect();
+    capped(rows, "result", workspace, limits)
 }
 
 // ---- Hypotheses and assessments -------------------------------------------
@@ -434,7 +609,7 @@ fn awaiting_acceptance(snapshot: &Snapshot, host: &dyn TaskHost, workspace: &Pat
 /// on their own rows and the revision is marked disputed; nothing is averaged
 /// or collapsed into one verdict. Earlier revisions keep their rows, marked
 /// superseded, because assessments stay on the revision they judged.
-fn hypotheses(snapshot: &Snapshot) -> Value {
+fn hypotheses(snapshot: &Snapshot, root: &Path, limits: &Limits) -> Value {
     let mut rows = Vec::new();
     for hypothesis in records_of(snapshot, "H") {
         let current = hypothesis
@@ -512,7 +687,7 @@ fn hypotheses(snapshot: &Snapshot) -> Value {
             "No hypotheses yet. Create one with `orbit-research research create --kind H`.",
         );
     }
-    Value::Array(rows)
+    capped(rows, "name", root, limits)
 }
 
 // ---- Corpus health --------------------------------------------------------

@@ -53,13 +53,34 @@ read-only panels, drawn by Orbit's generic renderer (no plugin code):
 | Panel | Render | Shows |
 |---|---|---|
 | Open questions | table | each open question with its tags and the Orbit tasks recorded on results working on it |
-| Results awaiting acceptance | table | results a run delivered (committed with `orbit.task` and `orbit.run`) whose task has no `research-acceptance.json`; `acceptance unknown` when the task cannot be read, never assumed accepted |
+| Results awaiting acceptance | table | results a run delivered (committed with `orbit.task` and `orbit.run`) that are not accepted: no `research-acceptance.json` on the task (`awaiting acceptance`), one for an earlier version of the README (`result changed since accepted`), or an acceptance that cannot be checked right now (`acceptance unknown`, with a short reason such as `orbit not available`, `orbit call timed out` or `artifact unreadable`) |
 | Hypotheses and assessments | table | each hypothesis revision with the latest verdict from each result; results that disagree stay on separate rows and the revision is marked disputed |
 | Corpus health | kv | validity, base revision and counts by kind and status |
 
 A workspace with no corpus, an unreadable corpus or nothing to list shows one short
-sentence saying so and what to do next, not an error. Panels only read; run `accept` and
-`assess` from the CLI or MCP (see the skill).
+sentence saying so and what to do next, not an error. A research corpus needs its own
+new, empty directory (`orbit-research workspace init <dir>`) registered as an Orbit
+workspace; the plugin reads the workspace root as the corpus, so an existing project
+directory will not do. A table shows at most 200 rows and ends with a row saying how
+many were left out and the `orbit-research research list --corpus <path>` command that
+lists them. Panels never write a research record; run `accept` and `assess` from the
+CLI or MCP (see the skill).
+
+`awaiting-acceptance` calls `orbit tool run` for each delivered result, killing any one
+call after 5 seconds and stopping all of them after 20, so the panel always answers. A
+result is accepted only when its task's artifact reads as the full acceptance (research
+id, commit, blob and run id) and names that result and its current README, the same
+check `assess` applies; a partial or malformed artifact is `acceptance unknown`
+(`artifact unreadable`). A task that cannot be read is never assumed accepted. The one
+exception is the acceptance cache: after a live read confirms an acceptance, the panel
+keeps a small file for that (research id, task, README blob) under the workspace's
+`_data/orbit-research-operations/acceptance/` (only in a corpus prepared by
+`workspace init` or `workspace prepare-operations`), and a later refresh hides that row
+without calling Orbit, even while Orbit is unreachable. That is safe by design: a stored
+acceptance is never replaced and an edited README no longer matches the key. The cache is
+trusted local state under the plugin's own write grant, like the corpus itself: someone
+who can write that directory can plant an entry that hides a row. It can only hide a row,
+never add one, and `assess` never reads it.
 
 ## Build and validate
 

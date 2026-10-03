@@ -56,6 +56,9 @@ usage: scripts/e2e-live.sh --corpus DIR --crew NAME --live [options]
   --plan             Print the steps and exit without touching anything.
   -h, --help         This text.
 
+Exit status: 0 on success or help, 1 when a run is refused or fails, 2 for a
+usage error (unknown or malformed arguments).
+
 Requires on PATH: orbit (with the research plugin installed and enabled),
 orbit-research, git and python3.
 EOF
@@ -68,6 +71,14 @@ die() {
 
 log() {
     printf '== %s\n' "$*"
+}
+
+# A malformed command line is a usage error: exit 2, like the other scripts.
+# Refusals of a well-formed run (the live guard, an occupied corpus) exit 1.
+usage_error() {
+    printf 'e2e-live: %s\n' "$*" >&2
+    usage >&2
+    exit 2
 }
 
 corpus=""
@@ -84,25 +95,25 @@ live=0
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
-        --corpus) [ "$#" -ge 2 ] || die "--corpus needs a directory"; corpus=$2; shift 2 ;;
-        --crew) [ "$#" -ge 2 ] || die "--crew needs a name"; crew=$2; shift 2 ;;
-        --workspace) [ "$#" -ge 2 ] || die "--workspace needs a name"; workspace=$2; shift 2 ;;
-        --evidence) [ "$#" -ge 2 ] || die "--evidence needs a directory"; evidence=$2; shift 2 ;;
-        --max-minutes) [ "$#" -ge 2 ] || die "--max-minutes needs a number"; max_minutes=$2; shift 2 ;;
-        --verdict) [ "$#" -ge 2 ] || die "--verdict needs a value"; verdict=$2; shift 2 ;;
-        --strength) [ "$#" -ge 2 ] || die "--strength needs a value"; strength=$2; shift 2 ;;
+        --corpus) [ "$#" -ge 2 ] || usage_error "--corpus needs a directory"; corpus=$2; shift 2 ;;
+        --crew) [ "$#" -ge 2 ] || usage_error "--crew needs a name"; crew=$2; shift 2 ;;
+        --workspace) [ "$#" -ge 2 ] || usage_error "--workspace needs a name"; workspace=$2; shift 2 ;;
+        --evidence) [ "$#" -ge 2 ] || usage_error "--evidence needs a directory"; evidence=$2; shift 2 ;;
+        --max-minutes) [ "$#" -ge 2 ] || usage_error "--max-minutes needs a number"; max_minutes=$2; shift 2 ;;
+        --verdict) [ "$#" -ge 2 ] || usage_error "--verdict needs a value"; verdict=$2; shift 2 ;;
+        --strength) [ "$#" -ge 2 ] || usage_error "--strength needs a value"; strength=$2; shift 2 ;;
         --no-accept) accept=0; shift ;;
         --resume) resume=1; shift ;;
         --live) live=1; shift ;;
         --plan) plan_only=1; shift ;;
         -h|--help) usage; exit 0 ;;
-        *) usage >&2; die "unknown argument: $1" ;;
+        *) usage_error "unknown argument: $1" ;;
     esac
 done
 
-case "$verdict" in inconclusive|supports|refutes) ;; *) die "--verdict must be inconclusive, supports or refutes" ;; esac
-case "$strength" in anecdote|suggestive|strong) ;; *) die "--strength must be anecdote, suggestive or strong" ;; esac
-case "$max_minutes" in ''|*[!0-9]*) die "--max-minutes must be a whole number" ;; esac
+case "$verdict" in inconclusive|supports|refutes) ;; *) usage_error "--verdict must be inconclusive, supports or refutes" ;; esac
+case "$strength" in anecdote|suggestive|strong) ;; *) usage_error "--strength must be anecdote, suggestive or strong" ;; esac
+case "$max_minutes" in ''|*[!0-9]*) usage_error "--max-minutes must be a whole number" ;; esac
 
 QUESTION="Is Python's seeded random.Random unbiased enough that a fair simulated coin lands heads within one percentage point of 50% over 100,000 flips?"
 HYPOTHESIS_TITLE="A seeded fair coin stays within one point of 50 percent"
@@ -163,8 +174,8 @@ if [ "$live" != 1 ] || [ "${ORBIT_RESEARCH_LIVE_CONFIRM:-}" != yes ]; then
     printf '\n'
     die "dry run only: this registers a workspace and starts a real provider, which spends money. To run it, pass --live and set ORBIT_RESEARCH_LIVE_CONFIRM=yes."
 fi
-[ -n "$corpus" ] || { usage >&2; die "--corpus is required"; }
-[ -n "$crew" ] || { usage >&2; die "--crew is required"; }
+[ -n "$corpus" ] || usage_error "--corpus is required"
+[ -n "$crew" ] || usage_error "--crew is required"
 
 for program in orbit orbit-research git python3; do
     command -v "$program" > /dev/null 2>&1 || die "missing required program: $program"

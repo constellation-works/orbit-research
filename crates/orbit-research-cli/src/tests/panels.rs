@@ -2,12 +2,16 @@
 //! `serve_plugin_tool_call_with_host` entry point the `orbit-tool` subcommand
 //! serves. Orbit's own conformance run can only reach the no-corpus state, so
 //! rows, empty states and the task callbacks are pinned here.
-use super::super::panels::{VERBS, serve};
-use super::super::plugin::{TaskHost, TaskRef, TaskState, serve_plugin_tool_call_with_host};
+use super::super::acceptance_cache;
+use super::super::panels::{Limits, VERBS, serve, serve_with};
+use super::super::plugin::{
+    OrbitCliTaskHost, TaskHost, TaskRef, TaskState, serve_plugin_tool_call_with_host,
+};
 use orbit_research_core::{Error, Result};
 use serde_json::{Value, json};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use std::{fs, io::Cursor, path::Path, process::Command};
 use tempfile::TempDir;
 
@@ -123,6 +127,8 @@ fn research_corpus() -> TempDir {
 struct ArtifactHost {
     artifacts: BTreeMap<String, Value>,
     failing: bool,
+    /// Tasks whose read fails while every other read succeeds.
+    unreadable: BTreeSet<String>,
     reads: Mutex<Vec<String>>,
 }
 
@@ -132,10 +138,21 @@ impl ArtifactHost {
         let mut host = Self::default();
         host.artifacts.insert(
             task.into(),
-            json!({"research_id": research, "blob": readme_blob(root, research)}),
+            acceptance(research, &readme_blob(root, research)),
         );
         host
     }
+}
+
+/// The artifact `accept` stores: the full `Acceptance`, as `assess` reads it.
+fn acceptance(research: &str, blob: &str) -> Value {
+    json!({
+        "research_id": research,
+        "commit": "c".repeat(40),
+        "blob": blob,
+        "run_id": "jrun-1",
+        "artifact_digests": {},
+    })
 }
 
 /// The Git blob of a committed research README, as `accept` records it.
@@ -192,7 +209,7 @@ impl TaskHost for ArtifactHost {
     fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>> {
         assert_eq!(path, "research-acceptance.json");
         self.reads.lock().expect("reads").push(id.into());
-        if self.failing {
+        if self.failing || self.unreadable.contains(id) {
             return Err(Error::Internal("simulated callback refusal".into()));
         }
         Ok(self.artifacts.get(id).cloned())
@@ -204,6 +221,12 @@ impl TaskHost for ArtifactHost {
 
 fn panel(verb: &str, root: &Path, host: &dyn TaskHost) -> Value {
     let reply = serve(verb, json!({}), root, host);
+    assert_eq!(reply["ok"], true, "{verb}: {reply}");
+    reply["output"].clone()
+}
+
+fn panel_with(verb: &str, root: &Path, host: &dyn TaskHost, limits: Limits) -> Value {
+    let reply = serve_with(verb, json!({}), root, host, limits);
     assert_eq!(reply["ok"], true, "{verb}: {reply}");
     reply["output"].clone()
 }
@@ -309,7 +332,7 @@ fn awaiting_acceptance_omits_accepted_results_and_lists_the_rest() {
     let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     assert_eq!(
         panel("awaiting-acceptance", temp.path(), &host),
-        json!([{"id": "R002", "reason": null, "result": "Result rerun",
+        json!([{"id": "R002", "result": "Result rerun",
                 "status": "awaiting acceptance", "task": "ORB-2", "updated": "2026-09-15"}])
     );
     // R003 is only reserved: no task or run, so it is never read.
@@ -338,8 +361,10 @@ fn awaiting_acceptance_never_calls_an_unread_result_accepted() {
 fn awaiting_acceptance_flags_an_artifact_that_names_another_result() {
     let temp = research_corpus();
     let mut host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
-    host.artifacts
-        .insert("ORB-2".into(), json!({"research_id": "R001"}));
+    host.artifacts.insert(
+        "ORB-2".into(),
+        acceptance("R001", &readme_blob(temp.path(), "R001")),
+    );
     let output = panel("awaiting-acceptance", temp.path(), &host);
     assert_eq!(rows(&output).len(), 1, "{output}");
     assert_eq!(output[0]["status"], "acceptance names another result");
@@ -454,7 +479,7 @@ fn a_corpus_without_open_questions_or_pending_results_says_so() {
 #[test]
 fn a_workspace_without_a_corpus_shows_a_short_message_not_an_error() {
     let temp = tempfile::tempdir().expect("empty workspace");
-    let message = "This workspace has no research corpus yet. Run `orbit-research workspace init <path>` to create one.";
+    let message = "This workspace has no research corpus. The plugin reads the workspace root as the corpus, and `orbit-research workspace init` refuses a non-empty directory, so a research corpus needs its own new, empty directory: create it with `orbit-research workspace init <dir>` and register that directory as an Orbit workspace.";
     for verb in ["open-questions", "awaiting-acceptance", "hypotheses"] {
         assert_eq!(
             panel(verb, temp.path(), &ArtifactHost::default()),
@@ -748,12 +773,13 @@ fn an_unreadable_task_and_a_changed_result_each_say_why() {
     // ORB-2 accepted R002 as it was before someone edited it.
     host.artifacts.insert(
         "ORB-2".into(),
-        json!({"research_id": "R002", "blob": "0000000000000000000000000000000000000000"}),
+        acceptance("R002", "0000000000000000000000000000000000000000"),
     );
     let output = panel("awaiting-acceptance", temp.path(), &host);
     assert_eq!(output[0]["id"], "R002");
     assert_eq!(output[0]["status"], "result changed since accepted");
-    assert!(output[0]["reason"].is_null());
+    // No row is unknown, so there is no `reason` column at all.
+    assert!(output[0].get("reason").is_none(), "{output}");
 }
 
 #[test]
@@ -850,8 +876,8 @@ fn the_cache_cannot_make_a_changed_or_forged_result_look_accepted() {
     assert_eq!(
         statuses,
         [
-            (json!("R001"), json!("result changed since accepted")),
             (json!("R002"), json!("awaiting acceptance")),
+            (json!("R001"), json!("result changed since accepted")),
         ]
     );
 
@@ -915,4 +941,358 @@ fn a_symlinked_state_directory_is_never_written_through() {
         panel("awaiting-acceptance", temp.path(), &host);
         assert!(!elsewhere.path().join("acceptance").exists());
     }
+}
+
+// ---- Acceptance bar, cache symlinks, limits, cap and ordering -------------
+
+/// `count` delivered results, `R001..`, each on its own task `ORB-<n>`.
+fn delivered_corpus(count: usize) -> TempDir {
+    let records: Vec<_> = (1..=count)
+        .map(|number| {
+            result(
+                &format!("R{number:03}"),
+                &format!("r{number}"),
+                "done",
+                "[]",
+                "[]",
+                Some((&format!("ORB-{number}"), &format!("jrun-{number}"))),
+            )
+        })
+        .collect();
+    corpus_with(&records)
+}
+
+/// A stand-in `orbit` that records its pid and then hangs.
+#[cfg(unix)]
+fn hung_orbit(directory: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let pids = directory.join("pids");
+    let script = directory.join("orbit");
+    fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\necho $$ >> '{}'\nexec sleep 60\n",
+            pids.display()
+        ),
+    )
+    .expect("stub orbit");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).expect("executable");
+    (script, pids)
+}
+
+fn process_is_running(pid: &str) -> bool {
+    Command::new("kill")
+        .args(["-0", pid])
+        .output()
+        .expect("kill -0")
+        .status
+        .success()
+}
+
+#[test]
+fn a_partial_artifact_is_unknown_and_never_cached() {
+    let temp = research_corpus();
+    let state = prepare_state(temp.path());
+    let blob = readme_blob(temp.path(), "R001");
+    for partial in [
+        // What the panel used to accept: no commit and no run id.
+        json!({"research_id": "R001", "blob": blob}),
+        json!({"research_id": "R001", "blob": blob, "commit": "c".repeat(40)}),
+        json!({"research_id": "R001", "blob": 7, "commit": "c", "run_id": "r"}),
+        json!("accepted"),
+        json!([]),
+    ] {
+        let mut host = ArtifactHost::default();
+        host.artifacts.insert("ORB-1".into(), partial.clone());
+        host.artifacts.insert(
+            "ORB-2".into(),
+            acceptance("R002", &readme_blob(temp.path(), "R002")),
+        );
+        let output = panel("awaiting-acceptance", temp.path(), &host);
+        assert_eq!(
+            output,
+            json!([{"id": "R001", "reason": "artifact unreadable", "result": "Result baseline",
+                    "status": "acceptance unknown", "task": "ORB-1", "updated": "2026-09-15"}]),
+            "{partial}"
+        );
+        // R002's well-formed acceptance is cached; the partial one never is.
+        let entries: Vec<_> = fs::read_dir(state.join("acceptance"))
+            .expect("cache directory")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .into_string()
+                    .expect("name")
+            })
+            .collect();
+        assert_eq!(entries.len(), 1, "{partial}: {entries:?}");
+        assert!(entries[0].starts_with("R002-ORB-2-"), "{entries:?}");
+    }
+}
+
+#[test]
+fn the_panel_and_assess_agree_on_what_a_readable_acceptance_is() {
+    use super::super::acceptance::decode_value;
+    let blob = "b".repeat(40);
+    let full = acceptance("R001", &blob);
+    assert!(decode_value("R001", "ORB-1", full).is_ok());
+    let partial = json!({"research_id": "R001", "blob": blob});
+    assert!(decode_value("R001", "ORB-1", partial).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlinked_cache_directory_is_neither_read_nor_written_through() {
+    let temp = research_corpus();
+    let state = prepare_state(temp.path());
+    let blob = readme_blob(temp.path(), "R001");
+    // A well-formed entry sitting where the symlink points.
+    let elsewhere = tempfile::tempdir().expect("elsewhere");
+    fs::write(
+        elsewhere.path().join(format!("R001-ORB-1-{blob}.json")),
+        format!("{{\"research_id\":\"R001\",\"task\":\"ORB-1\",\"blob\":\"{blob}\"}}"),
+    )
+    .expect("forged entry");
+    std::os::unix::fs::symlink(elsewhere.path(), state.join("acceptance")).expect("symlink");
+
+    assert!(
+        !acceptance_cache::is_accepted(temp.path(), "R001", "ORB-1", &blob),
+        "a symlinked cache directory must not be read"
+    );
+    acceptance_cache::record(
+        temp.path(),
+        "R002",
+        "ORB-2",
+        &readme_blob(temp.path(), "R002"),
+    );
+    let written: Vec<_> = fs::read_dir(elsewhere.path())
+        .expect("target")
+        .map(|entry| entry.expect("entry").file_name())
+        .collect();
+    assert_eq!(
+        written.len(),
+        1,
+        "nothing is written through it: {written:?}"
+    );
+
+    // Through the panel: R001 is not hidden by the forged entry.
+    let down = ArtifactHost {
+        failing: true,
+        ..ArtifactHost::default()
+    };
+    let output = panel("awaiting-acceptance", temp.path(), &down);
+    assert_eq!(rows(&output).len(), 2, "{output}");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_hung_orbit_is_killed_and_the_panel_still_answers_within_its_budget() {
+    let temp = delivered_corpus(5);
+    let stubs = tempfile::tempdir().expect("stub directory");
+    let (orbit, pids) = hung_orbit(stubs.path());
+    let host = OrbitCliTaskHost::with_orbit(orbit.to_string_lossy());
+    let limits = Limits {
+        per_call: Duration::from_millis(500),
+        budget: Duration::from_secs(10),
+        ..Limits::default()
+    };
+    let started = Instant::now();
+    let output = panel_with("awaiting-acceptance", temp.path(), &host, limits);
+    // Three calls hang, each killed at 500 ms; the rest are not attempted.
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "{:?}",
+        started.elapsed()
+    );
+    let reasons: Vec<_> = rows(&output)
+        .iter()
+        .map(|row| row["reason"].clone())
+        .collect();
+    assert_eq!(reasons, vec![json!("orbit call timed out"); 5], "{output}");
+    assert!(
+        rows(&output)
+            .iter()
+            .all(|row| row["status"] == "acceptance unknown")
+    );
+    let pids = fs::read_to_string(pids).expect("pids");
+    let pids: Vec<_> = pids.lines().collect();
+    // A child killed before its shell wrote a pid leaves none, so under load
+    // fewer than three may be recorded; none may still be running.
+    assert!(!pids.is_empty() && pids.len() <= 3, "{pids:?}");
+    assert!(
+        pids.iter().all(|pid| !process_is_running(pid)),
+        "every hung child was killed: {pids:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn the_time_budget_bounds_the_whole_panel_not_just_each_call() {
+    let temp = delivered_corpus(4);
+    let stubs = tempfile::tempdir().expect("stub directory");
+    let (orbit, _) = hung_orbit(stubs.path());
+    let host = OrbitCliTaskHost::with_orbit(orbit.to_string_lossy());
+    let limits = Limits {
+        per_call: Duration::from_secs(30),
+        budget: Duration::from_millis(500),
+        ..Limits::default()
+    };
+    let started = Instant::now();
+    let output = panel_with("awaiting-acceptance", temp.path(), &host, limits);
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(rows(&output).len(), 4);
+    assert!(
+        rows(&output)
+            .iter()
+            .all(|row| row["reason"] == "time budget exceeded"),
+        "{output}"
+    );
+}
+
+#[test]
+fn a_missing_orbit_is_named_once_instead_of_as_unreadable_tasks() {
+    let temp = delivered_corpus(4);
+    let host = OrbitCliTaskHost::with_orbit("/nonexistent/orbit-for-panel-test");
+    let output = panel("awaiting-acceptance", temp.path(), &host);
+    assert_eq!(rows(&output).len(), 4, "{output}");
+    for row in rows(&output) {
+        assert_eq!(row["status"], "acceptance unknown", "{output}");
+        assert_eq!(row["reason"], "orbit not available", "{output}");
+    }
+}
+
+#[test]
+fn a_failing_orbit_still_says_task_unreadable() {
+    let temp = research_corpus();
+    let down = ArtifactHost {
+        failing: true,
+        ..ArtifactHost::default()
+    };
+    let output = panel("awaiting-acceptance", temp.path(), &down);
+    assert!(
+        rows(&output)
+            .iter()
+            .all(|row| row["reason"] == "task unreadable"),
+        "{output}"
+    );
+}
+
+#[test]
+fn rows_are_ordered_by_state_then_id() {
+    let temp = delivered_corpus(4);
+    let mut host = ArtifactHost::default();
+    // R001 cannot be read; R002 changed since accepted; R003 never accepted;
+    // R004 changed too.
+    host.unreadable.insert("ORB-1".into());
+    host.artifacts.insert(
+        "ORB-2".into(),
+        acceptance("R002", "0000000000000000000000000000000000000000"),
+    );
+    host.artifacts.insert(
+        "ORB-4".into(),
+        acceptance("R004", "1111111111111111111111111111111111111111"),
+    );
+    let output = panel("awaiting-acceptance", temp.path(), &host);
+    let order: Vec<_> = rows(&output)
+        .iter()
+        .map(|row| (row["id"].clone(), row["status"].clone()))
+        .collect();
+    assert_eq!(
+        order,
+        [
+            (json!("R003"), json!("awaiting acceptance")),
+            (json!("R002"), json!("result changed since accepted")),
+            (json!("R004"), json!("result changed since accepted")),
+            (json!("R001"), json!("acceptance unknown")),
+        ]
+    );
+    // One row has a reason, so the column is on every row.
+    assert!(
+        rows(&output).iter().all(|row| row.get("reason").is_some()),
+        "{output}"
+    );
+    assert_eq!(output[3]["reason"], "task unreadable");
+    assert!(output[0]["reason"].is_null());
+}
+
+#[test]
+fn every_table_is_capped_with_a_last_row_that_says_how_many_are_left() {
+    let limits = Limits {
+        max_rows: 3,
+        ..Limits::default()
+    };
+    // Open questions: 5 open.
+    let questions: Vec<_> = (1..=5)
+        .map(|n| question(&format!("Q{n:03}"), "q", "Q", "open", "[]", "[]"))
+        .collect();
+    let temp = corpus_with(&questions);
+    let host = ArtifactHost::default();
+    let output = panel_with("open-questions", temp.path(), &host, limits);
+    assert_eq!(rows(&output).len(), 4, "{output}");
+    assert_eq!(
+        output[3],
+        json!({"question": format!(
+            "+2 more not shown; use `orbit-research research list --corpus {}`",
+            temp.path().display()
+        )})
+    );
+    assert_eq!(output[2]["id"], "Q003");
+
+    // Hypotheses: 4 with one row each.
+    let hypotheses: Vec<_> = (1..=4)
+        .map(|n| {
+            (
+                format!("hypotheses/H{n:03}-h.md"),
+                format!("---\nid: H{n:03}\nslug: h\ntitle: H\nstatus: open\ntags: []\nderived_from: []\ncreated: 2026-09-03\nupdated: 2026-09-03\nrevision: 1\nassessments: []\n---\nBody.\n"),
+            )
+        })
+        .collect();
+    let temp = corpus_with(&hypotheses);
+    let output = panel_with("hypotheses", temp.path(), &host, limits);
+    assert_eq!(rows(&output).len(), 4, "{output}");
+    assert!(
+        output[3]["name"].as_str().is_some_and(|text| text
+            .starts_with("+1 more not shown; use `orbit-research research list --corpus ")),
+        "{output}"
+    );
+
+    // Awaiting acceptance: 5 delivered, none accepted.
+    let temp = delivered_corpus(5);
+    let output = panel_with("awaiting-acceptance", temp.path(), &host, limits);
+    assert_eq!(rows(&output).len(), 4, "{output}");
+    assert!(
+        output[3]["result"]
+            .as_str()
+            .is_some_and(|text| text.starts_with("+2 more not shown;")),
+        "{output}"
+    );
+    // At the cap exactly, nothing is summarized.
+    let output = panel_with(
+        "awaiting-acceptance",
+        delivered_corpus(3).path(),
+        &host,
+        limits,
+    );
+    assert_eq!(rows(&output).len(), 3);
+}
+
+#[test]
+fn the_default_cap_is_two_hundred_rows() {
+    let questions: Vec<_> = (1..=205)
+        .map(|n| question(&format!("Q{n:03}"), "q", "Q", "open", "[]", "[]"))
+        .collect();
+    let temp = corpus_with(&questions);
+    let output = panel("open-questions", temp.path(), &ArtifactHost::default());
+    assert_eq!(rows(&output).len(), 201);
+    assert!(
+        output[200]["question"].as_str().is_some_and(|text| text
+            .starts_with("+5 more not shown; use `orbit-research research list --corpus ")),
+        "{}",
+        output[200]
+    );
 }

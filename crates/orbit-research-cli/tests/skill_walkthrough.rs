@@ -38,6 +38,8 @@ struct Harness {
     root: PathBuf,
     work: PathBuf,
     stub: PathBuf,
+    /// The `TMPDIR` the skill's `mktemp -d` scratch directory is made in.
+    tmp: PathBuf,
 }
 
 impl Harness {
@@ -46,7 +48,8 @@ impl Harness {
         let root = temp.path().canonicalize().expect("physical root");
         let work = root.join("work");
         let stub = root.join("stub-bin");
-        for directory in [&work, &stub, &root.join("home")] {
+        let tmp = root.join("tmp");
+        for directory in [&work, &stub, &tmp, &root.join("home")] {
             fs::create_dir(directory).expect("harness directory");
         }
         symlink(BINARY, stub.join("orbit-research")).expect("orbit-research on PATH");
@@ -58,6 +61,7 @@ impl Harness {
             root,
             work,
             stub,
+            tmp,
         }
     }
 
@@ -71,6 +75,7 @@ impl Harness {
             .env_clear()
             .env("PATH", format!("{}:/usr/bin:/bin", self.stub.display()))
             .env("HOME", self.root.join("home"))
+            .env("TMPDIR", &self.tmp)
             .env("ORBIT_BIN", self.stub.join("orbit"))
             .env("GIT_CONFIG_GLOBAL", null)
             .env("GIT_CONFIG_SYSTEM", null)
@@ -145,8 +150,18 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
         "the loop's link step is documented"
     );
 
-    // Follow the non-Orbit steps literally in one shell.
-    let script = format!("set -eu\n{}", blocks.concat());
+    // Follow the non-Orbit steps literally in one shell. The plan step runs
+    // with the corpus as the working directory, the worst case for a plan
+    // written into "the current directory": the skill must keep it out.
+    let plan_step = position("research plan");
+    let mut steps = String::new();
+    for (index, block) in blocks.iter().enumerate() {
+        if index == plan_step {
+            steps.push_str("cd \"$corpus\"\n");
+        }
+        steps.push_str(block);
+    }
+    let script = format!("set -eu\n{steps}");
     let output = harness
         .command("/bin/sh")
         .args(["-c", &script])
@@ -175,7 +190,15 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
             .to_owned()
     };
     assert_eq!(git(&["rev-parse", "--abbrev-ref", "HEAD"]), "main");
-    assert_eq!(git(&["status", "--porcelain"]), "", "every write committed");
+    assert_eq!(
+        git(&["status", "--porcelain", "--untracked-files=all"]),
+        "",
+        "every write committed and the plan step left the corpus clean"
+    );
+    assert!(
+        !corpus.join("plan.json").exists() && !harness.work.join("plan.json").exists(),
+        "the plan is written outside the corpus and the working directory"
+    );
     let show = |id: &str| {
         json_of(
             &harness
@@ -201,8 +224,13 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
     assert_eq!(result["metadata"]["derived_from"], json!(["Q001", "H001"]));
 
     // `plan`'s output goes straight to `link`, plus the two ids the loop adds.
+    let scratch: Vec<_> = fs::read_dir(&harness.tmp)
+        .expect("TMPDIR")
+        .map(|entry| entry.expect("entry").path())
+        .collect();
+    assert_eq!(scratch.len(), 1, "one scratch directory: {scratch:?}");
     let plan: Value =
-        serde_json::from_slice(&fs::read(harness.work.join("plan.json")).expect("plan.json"))
+        serde_json::from_slice(&fs::read(scratch[0].join("plan.json")).expect("plan.json"))
             .expect("plan JSON");
     let scope = plan["context_files"].clone();
     assert_eq!(

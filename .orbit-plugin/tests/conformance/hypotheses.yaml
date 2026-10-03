@@ -11,7 +11,7 @@ tests:
     input: {}
     expect:
       output:
-        - status: "This workspace has no research corpus yet. Run `orbit-research workspace init <path>` to create one."
+        - status: "This workspace has no research corpus. The plugin reads the workspace root as the corpus, and `orbit-research workspace init` refuses a non-empty directory, so a research corpus needs its own new, empty directory: create it with `orbit-research workspace init <dir>` and register that directory as an Orbit workspace."
   - name: hypotheses_refuses_unknown_input_fields
     tool: hypotheses
     input: {"unexpected": true}

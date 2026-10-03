@@ -20,16 +20,21 @@ order into one shell. The ids shown (`Q001`, `H001`, `R001`) are what a fresh
 corpus allocates; elsewhere use the ids each command prints. Writes commit, so
 Git needs a `user.name` and `user.email`. Blocks marked `sh orbit` call Orbit
 and need the plugin installed and enabled in the corpus's workspace (an owner
-step); the others need only `orbit-research`.
+step); the others need only `orbit-research`. Orbit selects the workspace from
+the working directory, so every `sh orbit` block starts with `cd "$corpus"`:
+run it from the corpus checkout, the Orbit workspace.
 
-1. **Create the corpus and look around.** `workspace init` makes a Git repository
-   on branch `main` whatever Git's `init.defaultBranch` says, with the owner schema
-   and the shared request storage `link` needs. Read what exists with `check`,
+1. **Create the corpus and look around.** Keep your own files out of the corpus:
+   a stray file there makes the next write refuse a dirty checkout, so the plan
+   below is written to `$scratch`, not to the working directory. `workspace init`
+   makes a Git repository on branch `main` whatever Git's `init.defaultBranch`
+   says, with the owner schema and the shared request storage `link` needs. Read what exists with `check`,
    `list` and `show` (the plugin has the same three). Every `research` subcommand
    takes `--corpus <path>`.
 
 ```sh
 corpus="$PWD/research-corpus"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/research-XXXXXX")   # scratch files stay outside the corpus
 orbit-research workspace init "$corpus"
 orbit-research research check --corpus "$corpus"
 orbit-research research list --corpus "$corpus"
@@ -66,7 +71,7 @@ orbit-research research create --corpus "$corpus" --kind R --status planned --ti
    (repeat it) and reconciles completed contributions.
 
 ```sh
-orbit-research --json research plan --corpus "$corpus" --shape investigation --research-id R001 --objective "Measure p99 latency at idle and at 2x load, with a control run" | tee plan.json
+orbit-research --json research plan --corpus "$corpus" --shape investigation --research-id R001 --objective "Measure p99 latency at idle and at 2x load, with a control run" | tee "$scratch/plan.json"
 ```
 
 6. **Link.** The plugin's `link` tool creates the Orbit task from the plan,
@@ -87,7 +92,8 @@ orbit-research --json research plan --corpus "$corpus" --shape investigation --r
    the operator override described below.
 
 ```sh orbit
-ORBIT_OPERATOR=1 orbit tool run orbit.research.link --input "$(jq --arg id R001 --arg key link-R001 '. + {research_id: $id, request_key: $key}' plan.json)"
+cd "$corpus"
+ORBIT_OPERATOR=1 orbit tool run orbit.research.link --input "$(jq --arg id R001 --arg key link-R001 '. + {research_id: $id, request_key: $key}' "$scratch/plan.json")"
 ```
 
 7. **Run.** The job works in its own worktree: the `research_investigate` agent
@@ -100,6 +106,7 @@ ORBIT_OPERATOR=1 orbit tool run orbit.research.link --input "$(jq --arg id R001 
    and replace `<task-id>` with the `task_id` that `link` printed.
 
 ```sh orbit
+cd "$corpus"
 orbit run job research_investigation --input task=<task-id>
 ```
 
@@ -125,6 +132,7 @@ orbit run job research_investigation --input task=<task-id>
    accept that one, and assess the hypothesis against the new R.
 
 ```sh orbit
+cd "$corpus"
 ORBIT_OPERATOR=1 orbit tool run orbit.research.accept --input '{"task_id":"<task-id>","research_id":"R001"}'
 ```
 
@@ -132,7 +140,8 @@ ORBIT_OPERATOR=1 orbit tool run orbit.research.accept --input '{"task_id":"<task
     outside the plugin sandbox, finds the R's `orbit.task`, fetches that task's
     `research-acceptance.json` through Orbit and refuses unless the artifact names
     that R and the README blob it accepted is the README at HEAD. If Orbit is
-    unreachable, fix `ORBIT_BIN`/`PATH` and retry. It needs an existing revision and
+    unreachable, fix `ORBIT_BIN`/`PATH` and retry; `assess` runs `orbit` from the
+    corpus checkout, which is why the block starts there. It needs an existing revision and
     only appends. You state the verdict; acceptance never supplies or strengthens
     one. `assess` also moves the hypothesis's `status`, by the owner schema's
     `verdict_status` map (the bundled schema maps `supports` to `supported`,
@@ -143,6 +152,7 @@ ORBIT_OPERATOR=1 orbit tool run orbit.research.accept --input '{"task_id":"<task
     revision never changes the status, and a `dropped` hypothesis stays dropped.
 
 ```sh orbit
+cd "$corpus"
 blob=$(orbit-research --json research show --corpus "$corpus" --id H001 | jq -r .git_blob)
 revision=$(orbit-research --json research show --corpus "$corpus" --id H001 | jq -r .metadata.revision)
 orbit-research research assess --corpus "$corpus" --id H001 --expected-blob "$blob" --research R001 --revision "$revision" --verdict inconclusive --strength anecdote --note "Control run failed; no claim either way"
@@ -183,10 +193,12 @@ revision they judged.
 ## Operator requirement
 
 The plugin's mutating tools, `link` and `accept`, are refused for callers without
-operator capability, and an agent inside a run is not one. From a local shell, set
-`ORBIT_OPERATOR=1` for that one command, Orbit's explicit and audited override:
+operator capability, and an agent inside a run is not one. From a local shell in the
+corpus checkout (the Orbit workspace), set `ORBIT_OPERATOR=1` for that one command,
+Orbit's explicit and audited override:
 
 ```sh orbit
+cd "$corpus"
 ORBIT_OPERATOR=1 orbit tool run orbit.research.link --input '{"research_id":"R001","request_key":"link-R001","title":"Investigate R001"}'
 ORBIT_OPERATOR=1 orbit tool run orbit.research.accept --input '{"task_id":"<task-id>","research_id":"R001"}'
 ```
@@ -215,11 +227,25 @@ It leaves records and Git history unchanged, and repeating it reports
 
 The plugin adds four read-only panels to Orbit's Plugins tab for the workspace:
 open questions with their tags and linked tasks; results awaiting acceptance (delivered
-by a run, no acceptance artifact yet; `acceptance unknown` when the task cannot be
-read, never assumed accepted); hypotheses with the latest verdict per result and
-revision, disagreements on separate rows; and corpus health. Use them to see what
-needs `accept` or `assess` next. A workspace without a corpus shows a short
-explanation instead.
+by a run and not accepted: no acceptance artifact yet, a README changed since it was
+accepted, or `acceptance unknown` when the acceptance cannot be checked right now, with
+a reason such as `orbit not available`, `orbit call timed out` or `artifact unreadable`);
+hypotheses with the latest verdict per result and revision, disagreements on separate
+rows; and corpus health. Use them to see what needs `accept` or `assess` next. A table
+shows at most 200 rows and ends with a row naming the `research list` command for the rest.
+A workspace without a corpus shows a short explanation instead: a research corpus needs its
+own new, empty directory made with `orbit-research workspace init <dir>` and registered as
+an Orbit workspace, because the plugin reads the workspace root as the corpus.
+
+The awaiting-acceptance panel calls Orbit once or twice per delivered result, each call
+cut off after 5 seconds and the whole panel after 20, and counts a result as accepted only
+by the check `assess` applies (the full acceptance artifact, naming that result and its
+current README). It never guesses. One deliberate exception: once a live read confirmed
+an acceptance, the panel keeps a small file for that exact (result, task, README) under
+`_data/orbit-research-operations/acceptance/` in a prepared corpus and hides the row on
+later refreshes without calling Orbit, even while Orbit is unreachable, because an
+acceptance is immutable and an edited README no longer matches. That cache is trusted
+local state, like the corpus: it can only hide a row, and `assess` never reads it.
 
 Always select the corpus explicitly with `--corpus`, and use `--json` when a script
 reads the result.

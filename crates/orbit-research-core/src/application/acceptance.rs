@@ -27,6 +27,36 @@ pub struct Acceptance {
     pub artifact_digests: BTreeMap<String, String>,
 }
 
+impl Acceptance {
+    /// Whether this evidence accepts `research`'s README as it is now
+    /// (`blob`). The one bar for "accepted": `assess` applies it before
+    /// appending a verdict and the dashboard panel applies it to decide a row
+    /// is done, so the two cannot disagree. `task` is only named in the refusal.
+    pub fn verify(
+        &self,
+        research: &str,
+        task: &str,
+        blob: &str,
+    ) -> std::result::Result<(), AcceptanceFailure> {
+        if self.research_id != research {
+            return Err(AcceptanceFailure::WrongResearch {
+                research: research.into(),
+                task: task.into(),
+                found: self.research_id.clone(),
+            });
+        }
+        if self.blob != blob {
+            return Err(AcceptanceFailure::StaleBlob {
+                research: research.into(),
+                task: task.into(),
+                accepted: self.blob.clone(),
+                current: blob.into(),
+            });
+        }
+        Ok(())
+    }
+}
+
 pub trait AcceptanceLookup {
     /// The acceptance stored on `task` for `research_id`, if any. `task` is
     /// the record's own `orbit.task`. An implementation reports an unreachable
@@ -71,22 +101,6 @@ pub(crate) fn require_acceptance(
                 research: research.into(),
                 task: task.into(),
             })?;
-    if acceptance.research_id != research {
-        return Err(AcceptanceFailure::WrongResearch {
-            research: research.into(),
-            task: task.into(),
-            found: acceptance.research_id,
-        }
-        .into());
-    }
-    if acceptance.blob != record.git_blob {
-        return Err(AcceptanceFailure::StaleBlob {
-            research: research.into(),
-            task: task.into(),
-            accepted: acceptance.blob,
-            current: record.git_blob.clone(),
-        }
-        .into());
-    }
+    acceptance.verify(research, task, &record.git_blob)?;
     Ok(())
 }
