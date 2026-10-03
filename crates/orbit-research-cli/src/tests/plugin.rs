@@ -1182,6 +1182,111 @@ fn accept_goldens_cover_success_idempotent_retry_and_each_refusal() {
     );
 }
 
+/// Commit an unrelated file on the primary checkout, as any later corpus
+/// write (another record, a revision, a maintenance commit) would.
+fn commit_unrelated_change(primary: &Path) {
+    fs::write(primary.join("NOTES.txt"), "unrelated\n").expect("unrelated file");
+    for args in [
+        &["add", "-A"][..],
+        &["commit", "-q", "-m", "Unrelated corpus commit"][..],
+    ] {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(primary)
+            .args(args)
+            .output()
+            .expect("run fixture Git");
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn stored_acceptance(host: &FakeTaskHost) -> Value {
+    host.artifacts
+        .lock()
+        .expect("artifacts")
+        .get(&("task-1".to_owned(), "research-acceptance.json".to_owned()))
+        .cloned()
+        .expect("stored acceptance")
+}
+
+#[test]
+fn accept_retry_after_an_unrelated_commit_is_idempotent_and_keeps_the_first_commit() {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let host = FakeTaskHost::default();
+    host.seed_task_state("task-1", "review", Some("run-1"));
+    let first = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(first["output"]["recorded"], true, "{first}");
+    let stored = stored_acceptance(&host);
+
+    commit_unrelated_change(delivered.primary.path());
+    let retry = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["output"]["recorded"], false, "{retry}");
+    assert_eq!(
+        retry["output"]["commit"], first["output"]["commit"],
+        "the stored commit is returned, not the new HEAD"
+    );
+    assert_eq!(retry["output"]["blob"], first["output"]["blob"]);
+    assert_eq!(
+        stored_acceptance(&host),
+        stored,
+        "a retry never rewrites the stored artifact"
+    );
+    assert_eq!(host.artifacts.lock().expect("artifacts").len(), 1);
+}
+
+/// Accept, then rewrite one stored evidence field, so the retry's freshly
+/// derived evidence differs from what the task carries in exactly that field.
+fn accept_conflict_after_tampering(field: &str, value: Value) -> Value {
+    let delivered = delivered();
+    delivered.merge_into_primary();
+    let host = FakeTaskHost::default();
+    host.seed_task_state("task-1", "review", Some("run-1"));
+    let first = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(first["output"]["recorded"], true, "{first}");
+    let mut stored = stored_acceptance(&host);
+    stored[field] = value;
+    host.seed_artifact("task-1", "research-acceptance.json", stored.clone());
+    let reply = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(
+        stored_acceptance(&host),
+        stored,
+        "a refused retry leaves the stored artifact alone"
+    );
+    reply
+}
+
+#[test]
+fn accept_refuses_a_stored_blob_mismatch_and_names_the_blob() {
+    let reply = accept_conflict_after_tampering("blob", json!("0".repeat(40)));
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "conflict", "{reply}");
+    let message = reply["error"]["message"].as_str().expect("message");
+    assert!(message.contains("(blob)"), "{message}");
+}
+
+#[test]
+fn accept_refuses_a_stored_run_mismatch_and_names_the_run() {
+    let reply = accept_conflict_after_tampering("run_id", json!("run-0"));
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "conflict", "{reply}");
+    let message = reply["error"]["message"].as_str().expect("message");
+    assert!(message.contains("(run_id)"), "{message}");
+}
+
+#[test]
+fn accept_refuses_a_stored_digest_mismatch_and_names_the_digests() {
+    let reply = accept_conflict_after_tampering("artifact_digests", json!({"input.csv": "00"}));
+    assert_eq!(reply["error"]["code"], "conflict", "{reply}");
+    let message = reply["error"]["message"].as_str().expect("message");
+    assert!(message.contains("(artifact_digests)"), "{message}");
+}
+
 #[test]
 fn accept_refuses_an_unknown_task() {
     let delivered = delivered();
