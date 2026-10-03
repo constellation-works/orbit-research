@@ -21,7 +21,9 @@ by `orbit-research orbit-tool`; see
 with `orbit run job research_investigation --input task=<task-id>`. The run
 works in its own worktree, and the `validate` step fails it before commit when
 the written record is invalid. Once delivery lands, `accept`
-persists `research-acceptance.json` as a task artifact on the R's task.
+persists `research-acceptance.json` as a task artifact on the R's task; a retry whose
+record, README blob, run id and input digests match returns the stored acceptance
+(`recorded: false`, original commit kept) even after later corpus commits.
 `research assess` (CLI and MCP) runs outside the plugin sandbox: it reads the R's
 `orbit.task`, fetches that artifact by running `orbit tool run` from the corpus
 checkout (the Orbit workspace; `orbit` is `$ORBIT_BIN` or the one on `PATH`), and

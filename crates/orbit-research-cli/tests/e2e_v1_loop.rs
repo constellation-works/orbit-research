@@ -1111,6 +1111,24 @@ fn v1_research_loop_on_a_disposable_corpus() {
         lab.porcelain(),
         String::new(),
     );
+    // The assess commits moved HEAD past the commit R001 was accepted at; a
+    // retry with the same evidence is still idempotent and keeps that commit.
+    s.check(
+        "the assess commits moved HEAD past the accepted commit",
+        lab.head() != commit,
+        (lab.head(), &commit),
+    );
+    let after_assess = lab.plugin("accept", &json!({"task_id": t1, "research_id": "R001"}));
+    s.eq(
+        "re-running accept after later commits stays idempotent",
+        after_assess["recorded"].clone(),
+        json!(false),
+    );
+    s.eq(
+        "the retry keeps the first accepted commit",
+        after_assess["commit"].clone(),
+        json!(commit),
+    );
 
     // ---- 7. revised hypothesis -------------------------------------------
     let s = Scenario("revised-hypothesis");

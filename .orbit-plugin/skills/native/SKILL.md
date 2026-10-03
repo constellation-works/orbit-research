@@ -48,8 +48,11 @@ never establishes scientific support.
 7. **Accept.** Once the task is in `review` or `done`, the plugin's `accept` tool
    (`task_id`, `research_id`) re-validates the published commit and stores
    `research-acceptance.json` (record, blob, commit, input digests, run id) on the
-   task. A matching retry is idempotent. It refuses before delivery lands, for a
-   failed run, on a validation finding and on a stored-evidence mismatch.
+   task. A retry whose evidence matches (record, README blob, run id and input
+   digests) is idempotent whatever the current HEAD: it returns the stored
+   acceptance with `recorded: false` and never rewrites its commit. It refuses
+   before delivery lands, for a failed run, on a validation finding and on a
+   stored-evidence mismatch, which names the differing field.
 8. **Assess.** `research assess --id <H> --expected-blob <blob> --research <R>
    --revision <n> --verdict supports|refutes|inconclusive --strength
    anecdote|suggestive|strong` appends one explicit verdict to the hypothesis. It runs

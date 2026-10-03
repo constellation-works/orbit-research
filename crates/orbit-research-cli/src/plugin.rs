@@ -513,8 +513,29 @@ struct AcceptOutcome {
     recorded: bool,
 }
 
+/// The evidence-identity fields on which a stored acceptance differs from the
+/// one a retry would record. Identity is research id, README blob, run id and
+/// artifact digests; `commit` is not part of it.
+fn evidence_differences(stored: &Acceptance, candidate: &Acceptance) -> Vec<&'static str> {
+    let mut differing = Vec::new();
+    if stored.research_id != candidate.research_id {
+        differing.push("research_id");
+    }
+    if stored.blob != candidate.blob {
+        differing.push("blob");
+    }
+    if stored.run_id != candidate.run_id {
+        differing.push("run_id");
+    }
+    if stored.artifact_digests != candidate.artifact_digests {
+        differing.push("artifact_digests");
+    }
+    differing
+}
+
 /// Persist (or idempotently confirm) `research-acceptance.json` for a
-/// validated delivery. Only reachable once `accept_output` has confirmed the
+/// validated delivery. A retry whose evidence identity matches returns the
+/// stored acceptance whatever the current HEAD. Only reachable once `accept_output` has confirmed the
 /// task is `review`/`done` and `validate_delivery` found nothing.
 fn accept_record(
     workspace_root: &Path,
@@ -539,14 +560,19 @@ fn accept_record(
                 "{task}'s stored {ACCEPTANCE_ARTIFACT_PATH} is not valid: {error}"
             ))
         })?;
-        if existing == candidate {
+        let differing = evidence_differences(&existing, &candidate);
+        if differing.is_empty() {
+            // `commit` is deliberately outside the identity: it is the HEAD of
+            // the first accept, and any later corpus commit moves HEAD without
+            // touching the evidence. The stored value is returned unchanged.
             return Ok(AcceptOutcome {
                 acceptance: existing,
                 recorded: false,
             });
         }
         return Err(Error::Conflict(format!(
-            "{task} already carries {ACCEPTANCE_ARTIFACT_PATH} for a different commit or run; refusing to overwrite recorded acceptance"
+            "{task} already carries {ACCEPTANCE_ARTIFACT_PATH} with different evidence ({}); refusing to overwrite recorded acceptance",
+            differing.join(", ")
         )));
     }
     let scratch = scratch_directory(workspace_root)?;

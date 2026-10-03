@@ -45,7 +45,8 @@ job context; `accept` must refuse a task that has not delivered. CLI calls use
 Orbit's explicit operator override and MCP uses its operator session.
 
 Positive delivery validation, positive acceptance, evidence mismatch,
-idempotent acceptance and failure cleanup run through the same exec handler
+idempotent acceptance (including a retry after later unrelated corpus commits,
+which keeps the first stored commit) and failure cleanup run through the same exec handler
 against a Git-backed fixture with an in-memory task host:
 
 ```sh
