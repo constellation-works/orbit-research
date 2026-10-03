@@ -222,3 +222,59 @@ fn manifest_is_checked_against_the_owner_definition() {
     let error = edit::manifest_text(&contract(), &json!({"inputs": [{}]})).unwrap_err();
     assert!(error.to_string().contains("data/manifest.json"), "{error}");
 }
+
+fn with_heading(record_text: &str, heading: &str) -> String {
+    record_text.replace(
+        "\n\n## The claim",
+        &format!("\n\n{heading}\n\n## The claim"),
+    )
+}
+
+#[test]
+fn a_title_change_rewrites_the_scaffolded_body_heading() {
+    let text = with_heading(H001, "# H001 — Claim");
+    let record = record("H", "hypotheses/H001-claim.md", &text);
+    let edit = Edit {
+        title: Some("Sharper claim".into()),
+        ..Edit::default()
+    };
+    let rendered = edit::revise(&contract(), &record, &edit, "2026-02-01").expect("revise");
+    assert!(
+        rendered.contains("\n\n# H001 — Sharper claim\n\n## The claim\n\nOriginal statement.\n"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("# H001 — Claim"));
+    assert_eq!(parsed(&rendered)["title"], "Sharper claim");
+    // The body stays as-is when the title is unchanged.
+    let same = Edit {
+        tags: Some(vec!["y".into()]),
+        ..Edit::default()
+    };
+    let rendered = edit::revise(&contract(), &record, &same, "2026-02-01").expect("revise");
+    assert!(rendered.contains("# H001 — Claim"));
+}
+
+#[test]
+fn a_heading_the_author_wrote_differently_is_left_alone() {
+    let text = with_heading(H001, "# My own heading");
+    let record = record("H", "hypotheses/H001-claim.md", &text);
+    let edit = Edit {
+        title: Some("Sharper claim".into()),
+        ..Edit::default()
+    };
+    let rendered = edit::revise(&contract(), &record, &edit, "2026-02-01").expect("revise");
+    assert!(rendered.contains("# My own heading"));
+    assert!(!rendered.contains("Sharper claim\n\n## The claim"));
+}
+
+#[test]
+fn an_edit_with_no_fields_is_empty() {
+    assert!(Edit::default().is_empty());
+    assert!(
+        !Edit {
+            status: Some("open".into()),
+            ..Edit::default()
+        }
+        .is_empty()
+    );
+}

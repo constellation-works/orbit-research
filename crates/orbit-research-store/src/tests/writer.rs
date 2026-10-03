@@ -839,10 +839,10 @@ fn stale_revise_refuses_untouched_and_identical_retry_adopts() {
     );
 
     let retried = corpus.revise("H001", &old, &statement("First.")).unwrap();
-    assert_eq!(
-        serde_json::to_value(&retried).unwrap(),
-        serde_json::to_value(&first).unwrap()
-    );
+    let mut retried = serde_json::to_value(&retried).unwrap();
+    assert_eq!(retried["replayed"], true);
+    retried.as_object_mut().unwrap().remove("replayed");
+    assert_eq!(retried, serde_json::to_value(&first).unwrap());
     assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head);
 }
 

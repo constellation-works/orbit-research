@@ -17,6 +17,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 
+#[cfg(unix)]
+#[path = "../exec_support/mod.rs"]
+pub mod exec_support;
+
 pub const BINARY: &str = env!("CARGO_BIN_EXE_orbit-research");
 
 /// A private corpus, HOME and Orbit workspace with the plugin exported (and,

@@ -134,8 +134,10 @@ impl RequestLog {
         Ok(())
     }
 
+    /// Entries oldest first by when they were last written (ties by key), so
+    /// listings are stable and read as a timeline rather than in directory order.
     pub fn list<T: DeserializeOwned>(&self) -> Result<Vec<T>> {
-        let mut items = Vec::new();
+        let mut items: Vec<(std::time::SystemTime, std::ffi::OsString, T)> = Vec::new();
         for entry in fs::read_dir(&self.root)
             .map_err(|error| io_context("list request-log directory", &self.root, error))?
         {
@@ -147,10 +149,18 @@ impl RequestLog {
                     Error::Io(error) => io_context("read request-log entry", &path, error),
                     error => error,
                 })?;
-                items.push(serde_json::from_slice(&bytes)?);
+                let modified = fs::metadata(&path)
+                    .and_then(|metadata| metadata.modified())
+                    .map_err(|error| io_context("read request-log entry time", &path, error))?;
+                items.push((
+                    modified,
+                    path.file_name().unwrap_or_default().to_owned(),
+                    serde_json::from_slice(&bytes)?,
+                ));
             }
         }
-        Ok(items)
+        items.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
+        Ok(items.into_iter().map(|(_, _, item)| item).collect())
     }
 }
 

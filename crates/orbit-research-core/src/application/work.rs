@@ -60,6 +60,24 @@ fn checked_unit(unit: &str) -> Result<()> {
     Ok(())
 }
 
+/// The objective's first line, cut at a word boundary, for use in a task title.
+fn short_objective(objective: &str) -> String {
+    const MAX: usize = 60;
+    let line = objective
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or_default();
+    if line.chars().count() <= MAX {
+        return line.to_owned();
+    }
+    let head: String = line.chars().take(MAX).collect();
+    let words = head
+        .rsplit_once(' ')
+        .map_or(head.as_str(), |(words, _)| words);
+    format!("{}…", words.trim_end_matches([',', ';', ':', '-', ' ']))
+}
+
 impl Corpus {
     /// Draft an Orbit task for `research_id` in the given shape. Read-only:
     /// creates nothing, in the corpus or in Orbit.
@@ -72,8 +90,13 @@ impl Corpus {
                 if objective.trim().is_empty() {
                     return Err(Error::Invalid("Work objective is required".into()));
                 }
+                if record.metadata["status"] == "done" {
+                    return Err(Error::Invalid(format!(
+                        "{research_id} is already done and its result is delivered, so another investigation would redo it. Reserve a new research item derived from {research_id} for follow-up work"
+                    )));
+                }
                 Ok(TaskDraft {
-                    title: format!("Investigate {research_id}"),
+                    title: format!("Investigate {research_id}: {}", short_objective(&objective)),
                     description: format!(
                         "{objective}\n\nWork only within {directory}/. Preserve scripts/notebooks in code/ and output evidence in artifacts/. Bind the result to the executing Orbit task/run. Preserve failed controls and uncertainty; execution success is not scientific support. Do not edit other records or hypothesis assessments."
                     ),
@@ -96,7 +119,10 @@ impl Corpus {
                 let code = format!("{directory}/code/{unit}");
                 let artifacts = format!("{directory}/artifacts/{unit}");
                 Ok(TaskDraft {
-                    title: format!("Contribute {unit} to {research_id}"),
+                    title: format!(
+                        "Contribute {unit} to {research_id}: {}",
+                        short_objective(&objective)
+                    ),
                     description: format!(
                         "{objective}\n\nWork within {code}/ and {artifacts}/ only. Read {path} for context; do not edit it or the shared data/manifest.json. Preserve scripts and notebooks as source artifacts; the app treats their contents as opaque.",
                         path = record.path
@@ -127,6 +153,14 @@ impl Corpus {
                     }
                     checked_unit(unit)?;
                     inputs.push(format!("{directory}/artifacts/{unit}/findings.md"));
+                }
+                let committed = self.store.committed_paths()?;
+                for (unit, input) in units.iter().zip(&inputs) {
+                    if !committed.contains(input) {
+                        return Err(Error::Invalid(format!(
+                            "There is no contribution named {unit} for {research_id}: {input} is not committed. Merge that contribution before planning the synthesis, or check the unit name"
+                        )));
+                    }
                 }
                 let manifest = format!("{directory}/data/manifest.json");
                 Ok(TaskDraft {

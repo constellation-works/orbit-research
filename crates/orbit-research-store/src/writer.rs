@@ -409,7 +409,11 @@ impl<'a> Writer<'a> {
     fn finish(&self, key: &str, mut intent: ReservationIntent) -> Result<Reservation> {
         if let Some(receipt) = &intent.reservation {
             self.verify_files(&intent, &receipt.commit)?;
-            return Ok(receipt.clone());
+            return Ok(Reservation {
+                git_blob: self.corpus.hash_bytes(intent.text.as_bytes())?,
+                replayed: true,
+                ..receipt.clone()
+            });
         }
         let head = self.corpus.git(&["rev-parse", "HEAD"])?;
         let commit = if head != intent.parent {
@@ -426,6 +430,8 @@ impl<'a> Writer<'a> {
             path: intent.path.clone(),
             commit,
             request_digest: intent.request_digest.clone(),
+            git_blob: self.corpus.hash_bytes(intent.text.as_bytes())?,
+            replayed: false,
         };
         intent.reservation = Some(reservation.clone());
         atomic_write(

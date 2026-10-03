@@ -107,4 +107,12 @@ pub struct Reservation {
     pub path: String,
     pub commit: String,
     pub request_digest: String,
+    /// Git blob of the written record: the `expected_blob` for its next revision.
+    /// Receipts stored before this field existed are filled in when read back.
+    #[serde(default)]
+    pub git_blob: String,
+    /// Present (true) only when an identical retry returned the receipt of an
+    /// earlier, already committed write and changed nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub replayed: bool,
 }

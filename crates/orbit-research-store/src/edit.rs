@@ -25,6 +25,19 @@ pub struct Edit {
     pub manifest: Option<Value>,
 }
 
+impl Edit {
+    /// True when no field asks for a change.
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.body.is_none()
+            && self.tags.is_none()
+            && self.status.is_none()
+            && self.tests.is_none()
+            && self.orbit.is_none()
+            && self.manifest.is_none()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct OrbitLink {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -103,7 +116,38 @@ pub(crate) fn revise(
         Some(body) => format!("\n{body}\n"),
         None => record.body.clone(),
     };
+    let raw = if title == old_title {
+        raw
+    } else {
+        retitle_heading(&raw, &record.id, &old_title, &title)
+    };
     record::render(&metadata, &raw)
+}
+
+/// Follow a title change in the body's heading. Only the first non-blank line,
+/// and only in the scaffolded `# <ID> — <old title>` form, is rewritten; any
+/// other heading is the author's own words and stays as written.
+fn retitle_heading(raw: &str, id: &str, old_title: &str, title: &str) -> String {
+    let old_heading = format!("# {id} — {old_title}");
+    let mut offset = 0;
+    for line in raw.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        if text.trim().is_empty() {
+            offset += line.len();
+            continue;
+        }
+        if text == old_heading {
+            let end = offset + line.len();
+            return format!(
+                "{}# {id} — {title}{}{}",
+                &raw[..offset],
+                &line[text.len()..],
+                &raw[end..]
+            );
+        }
+        break;
+    }
+    raw.to_owned()
 }
 
 /// Append one assessment to a hypothesis. Earlier entries are copied unchanged

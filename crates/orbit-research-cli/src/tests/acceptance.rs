@@ -109,7 +109,12 @@ fn unreadable_artifacts_are_typed_refusals() {
 }
 
 #[cfg(unix)]
+#[path = "../../tests/exec_support/mod.rs"]
+mod exec_support;
+
+#[cfg(unix)]
 mod fake_orbit {
+    use super::exec_support;
     use super::*;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -120,15 +125,12 @@ mod fake_orbit {
     fn script() -> &'static Path {
         static SCRIPT: OnceLock<PathBuf> = OnceLock::new();
         SCRIPT.get_or_init(|| {
-            use std::os::unix::fs::PermissionsExt;
             let dir = tempfile::tempdir().expect("script dir").keep();
             let path = dir.join("orbit");
-            fs::write(
+            exec_support::install_executable(
                 &path,
                 "#!/bin/sh\nd=\"$PWD/.git/fake-orbit\"\nprintf '%s\\n' \"$3 $5\" >> \"$d/calls\"\npwd > \"$d/cwd\"\nif [ -f \"$d/$3.fail\" ]; then cat \"$d/$3.fail\" >&2; exit 1; fi\ncat \"$d/$3.out\"\n",
-            )
-            .expect("write fake orbit");
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
+            );
             path
         })
     }

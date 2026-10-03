@@ -1,4 +1,5 @@
 //! Shared projections of application values; commands never choose presentation.
+use super::detail::{self, detail, safe_text};
 use super::sink::{Mode, OutputSink};
 use super::table::render_records;
 use serde_json::{Value, json};
@@ -58,7 +59,15 @@ pub(crate) fn render(
                     if tag_count == 1 { "" } else { "s" },
                 )
             } else if let Some(skill) = value.get("skill").and_then(Value::as_str) {
-                writeln!(out, "{}", safe_text(skill))
+                // The packaged text already ends with a newline.
+                write!(out, "{}", safe_text(skill.trim_end_matches('\n')))?;
+                writeln!(out)
+            } else if detail::is_record(value) {
+                detail::record(out, value)
+            } else if value.as_array().is_some_and(Vec::is_empty) {
+                // Only `work-links` returns a bare list; the other empty cases
+                // are objects.
+                writeln!(diagnostics, "No work links found.")
             } else {
                 detail(out, value, "")
             }
@@ -90,59 +99,6 @@ fn json_line(out: &mut impl Write, value: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut *out, value)?;
     writeln!(out)?;
     out.flush()
-}
-
-fn detail(out: &mut impl Write, value: &Value, prefix: &str) -> io::Result<()> {
-    match value {
-        Value::Object(map) => {
-            for (key, value) in map {
-                let label = if prefix.is_empty() {
-                    safe_text(key)
-                } else {
-                    format!("{prefix}.{}", safe_text(key))
-                };
-                detail(out, value, &label)?;
-            }
-            Ok(())
-        }
-        Value::Array(values) => {
-            if values.is_empty() {
-                if prefix.is_empty() {
-                    writeln!(out, "-")?;
-                } else {
-                    writeln!(out, "{prefix}: -")?;
-                }
-            }
-            for value in values {
-                detail(out, value, prefix)?;
-            }
-            Ok(())
-        }
-        value => {
-            let text = match value {
-                Value::String(s) => safe_text(s),
-                Value::Null => "-".into(),
-                _ => value.to_string(),
-            };
-            if prefix.is_empty() {
-                writeln!(out, "{text}")
-            } else {
-                writeln!(out, "{prefix}: {text}")
-            }
-        }
-    }
-}
-
-fn safe_text(text: &str) -> String {
-    text.chars()
-        .flat_map(|c| {
-            if c.is_control() && c != '\n' && c != '\t' {
-                c.escape_default().collect::<Vec<_>>()
-            } else {
-                vec![c]
-            }
-        })
-        .collect()
 }
 
 pub(crate) fn render_error(

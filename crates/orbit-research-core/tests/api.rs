@@ -317,8 +317,12 @@ fn preparation_preserves_pending_intents_and_confirmed_task_links() {
 fn local_capture_and_work_plans_need_no_backend() {
     let (temp, app) = fixture();
     let first = create_r(&app, "capture-r");
-    let second = create_r(&app, "capture-r");
+    let mut second = create_r(&app, "capture-r");
+    assert_eq!(second["replayed"], true, "a retry says it was replayed");
+    assert!(first.get("replayed").is_none());
+    second.as_object_mut().unwrap().remove("replayed");
     assert_eq!(first, second, "request-key retry must be idempotent");
+    assert!(!first["git_blob"].as_str().unwrap().is_empty());
     assert_eq!(first["id"], "R001");
 
     let investigation = app
@@ -360,6 +364,13 @@ fn local_capture_and_work_plans_need_no_backend() {
             .contains("control-a")
     );
 
+    let findings = temp
+        .path()
+        .join("research/R001-a-study/artifacts/control-a");
+    fs::create_dir_all(&findings).unwrap();
+    fs::write(findings.join("findings.md"), "Findings.\n").unwrap();
+    git(temp.path(), &["add", "."]);
+    git(temp.path(), &["commit", "-q", "-m", "contribution"]);
     let synthesis = app
         .call(
             "research.plan",
@@ -372,7 +383,7 @@ fn local_capture_and_work_plans_need_no_backend() {
         !temp.path().join(".git/orbit-research-operations").exists(),
         "local capture and planning must not create Orbit operation state"
     );
-    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "2");
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "3");
 }
 
 #[test]
@@ -459,4 +470,58 @@ fn check_rejects_an_invalid_corpus_without_changing_git_state() {
     assert!(error.to_string().contains("Missing frontmatter"));
     assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head_before);
     assert_eq!(git(temp.path(), &["status", "--porcelain"]), status_before);
+}
+
+#[test]
+fn work_links_list_oldest_first_whatever_their_keys() {
+    use std::time::{Duration, SystemTime};
+    let (temp, app) = fixture();
+    create_r(&app, "links-reservation");
+    for key in ["zeta", "alpha", "mid"] {
+        app.link_intent(key, "R001").expect("record link intent");
+    }
+    // Directory order and key order are both arbitrary; the listing follows
+    // when each correlation was last written.
+    let now = SystemTime::now();
+    let log = temp.path().join(".git/orbit-research-operations");
+    for (key, age) in [("zeta", 30), ("alpha", 20), ("mid", 10)] {
+        for entry in fs::read_dir(&log).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "json")
+                && fs::read_to_string(&path)
+                    .unwrap()
+                    .contains(&format!("\"request_key\": \"{key}\""))
+            {
+                let file = fs::OpenOptions::new().write(true).open(&path).unwrap();
+                file.set_modified(now - Duration::from_secs(age)).unwrap();
+            }
+        }
+    }
+    let links = app.call("research.work_links", json!({})).unwrap();
+    let keys: Vec<_> = links
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|link| link["request_key"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(keys, ["zeta", "alpha", "mid"]);
+}
+
+#[test]
+fn revise_with_no_fields_says_there_is_nothing_to_change() {
+    let (_temp, app) = fixture();
+    let created = app
+        .call(
+            "research.create",
+            json!({"request_key": "q", "kind": "Q", "title": "A question", "body": "b"}),
+        )
+        .unwrap();
+    let error = app
+        .call(
+            "research.revise",
+            json!({"id": "Q001", "expected_blob": created["git_blob"]}),
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.starts_with("Nothing to change"), "{error}");
 }

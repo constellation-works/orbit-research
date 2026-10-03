@@ -114,7 +114,11 @@ fn every_advertised_research_tool_runs_through_the_real_mcp_transport() {
     let question = tool(&root, "research.create", create.clone());
     assert_eq!(question["id"], "Q001");
     let committed = git(&root, &["rev-parse", "HEAD"]);
-    assert_eq!(tool(&root, "research.create", create), question);
+    let mut replay = tool(&root, "research.create", create);
+    assert_eq!(replay["replayed"], true);
+    replay.as_object_mut().expect("receipt").remove("replayed");
+    assert_eq!(replay, question);
+    assert!(question.get("replayed").is_none());
     assert_eq!(git(&root, &["rev-parse", "HEAD"]), committed);
 
     let captured = tool(
@@ -127,7 +131,10 @@ fn every_advertised_research_tool_runs_through_the_real_mcp_transport() {
     let revision = json!({"id":"Q001", "expected_blob":before["git_blob"], "title":"Revised question", "body":"Revised body", "tags":["inbox"]});
     let revised = tool(&root, "research.revise", revision.clone());
     assert_eq!(revised["mode"], "primary");
-    assert_eq!(tool(&root, "research.revise", revision), revised);
+    let mut retried = tool(&root, "research.revise", revision);
+    assert_eq!(retried["replayed"], true);
+    retried.as_object_mut().expect("receipt").remove("replayed");
+    assert_eq!(retried, revised);
     let after = tool(&root, "research.show", json!({"id":"Q001"}));
     assert_eq!(after["metadata"]["title"], "Revised question");
     assert!(
@@ -156,6 +163,26 @@ fn every_advertised_research_tool_runs_through_the_real_mcp_transport() {
             &root,
             "research.create",
             json!({"kind":kind, "title":title, "request_key":key}),
+        );
+    }
+    {
+        // A synthesis plan needs its contribution committed.
+        let findings = root.join("research/R001-reserved-research/artifacts/work");
+        std::fs::create_dir_all(&findings).expect("contribution directory");
+        std::fs::write(findings.join("findings.md"), "Findings.\n").expect("findings");
+        git(&root, &["add", "."]);
+        git(
+            &root,
+            &[
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "contribution",
+            ],
         );
     }
     let head = git(&root, &["rev-parse", "HEAD"]);

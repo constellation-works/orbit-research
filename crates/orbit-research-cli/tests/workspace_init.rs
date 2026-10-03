@@ -36,6 +36,21 @@ fn generic_workspace_ignores_bytes_but_tracks_manifests() {
     let root = temp.path();
     let result = workspace::init(root).expect("workspace fixture operation");
     assert_eq!(result["created"], true);
+    // First run and re-run report the same fields.
+    assert_eq!(result["records"], 0);
+    assert_eq!(
+        result
+            .as_object()
+            .expect("receipt")
+            .keys()
+            .collect::<Vec<_>>(),
+        workspace::init(root)
+            .expect("re-run")
+            .as_object()
+            .expect("receipt")
+            .keys()
+            .collect::<Vec<_>>()
+    );
     assert!(root.join("_data").is_dir());
 
     fs::create_dir_all(root.join("research/R001-run/data")).expect("workspace fixture operation");
@@ -91,6 +106,7 @@ fn existing_corpus_is_validated_without_overwrite() {
     let result = workspace::init(root).expect("workspace fixture operation");
     assert_eq!(result["created"], false);
     assert_eq!(result["revision"], first_revision);
+    assert_eq!(result["records"], 0);
     assert_eq!(
         fs::read(&readme).expect("workspace fixture operation"),
         before

@@ -189,6 +189,11 @@ pub(super) fn revise(app: &Application, input: Revise) -> Result<Value> {
         }),
         manifest: input.manifest,
     };
+    if revision.is_empty() {
+        return Err(Error::InvalidInput(
+            "Nothing to change: give at least one of title, body, tags, status, tests, orbit or manifest".into(),
+        ));
+    }
     Ok(serde_json::to_value(app.corpus.store.revise(
         &input.id,
         &input.expected_blob,

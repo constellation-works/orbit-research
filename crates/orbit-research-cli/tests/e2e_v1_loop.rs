@@ -48,7 +48,6 @@ use std::fmt::{Debug, Display};
 use std::fs;
 use std::io::Read;
 use std::ops::Deref;
-use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
 use std::sync::{Arc, Mutex};
@@ -238,8 +237,7 @@ impl Lab {
             .replace("@RESEARCH_BIN@", common::BINARY)
             .replace("@CONTROL_DIR@", self.control.to_str().expect("UTF-8 path"));
         let agent = bin.join("codex");
-        fs::write(&agent, script).expect("scripted agent");
-        fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).expect("chmod agent");
+        common::exec_support::install_executable(&agent, &script);
         let executor = self.home.join(".orbit/resources/executors/codex.yaml");
         let text = fs::read_to_string(&executor).expect("seeded codex executor");
         assert!(text.contains("command: codex\n"), "{text}");
@@ -665,7 +663,7 @@ fn v1_research_loop_on_a_disposable_corpus() {
             .map(|row| {
                 (
                     row["id"].clone(),
-                    row["rev"].clone(),
+                    row["revision"].clone(),
                     row["verdict"].clone(),
                 )
             })
@@ -1384,10 +1382,10 @@ fn v1_research_loop_on_a_disposable_corpus() {
             .map(|row| {
                 (
                     row["id"].as_str().unwrap_or_default().to_owned(),
-                    row["rev"].as_str().unwrap_or_default().to_owned(),
+                    row["revision"].as_str().unwrap_or_default().to_owned(),
                     row["status"].as_str().unwrap_or_default().to_owned(),
                     row["verdict"].as_str().unwrap_or_default().to_owned(),
-                    row["via"].as_str().map(str::to_owned),
+                    row["research"].as_str().map(str::to_owned),
                 )
             })
             .collect::<Vec<_>>(),
@@ -1455,11 +1453,12 @@ fn v1_research_loop_on_a_disposable_corpus() {
             .map(|row| (row["id"].clone(), row["tasks"].clone()))
             .collect::<Vec<_>>(),
         vec![
-            (json!("Q001"), json!(delivered_tasks.join(", "))),
-            (json!("Q002"), Value::Null),
-            (json!("Q003"), Value::Null),
-            (json!("Q004"), Value::Null),
+            // Newest update first; all were updated today, so ids descend.
             (json!("Q005"), Value::Null),
+            (json!("Q004"), Value::Null),
+            (json!("Q003"), Value::Null),
+            (json!("Q002"), Value::Null),
+            (json!("Q001"), json!(delivered_tasks.join(", "))),
         ],
     );
     // The same four panels over MCP, without operator capability: the way a

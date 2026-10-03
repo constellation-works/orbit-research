@@ -97,6 +97,12 @@ impl Corpus {
         })
     }
 
+    /// Every file path in HEAD's tree, for checks about what a commit holds
+    /// beyond its records (for example a contribution's findings).
+    pub fn committed_paths(&self) -> Result<Vec<String>> {
+        git::read::with_head(self.root(), |committed| committed.paths())
+    }
+
     fn read_snapshot(
         &self,
         contract: &Contract,

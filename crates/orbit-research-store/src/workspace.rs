@@ -75,6 +75,7 @@ pub fn init(path: &Path) -> Result<Value> {
     Ok(json!({
         "corpus": corpus.root(),
         "created": true,
+        "records": 0,
         "revision": corpus.snapshot()?.revision,
     }))
 }
