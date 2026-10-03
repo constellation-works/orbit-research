@@ -154,17 +154,20 @@ impl Corpus {
         writer.finish(&key, intent)
     }
 
-    /// Revise a question. Kept for the `revise_question` operation; its retry
-    /// identity predates `revise` and stays unchanged for in-flight intents.
+    /// Revise a question; an omitted field keeps its current value. Kept for
+    /// the `revise_question` operation; its retry identity predates `revise`
+    /// and is unchanged for a request that names every field.
     pub fn revise_question(
         &self,
         id: &str,
         expected_blob: &str,
-        title: &str,
-        body: &str,
-        tags: Vec<String>,
+        title: Option<&str>,
+        body: Option<&str>,
+        tags: Option<Vec<String>>,
     ) -> Result<Reservation> {
-        edit::checked_title(title)?;
+        if let Some(title) = title {
+            edit::checked_title(title)?;
+        }
         let request_digest = digest(&serde_json::to_vec(&json!([
             id,
             expected_blob,
@@ -173,9 +176,9 @@ impl Corpus {
             tags
         ]))?);
         let edit = Edit {
-            title: Some(title.into()),
-            body: Some(body.into()),
-            tags: Some(tags),
+            title: title.map(Into::into),
+            body: body.map(Into::into),
+            tags,
             ..Edit::default()
         };
         self.rewrite(
@@ -268,7 +271,11 @@ impl Corpus {
                     assessment,
                     &record::utc_date()?,
                 )?;
-                accepted(snapshot)?;
+                // A stale blob is refused after these local checks and before
+                // Orbit is asked, so an unreachable Orbit never masks it.
+                if record.git_blob == expected_blob {
+                    accepted(snapshot)?;
+                }
                 Ok(text)
             },
         )
@@ -470,6 +477,7 @@ impl<'a> Writer<'a> {
         let reservation = Reservation {
             id: intent.id.clone(),
             path: intent.path.clone(),
+            changed: commit != intent.parent,
             commit,
             request_digest: intent.request_digest.clone(),
             git_blob: self.corpus.hash_bytes(intent.text.as_bytes())?,
@@ -656,7 +664,9 @@ impl Corpus {
     /// Writers reuse the compiled owner contract; a changed schema needs a reopen.
     pub(crate) fn require_open_schema(&self) -> Result<()> {
         let schema: serde_json::Value =
-            serde_json::from_slice(&self.working_bytes("_scripts/schema.json")?)?;
+            serde_json::from_slice(&self.working_bytes("_scripts/schema.json")?).map_err(
+                |error| Error::Invalid(format!("_scripts/schema.json is not valid JSON: {error}")),
+            )?;
         if schema != *self.schema() {
             return Err(Error::Invalid(
                 "Owner schema changed; reopen the corpus before writing".into(),

@@ -71,9 +71,9 @@ impl Research {
         &self,
         id: &str,
         blob: &str,
-        title: &str,
-        body: &str,
-        tags: Vec<String>,
+        title: Option<&str>,
+        body: Option<&str>,
+        tags: Option<Vec<String>>,
     ) -> Result<Reservation> {
         self.store.revise_question(id, blob, title, body, tags)
     }

@@ -163,11 +163,16 @@ pub(super) fn capture(app: &Application, input: Capture) -> Result<Value> {
 
 pub(super) fn revise_question(app: &Application, input: ReviseQuestion) -> Result<Value> {
     require_mode(app, input.mode)?;
+    if input.title.is_none() && input.body.is_none() && input.tags.is_none() {
+        return Err(Error::InvalidInput(
+            "Nothing to change: give at least one of title, body or tags".into(),
+        ));
+    }
     let reservation = app.corpus.revise_question(
         &input.id,
         &input.expected_blob,
-        &input.title,
-        &input.body,
+        input.title.as_deref(),
+        input.body.as_deref(),
         input.tags,
     )?;
     Ok(serde_json::to_value(WriteOutcome::Primary(reservation))?)

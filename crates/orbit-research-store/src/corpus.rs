@@ -1,7 +1,7 @@
 use crate::{
     Error, Result, git,
     record::{kebab, parse, parse_record_name},
-    validation::{Contract, validate_records},
+    validation::{Contract, validate_readable},
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -21,6 +21,16 @@ pub(crate) struct RecordEntry {
     pub(crate) slug: String,
     /// Corpus-relative `/` path of the record's Markdown file.
     pub(crate) path: String,
+}
+
+/// The outcome of reading every record without stopping at the first problem.
+struct LenientRead {
+    records: BTreeMap<String, Record>,
+    issues: Vec<CorpusIssue>,
+    /// Ids of records that could not be read at all.
+    unreadable: BTreeSet<String>,
+    /// Ids of records in `records` that break the owner schema.
+    flawed: BTreeSet<String>,
 }
 
 pub struct Corpus {
@@ -63,10 +73,9 @@ impl Corpus {
                 )),
                 error => error,
             })?;
-        let corpus = Self {
-            root,
-            contract: Contract::compile(serde_json::from_slice(&schema_bytes)?)?,
-        };
+        let contract = Contract::from_bytes(&schema_bytes)
+            .map_err(|error| in_file(error, &schema_path.display().to_string()))?;
+        let corpus = Self { root, contract };
         corpus.ensure_repository()?;
         Ok(corpus)
     }
@@ -88,11 +97,12 @@ impl Corpus {
     /// Immutable records and owner schema from one pinned commit, for work plans.
     pub fn committed_snapshot(&self) -> Result<Snapshot> {
         git::read::with_head(self.root(), |committed| {
-            let schema = serde_json::from_slice(&committed.bytes("_scripts/schema.json")?)?;
-            if schema == self.contract.schema {
+            let bytes = committed.bytes("_scripts/schema.json")?;
+            let label = format!("_scripts/schema.json at {}", committed.revision());
+            let contract = Contract::from_bytes(&bytes).map_err(|error| in_file(error, &label))?;
+            if contract.schema == self.contract.schema {
                 self.read_snapshot(&self.contract, committed.revision(), Some(&committed))
             } else {
-                let contract = Contract::compile(schema)?;
                 self.read_snapshot(&contract, committed.revision(), Some(&committed))
             }
         })
@@ -110,8 +120,20 @@ impl Corpus {
         revision: &str,
         committed: Option<&git::read::CommittedView<'_>>,
     ) -> Result<Snapshot> {
-        let records = self.read_records(contract, committed)?;
-        validate_records(&records)?;
+        // Whole-corpus rules run over the records that did read, so a reference
+        // or numbering problem is reported in the same pass as record problems.
+        let LenientRead {
+            records,
+            mut issues,
+            unreadable,
+            flawed,
+        } = self.read_records_lenient(contract, committed)?;
+        if let Err(Error::Corpus(more)) = validate_readable(&records, &unreadable, &flawed) {
+            issues.extend(more);
+        }
+        if !issues.is_empty() {
+            return Err(Error::Corpus(issues));
+        }
         let tags = records
             .values()
             .flat_map(|r| {
@@ -140,7 +162,7 @@ impl Corpus {
         contract: &Contract,
         committed: Option<&[String]>,
     ) -> Result<Vec<RecordEntry>> {
-        let (entries, issues) = self.scan_entries(contract, committed)?;
+        let (entries, issues, _) = self.scan_entries(contract, committed)?;
         if issues.is_empty() {
             Ok(entries)
         } else {
@@ -149,14 +171,16 @@ impl Corpus {
     }
 
     /// The well-named entries, plus one issue for each name that is not a
-    /// record name or each owner directory that is missing.
+    /// record name or each owner directory that is missing, and the ids such
+    /// badly named entries start with (they exist, but cannot be read).
     fn scan_entries(
         &self,
         contract: &Contract,
         committed: Option<&[String]>,
-    ) -> Result<(Vec<RecordEntry>, Vec<CorpusIssue>)> {
+    ) -> Result<(Vec<RecordEntry>, Vec<CorpusIssue>, BTreeSet<String>)> {
         let mut entries = Vec::new();
         let mut issues = Vec::new();
+        let mut misnamed = BTreeSet::new();
         let kinds = contract.schema["x-observatory"]["kinds"]
             .as_object()
             .ok_or_else(|| Error::Invalid("Missing record kinds".into()))?;
@@ -203,6 +227,12 @@ impl Corpus {
                             field: None,
                             message,
                         });
+                        if let Some(id) = name.get(..4).filter(|id| {
+                            id.starts_with(kind.as_str())
+                                && id[1..].bytes().all(|byte| byte.is_ascii_digit())
+                        }) {
+                            misnamed.insert(id.to_owned());
+                        }
                         continue;
                     }
                 };
@@ -224,7 +254,7 @@ impl Corpus {
                 });
             }
         }
-        Ok((entries, issues))
+        Ok((entries, issues, misnamed))
     }
 
     /// Parse and schema-check every record, without whole-corpus graph checks.
@@ -234,9 +264,28 @@ impl Corpus {
         contract: &Contract,
         committed: Option<&git::read::CommittedView<'_>>,
     ) -> Result<BTreeMap<String, Record>> {
+        let read = self.read_records_lenient(contract, committed)?;
+        if read.issues.is_empty() {
+            Ok(read.records)
+        } else {
+            Err(Error::Corpus(read.issues))
+        }
+    }
+
+    /// Read every record, keeping what could be read when some cannot. A record
+    /// whose frontmatter parses but breaks the contract still appears among the
+    /// records (and in `flawed`), so its references are checked with the rest;
+    /// no caller may use such a record once any problem is returned.
+    fn read_records_lenient(
+        &self,
+        contract: &Contract,
+        committed: Option<&git::read::CommittedView<'_>>,
+    ) -> Result<LenientRead> {
+        let mut flawed = BTreeSet::new();
         let mut records = BTreeMap::new();
         let paths = committed.map(|view| view.paths()).transpose()?;
-        let (entries, mut issues) = self.scan_entries(contract, paths.as_deref())?;
+        let (entries, mut issues, mut unreadable) =
+            self.scan_entries(contract, paths.as_deref())?;
         for entry in entries {
             let bytes = if let Some(view) = committed {
                 view.bytes(&entry.path)?
@@ -247,6 +296,15 @@ impl Corpus {
                 Ok(record) => record,
                 Err(Error::Corpus(found)) => {
                     issues.extend(found);
+                    match partial_record(&entry, &bytes) {
+                        Some(partial) if !records.contains_key(&entry.id) => {
+                            flawed.insert(entry.id.clone());
+                            records.insert(entry.id.clone(), partial);
+                        }
+                        _ => {
+                            unreadable.insert(entry.id);
+                        }
+                    }
                     continue;
                 }
                 Err(error) => return Err(error),
@@ -267,11 +325,12 @@ impl Corpus {
             }
             records.insert(record.id.clone(), record);
         }
-        if issues.is_empty() {
-            Ok(records)
-        } else {
-            Err(Error::Corpus(issues))
-        }
+        Ok(LenientRead {
+            records,
+            issues,
+            unreadable,
+            flawed,
+        })
     }
 
     /// One record from its bytes: frontmatter, owner schema, ID and frozen slug.
@@ -349,6 +408,30 @@ impl Corpus {
 
     pub(crate) fn safe_path(&self, relative: &Path) -> Result<PathBuf> {
         safe_path(&self.root, relative)
+    }
+}
+
+/// What a record that breaks the contract still says: its parsed frontmatter and
+/// body, so the references it makes can be checked. `None` when it does not parse.
+fn partial_record(entry: &RecordEntry, bytes: &[u8]) -> Option<Record> {
+    let (metadata, body) = parse(&entry.path, std::str::from_utf8(bytes).ok()?).ok()?;
+    Some(Record {
+        id: entry.id.clone(),
+        kind: entry.kind.clone(),
+        path: entry.path.clone(),
+        metadata,
+        body,
+        content_sha256: String::new(),
+        git_blob: String::new(),
+    })
+}
+
+/// A contract problem tied to the file it came from, so the reader knows which
+/// file to fix. Other errors (for example I/O) already carry their own context.
+fn in_file(error: Error, file: &str) -> Error {
+    match error {
+        Error::Invalid(message) => Error::Invalid(format!("{file}: {message}")),
+        error => error,
     }
 }
 

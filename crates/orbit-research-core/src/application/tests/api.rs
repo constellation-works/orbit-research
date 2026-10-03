@@ -239,6 +239,14 @@ fn assess_refuses_every_unverifiable_acceptance_without_writing() {
             if *accepted == stale && *current == blob),
         "{failure:?}"
     );
+    // The way forward is a new derived R: accept refuses different evidence, so
+    // advising "accept again" would be a dead end.
+    let advice = failure.to_string();
+    assert!(
+        advice.contains("research create --kind R --status planned --derived-from R001"),
+        "{advice}"
+    );
+    assert!(!advice.contains("accept the current result"), "{advice}");
 
     let unreachable: fn() -> AcceptanceFailure = || AcceptanceFailure::Unreachable {
         research: "R001".into(),

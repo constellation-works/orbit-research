@@ -244,3 +244,46 @@ fn pipe_output_escapes_tabs_newlines_and_backslashes_in_fields() {
     assert_eq!(output.matches('\t').count(), 5);
     assert_eq!(output.matches('\n').count(), 1);
 }
+
+#[test]
+fn bidirectional_controls_are_escaped_like_other_control_characters() {
+    let value = serde_json::json!({
+        "id": "Q001", "kind": "Q", "path": "questions/Q001-x.md",
+        "git_blob": "blob", "content_sha256": "sha",
+        "body": "safe \u{202e}gnp.exe\u{2066} text",
+        "metadata": {"id": "Q001", "title": "t\u{202a}x", "status": "open", "tags": []}
+    });
+    let shown = human(&value);
+    assert!(
+        !shown.contains('\u{202e}') && !shown.contains('\u{2066}'),
+        "{shown}"
+    );
+    assert!(!shown.contains('\u{202a}'), "{shown}");
+    assert!(shown.contains("\\u{202e}gnp.exe\\u{2066} text"), "{shown}");
+    assert!(shown.contains("title: t\\u{202a}x"), "{shown}");
+    let rows = human(&serde_json::json!({"records": [{
+        "id": "Q001", "kind": "Q", "path": "q.md",
+        "metadata": {"status": "open", "title": "a\u{2069}b", "tags": ["\u{202d}"]}
+    }]}));
+    assert_eq!(rows, "Q001\tQ\topen\ta\\u{2069}b\t\\u{202d}\tq.md\n");
+}
+
+#[test]
+fn a_write_that_changed_nothing_says_so_and_a_change_does_not() {
+    let unchanged = serde_json::json!({"changed": false, "id": "Q001", "commit": "abc"});
+    assert_eq!(
+        human(&unchanged),
+        "No changes: Q001 already has these values.\ncommit: abc\nid: Q001\n"
+    );
+    let changed = serde_json::json!({"id": "Q001", "commit": "abc"});
+    assert_eq!(human(&changed), "commit: abc\nid: Q001\n");
+}
+
+#[test]
+fn empty_tags_are_an_empty_pipe_field_and_a_dash_everywhere_else() {
+    let value = serde_json::json!({"records": [{
+        "id": "Q001", "kind": "Q", "path": "q.md",
+        "metadata": {"status": "open", "title": "t", "tags": []}
+    }]});
+    assert_eq!(human(&value), "Q001\tQ\topen\tt\t\tq.md\n");
+}

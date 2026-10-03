@@ -38,7 +38,7 @@
   "stored_evidence_mismatch": {
     "error": {
       "code": "conflict",
-      "message": "task-1 already carries research-acceptance.json with different evidence (blob, run_id, artifact_digests); refusing to overwrite recorded acceptance",
+      "message": "task-1 already carries research-acceptance.json with different evidence (blob, run_id, artifact_digests); refusing to overwrite recorded acceptance. To accept the changed result, reserve a new research record derived from it (`research create --kind R --status planned --derived-from R001`) and accept that one",
       "retryable": false
     },
     "ok": false

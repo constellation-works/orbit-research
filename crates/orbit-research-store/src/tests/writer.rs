@@ -279,9 +279,9 @@ fn valid_question_edit_updates_content_and_preserves_frozen_path() {
         .revise_question(
             "Q001",
             &old,
-            "A changed title",
-            "A changed question body.",
-            vec!["updated".into()],
+            Some("A changed title"),
+            Some("A changed question body."),
+            Some(vec!["updated".into()]),
         )
         .unwrap();
 
@@ -305,10 +305,22 @@ fn stale_blob_is_refused_before_writing() {
     let corpus = Corpus::open(temp.path()).unwrap();
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
     corpus
-        .revise_question("Q001", &old, "First edit", "body", vec!["one".into()])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("First edit"),
+            Some("body"),
+            Some(vec!["one".into()]),
+        )
         .unwrap();
     let error = corpus
-        .revise_question("Q001", &old, "Stale edit", "body", vec!["two".into()])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Stale edit"),
+            Some("body"),
+            Some(vec!["two".into()]),
+        )
         .unwrap_err();
     let message = error.to_string();
     assert!(
@@ -342,7 +354,7 @@ fn only_questions_are_editable() {
     let corpus = Corpus::open(temp.path()).unwrap();
     for id in ["H001", "T001"] {
         let error = corpus
-            .revise_question(id, "unused", "Edit", "body", vec![])
+            .revise_question(id, "unused", Some("Edit"), Some("body"), Some(vec![]))
             .unwrap_err();
         let message = error.to_string();
         assert!(
@@ -376,7 +388,7 @@ fn linked_worktree_cannot_revise_canonical_question() {
         .git_blob
         .clone();
     let error = corpus
-        .revise_question("Q001", &blob, "Changed", "Text", vec![])
+        .revise_question("Q001", &blob, Some("Changed"), Some("Text"), Some(vec![]))
         .expect_err("linked revision must refuse");
     assert!(error.to_string().contains("primary integration checkout"));
     assert!(git(&linked, &["status", "--porcelain"]).is_empty());
@@ -430,9 +442,9 @@ fn failed_question_commit_is_inspectable_and_identical_retry_succeeds() {
         .revise_question(
             "Q001",
             &old,
-            "Retryable edit",
-            "Body with trailing spaces.  ",
-            vec!["retry".into()],
+            Some("Retryable edit"),
+            Some("Body with trailing spaces.  "),
+            Some(vec!["retry".into()]),
         )
         .unwrap_err();
     let edited = fs::read(temp.path().join("questions/Q001-original.md")).unwrap();
@@ -447,9 +459,9 @@ fn failed_question_commit_is_inspectable_and_identical_retry_succeeds() {
         .revise_question(
             "Q001",
             &old,
-            "Retryable edit",
-            "Body with trailing spaces.  ",
-            vec!["retry".into()],
+            Some("Retryable edit"),
+            Some("Body with trailing spaces.  "),
+            Some(vec!["retry".into()]),
         )
         .unwrap();
     assert_eq!(revision.commit, git(temp.path(), &["rev-parse", "HEAD"]));
@@ -465,7 +477,13 @@ fn conflicting_edit_after_failed_question_commit_is_preserved_and_refused() {
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
     let hook = install_failing_pre_commit(temp.path());
     corpus
-        .revise_question("Q001", &old, "Pending edit", "body", vec!["retry".into()])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Pending edit"),
+            Some("body"),
+            Some(vec!["retry".into()]),
+        )
         .unwrap_err();
     fs::remove_file(hook).unwrap();
 
@@ -473,7 +491,13 @@ fn conflicting_edit_after_failed_question_commit_is_preserved_and_refused() {
     let conflicting = b"external edit with exact bytes  \n\n";
     fs::write(&path, conflicting).unwrap();
     let error = corpus
-        .revise_question("Q001", &old, "Pending edit", "body", vec!["retry".into()])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Pending edit"),
+            Some("body"),
+            Some(vec!["retry".into()]),
+        )
         .unwrap_err();
     assert!(error.to_string().contains("conflicting"));
     assert_eq!(fs::read(path).unwrap(), conflicting);
@@ -598,7 +622,13 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
     let corpus = Corpus::open(questions.path()).unwrap();
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
     let first = corpus
-        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Portable edit"),
+            Some("new body"),
+            Some(vec![]),
+        )
         .unwrap();
     let intent_path = clear_reservation_result(questions.path());
     let intent: serde_json::Value =
@@ -606,7 +636,13 @@ fn portable_reservation_and_revision_retry_after_receipt_loss() {
     assert_eq!(intent["path"], "questions/Q001-original.md");
     assert_eq!(intent["files"][0]["path"], intent["path"]);
     let retried = corpus
-        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Portable edit"),
+            Some("new body"),
+            Some(vec![]),
+        )
         .unwrap();
     assert_eq!(retried.commit, first.commit);
     assert_eq!(git(questions.path(), &["rev-list", "--count", "HEAD"]), "3");
@@ -623,7 +659,13 @@ fn retry_normalizes_older_revision_intent_paths() {
     let corpus = Corpus::open(questions.path()).unwrap();
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
     let first = corpus
-        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Portable edit"),
+            Some("new body"),
+            Some(vec![]),
+        )
         .unwrap();
     let intent_path = clear_reservation_result(questions.path());
     let mut intent: serde_json::Value =
@@ -634,7 +676,13 @@ fn retry_normalizes_older_revision_intent_paths() {
     fs::write(&intent_path, serde_json::to_vec(&intent).unwrap()).unwrap();
 
     let retried = corpus
-        .revise_question("Q001", &old, "Portable edit", "new body", vec![])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Portable edit"),
+            Some("new body"),
+            Some(vec![]),
+        )
         .unwrap();
     assert_eq!(retried.commit, first.commit);
     assert_eq!(retried.path, "questions/Q001-original.md");
@@ -751,7 +799,13 @@ fn retry_preserves_conflicting_index_even_when_working_file_matches_intent() {
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
     let hook = install_failing_pre_commit(temp.path());
     corpus
-        .revise_question("Q001", &old, "Pending edit", "body", vec![])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Pending edit"),
+            Some("body"),
+            Some(vec![]),
+        )
         .unwrap_err();
     fs::remove_file(hook).unwrap();
     let relative = "questions/Q001-original.md";
@@ -761,7 +815,13 @@ fn retry_preserves_conflicting_index_even_when_working_file_matches_intent() {
     git(temp.path(), &["add", "--", relative]);
     fs::write(&path, intended).unwrap();
     let error = corpus
-        .revise_question("Q001", &old, "Pending edit", "body", vec![])
+        .revise_question(
+            "Q001",
+            &old,
+            Some("Pending edit"),
+            Some("body"),
+            Some(vec![]),
+        )
         .unwrap_err();
     assert!(error.to_string().contains("Staged path"), "{error}");
     assert_eq!(
@@ -992,4 +1052,25 @@ fn assess_refuses_a_revision_the_hypothesis_never_had() {
         .unwrap_err();
     assert!(error.to_string().contains("has no revision 2"), "{error}");
     assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn an_unchanged_revision_commits_nothing_and_says_so() {
+    let temp = revision_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let first = corpus
+        .revise_question("Q001", &old, None, Some("A fresh body."), None)
+        .unwrap();
+    assert!(first.changed);
+    let commits = git(temp.path(), &["rev-list", "--count", "HEAD"]);
+    // A different request (the blob moved) that asks for what is already there.
+    let again = corpus
+        .revise_question("Q001", &first.git_blob, None, Some("A fresh body."), None)
+        .unwrap();
+    assert!(!again.changed);
+    assert_eq!(again.commit, first.commit);
+    assert_eq!(again.git_blob, first.git_blob);
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), commits);
+    assert_eq!(serde_json::to_value(&again).unwrap()["changed"], false);
 }

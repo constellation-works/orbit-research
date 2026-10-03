@@ -223,3 +223,22 @@ fn an_unparseable_record_fails_as_invalid() {
     edit_readme(&run, "status: done", "status: finished");
     assert_eq!(reasons(&run, &EXPECTED), [Reason::RecordInvalid]);
 }
+
+#[test]
+fn section_problems_are_reported_beside_an_invalid_record() {
+    let run = delivered();
+    edit_readme(&run, "status: done", "status: bogus");
+    edit_readme(&run, "## Limitations\n\nOne run.\n\n", "");
+    let report = Corpus::open(&run.linked)
+        .unwrap()
+        .validate_delivery(&EXPECTED)
+        .unwrap();
+    let reasons: Vec<Reason> = report.findings.iter().map(|f| f.reason).collect();
+    assert_eq!(reasons, [Reason::RecordInvalid, Reason::SectionMissing]);
+    let message = &report.findings[0].message;
+    assert!(
+        message
+            .contains("the provenance, manifest and reference checks run once the record is valid"),
+        "{message}"
+    );
+}

@@ -58,7 +58,10 @@ the worktree's first write binds it to that R. Allocation, commits, and writes t
 any other record refuse with a typed refusal. A caller may assert the mode it
 expects; a mismatch refuses.
 
-`revise` edits Q/H/T in primary mode under an expected blob. Identity, path,
+`revise` and `revise_question` edit Q/H/T in primary mode under an expected blob.
+A field the caller omits keeps its current value; an empty tag list clears the
+tags, and an empty hypothesis or theory body is refused. A revision that leaves
+the record as it was makes no commit and reports `changed: false`. Identity, path,
 lineage and assessments stay frozen. A hypothesis title or body change bumps its
 `revision` and reopens its status; earlier assessments stay on their revision.
 `assess` appends `{date, research, revision, verdict, strength, note}` to a

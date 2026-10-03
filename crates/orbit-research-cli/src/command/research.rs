@@ -62,6 +62,7 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
             body,
             body_file,
             tags,
+            clear_tags,
             status,
             tests,
             orbit_task,
@@ -78,6 +79,9 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
                 if let Some(value) = value {
                     input[field] = json!(value);
                 }
+            }
+            if clear_tags {
+                input["tags"] = json!([]);
             }
             for (field, values) in [("tags", tags), ("tests", tests)] {
                 if !values.is_empty() {
@@ -124,21 +128,21 @@ pub(crate) fn prepare(operation: ResearchOperation) -> Result<(PathBuf, Operatio
             title,
             body,
             tags,
+            clear_tags,
             mode,
-        } => Ok((
-            corpus,
-            Operation::ReviseQuestion,
-            with_mode(
-                json!({
-                    "id": id,
-                    "expected_blob": expected_blob,
-                    "title": title,
-                    "body": body,
-                    "tags": tags,
-                }),
-                &mode,
-            ),
-        )),
+        } => {
+            // Only the fields the caller named are sent; the rest keep their values.
+            let mut input = json!({"id": id, "expected_blob": expected_blob});
+            for (field, value) in [("title", title), ("body", body)] {
+                if let Some(value) = value {
+                    input[field] = json!(value);
+                }
+            }
+            if clear_tags || !tags.is_empty() {
+                input["tags"] = json!(tags);
+            }
+            Ok((corpus, Operation::ReviseQuestion, with_mode(input, &mode)))
+        }
         ResearchOperation::Plan {
             corpus,
             shape,

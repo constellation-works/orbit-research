@@ -17,8 +17,12 @@ Shortened values are acceptable only with a [full detail path](../references/det
 
 Use uppercase headers, two-space gutters, no borders or footer, and left-aligned
 text. Research columns are ID, KIND, STATUS, TITLE, TAGS, PATH, in that order.
-Missing table cells use `-`; plain missing fields are empty. Escape embedded tabs,
-newlines, carriage returns and other controls so a record stays on one line.
+Missing table cells use `-`; plain missing fields are empty. A record with no tags
+is a missing TAGS value: `-` in a table (as in `show`), an empty field in plain
+output, because `-` is also a legal tag and a pipe reader must tell them apart.
+Escape embedded tabs, newlines, carriage returns, other controls and Unicode
+bidirectional controls (U+202A to U+202E, U+2066 to U+2069) so a record stays on
+one line and reads in the order it is stored.
 JSON remains the lossless interchange for distinguishing literal escape text.
 
 Empty human lists leave stdout empty and emit `No research records found.` on
@@ -40,8 +44,8 @@ limitation in [design](../2_design.md#8-concerns--honest-limitations).
 
 ## 3. Column Selection
 
-Auto terminal mode suppresses uniform KIND, STATUS, TAGS and PATH columns. Always
-retain ID and TITLE. Explicit table mode disables uniform suppression. Plain
+Auto terminal mode suppresses uniform KIND, STATUS, TAGS and PATH columns, naming
+each hidden column and its single value on stderr. Always retain ID and TITLE. Explicit table mode disables uniform suppression. Plain
 output always has all six fields, including empty ones. If filters are introduced,
 a filtered column must remain visible even when uniform.
 

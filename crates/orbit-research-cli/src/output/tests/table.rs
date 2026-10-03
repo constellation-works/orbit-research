@@ -112,3 +112,44 @@ fn dim_color_is_limited_to_headers() {
     );
     assert!(!output.lines().nth(1).unwrap_or_default().contains('\x1b'));
 }
+
+#[test]
+fn hidden_uniform_columns_are_named_on_stderr_with_their_single_value() {
+    let uniform = OutputSink::resolve(OutputMode::Auto, true, 0, false);
+    let (mut out, mut diagnostics) = (Vec::new(), Vec::new());
+    let rows = vec![
+        serde_json::json!({
+            "id": "Q001", "kind": "Q", "path": "questions/Q001-a.md",
+            "metadata": {"status": "open", "title": "One", "tags": []}
+        }),
+        serde_json::json!({
+            "id": "Q002", "kind": "Q", "path": "questions/Q002-b.md",
+            "metadata": {"status": "open", "title": "Two", "tags": ["x"]}
+        }),
+    ];
+    render_records(&mut out, &mut diagnostics, &rows, &uniform).expect("table renders");
+    let output = String::from_utf8(out).expect("utf8 output");
+    assert!(
+        !output.contains("KIND") && !output.contains("STATUS"),
+        "{output}"
+    );
+    assert!(
+        output.contains("TAGS") && output.contains("PATH"),
+        "{output}"
+    );
+    assert_eq!(
+        String::from_utf8(diagnostics).expect("utf8 diagnostics"),
+        "Hidden columns, the same in every row: KIND=Q, STATUS=open.\n"
+    );
+
+    // A table that hides nothing, or an explicit --format table, stays quiet.
+    let (mut out, mut diagnostics) = (Vec::new(), Vec::new());
+    render_records(
+        &mut out,
+        &mut diagnostics,
+        &records(),
+        &sink(Mode::Table, 0),
+    )
+    .expect("renders");
+    assert!(diagnostics.is_empty());
+}

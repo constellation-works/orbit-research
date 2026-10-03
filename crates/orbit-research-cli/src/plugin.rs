@@ -769,7 +769,7 @@ fn accept_record(
             });
         }
         return Err(Error::Conflict(format!(
-            "{task} already carries {ACCEPTANCE_ARTIFACT_PATH} with different evidence ({}); refusing to overwrite recorded acceptance",
+            "{task} already carries {ACCEPTANCE_ARTIFACT_PATH} with different evidence ({}); refusing to overwrite recorded acceptance. To accept the changed result, reserve a new research record derived from it (`research create --kind R --status planned --derived-from {research_id}`) and accept that one",
             differing.join(", ")
         )));
     }

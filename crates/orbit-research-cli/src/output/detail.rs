@@ -185,12 +185,19 @@ fn scalar(value: &Value) -> String {
     }
 }
 
-/// Escape control characters other than newline and tab so record text cannot
-/// drive the terminal.
+/// The Unicode bidirectional embedding, override and isolate controls. They are
+/// not `char::is_control`, yet they reorder the text around them, so a record
+/// could make one line of output read as another.
+pub(super) fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Escape control characters other than newline and tab, and bidirectional
+/// controls, so record text cannot drive or reorder the terminal.
 pub(super) fn safe_text(text: &str) -> String {
     text.chars()
         .flat_map(|c| {
-            if c.is_control() && c != '\n' && c != '\t' {
+            if (c.is_control() && c != '\n' && c != '\t') || is_bidi_control(c) {
                 c.escape_default().collect::<Vec<_>>()
             } else {
                 vec![c]

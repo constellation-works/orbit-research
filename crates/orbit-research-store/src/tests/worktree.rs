@@ -160,7 +160,7 @@ fn worktree_refuses_allocation_and_every_other_record() {
     let question = blob(&corpus, "Q001");
     refused(
         corpus
-            .revise_question("Q001", &question, "Edit", "Body", vec![])
+            .revise_question("Q001", &question, Some("Edit"), Some("Body"), Some(vec![]))
             .map(drop),
     );
     let edit = Edit {
@@ -208,4 +208,32 @@ fn worktree_refuses_allocation_and_every_other_record() {
         git(&run.linked, &["status", "--porcelain"]),
         "M research/R001-first-study/README.md\n M research/R001-first-study/data/manifest.json"
     );
+}
+
+#[test]
+fn a_worktree_write_that_changes_nothing_says_so() {
+    let run = run();
+    let corpus = Corpus::open(&run.linked).unwrap();
+    let edit = result();
+    let first = match corpus
+        .revise("R001", &blob(&corpus, "R001"), &edit)
+        .unwrap()
+    {
+        WriteOutcome::Worktree(write) => write,
+        other => panic!("worktree mode expected: {other:?}"),
+    };
+    assert!(first.changed);
+    assert!(
+        serde_json::to_value(&first)
+            .unwrap()
+            .get("changed")
+            .is_none()
+    );
+    let again = match corpus.revise("R001", &first.blob, &edit).unwrap() {
+        WriteOutcome::Worktree(write) => write,
+        other => panic!("worktree mode expected: {other:?}"),
+    };
+    assert!(!again.changed);
+    assert_eq!(serde_json::to_value(&again).unwrap()["changed"], false);
+    assert_eq!(again.blob, first.blob);
 }
