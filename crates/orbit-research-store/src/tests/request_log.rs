@@ -467,3 +467,184 @@ fn nonordinary_markers_and_locks_refuse_without_blocking() {
         );
     }
 }
+
+fn prepared_fixture() -> TempDir {
+    let temp = fixture();
+    legacy(temp.path());
+    prepare_workspace_operations(temp.path()).expect("prepared fixture");
+    temp
+}
+
+#[test]
+fn a_prepared_corpus_missing_its_state_directory_names_the_path_and_the_fix() {
+    let temp = prepared_fixture();
+    let root = temp.path();
+    fs::remove_dir_all(root.join(STATE)).expect("delete state");
+    let corpus = Corpus::open(root).expect("open corpus");
+    for error in [
+        corpus.request_log().err().expect("request log refuses"),
+        corpus
+            .require_prepared_operations()
+            .expect_err("link refuses"),
+    ] {
+        assert!(matches!(error, Error::Refused(_)), "{error:?}");
+        let message = error.to_string();
+        assert!(!message.contains("os error"), "{message}");
+        assert!(message.contains(STATE), "{message}");
+        assert!(
+            message.contains(&format!(
+                "`orbit-research workspace prepare-operations {}`",
+                root.canonicalize().unwrap().display()
+            )),
+            "{message}"
+        );
+    }
+}
+
+#[test]
+fn preparation_recreates_a_state_directory_deleted_under_its_marker() {
+    let temp = prepared_fixture();
+    let root = temp.path();
+    let head = git(root, &["rev-parse", "HEAD"]);
+    let index = fs::read(root.join(".git/index")).expect("index");
+    let marker = fs::read(root.join(".git/orbit-research-operations")).expect("marker");
+    fs::remove_dir_all(root.join(STATE)).expect("delete state");
+
+    let receipt = prepare_workspace_operations(root).expect("recreate");
+    assert_eq!(receipt["prepared"], true);
+    assert_eq!(receipt["changed"], true);
+    assert_eq!(receipt["recreated"], true);
+    assert!(root.join(STATE).join(".layout").is_file());
+    assert_eq!(
+        fs::metadata(root.join(STATE)).unwrap().mode() & 0o777,
+        0o700
+    );
+    // The layout marker in Git metadata, HEAD, the index and the tree are untouched.
+    assert_eq!(
+        fs::read(root.join(".git/orbit-research-operations")).unwrap(),
+        marker
+    );
+    assert_eq!(git(root, &["rev-parse", "HEAD"]), head);
+    assert_eq!(fs::read(root.join(".git/index")).unwrap(), index);
+    assert_eq!(git(root, &["status", "--porcelain"]), "");
+    // The request log works again, empty: the earlier records were lost with the directory.
+    let corpus = Corpus::open(root).unwrap();
+    let log = corpus.request_log().expect("log opens");
+    assert!(log.read::<Value>(KEY).unwrap().is_none());
+    drop(log);
+    // A second run changes nothing.
+    let again = prepare_workspace_operations(root).expect("idempotent");
+    assert_eq!(again["changed"], false);
+    assert!(again.get("recreated").is_none());
+    // No staging directory is left behind.
+    let leftovers: Vec<_> = fs::read_dir(root.join("_data"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(leftovers, ["orbit-research-operations"]);
+}
+
+#[test]
+fn recreation_also_rebuilds_a_missing_data_directory() {
+    let temp = prepared_fixture();
+    let root = temp.path();
+    fs::remove_dir_all(root.join("_data")).expect("delete _data");
+    let receipt = prepare_workspace_operations(root).expect("recreate with parent");
+    assert_eq!(receipt["recreated"], true);
+    assert!(root.join(STATE).join(".layout").is_file());
+}
+
+#[test]
+fn recreation_never_adopts_or_replaces_state_it_did_not_create() {
+    for case in ["foreign_directory", "empty_directory", "symlink", "tracked"] {
+        let temp = prepared_fixture();
+        let root = temp.path();
+        let state = root.join(STATE);
+        let outside = tempfile::tempdir().expect("outside");
+        fs::write(outside.path().join("sentinel"), "keep").unwrap();
+        fs::remove_dir_all(&state).unwrap();
+        match case {
+            "foreign_directory" => {
+                fs::create_dir(&state).unwrap();
+                fs::write(state.join("someone-elses.json"), "keep").unwrap();
+            }
+            "empty_directory" => fs::create_dir(&state).unwrap(),
+            "symlink" => symlink(outside.path(), &state).unwrap(),
+            "tracked" => {
+                fs::create_dir(&state).unwrap();
+                fs::write(state.join("tracked.json"), "{}").unwrap();
+                git(root, &["add", "-f", &format!("{STATE}/tracked.json")]);
+                fs::remove_dir_all(&state).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let before = bytes(root);
+        let outside_before = bytes(outside.path());
+        let error = prepare_workspace_operations(root).expect_err(case);
+        assert!(matches!(error, Error::Refused(_)), "{case}: {error:?}");
+        assert_eq!(bytes(root), before, "{case} mutated the corpus");
+        assert_eq!(
+            bytes(outside.path()),
+            outside_before,
+            "{case} mutated outside"
+        );
+        if case == "foreign_directory" || case == "empty_directory" {
+            let message = error.to_string();
+            assert!(message.contains(".layout"), "{case}: {message}");
+            assert!(message.contains("not adopted"), "{case}: {message}");
+        }
+    }
+}
+
+#[test]
+fn preparation_makes_git_ignore_plugin_scratch_idempotently() {
+    let temp = fixture();
+    let root = temp.path();
+    let exclude = root.join(".git/info/exclude");
+    fs::create_dir_all(exclude.parent().unwrap()).unwrap();
+    fs::write(&exclude, "# local rules\n*.swp").expect("existing rules without a final newline");
+    legacy(root);
+
+    let first = prepare_workspace_operations(root).expect("prepare");
+    assert_eq!(first["scratch_ignored"], true);
+    assert_eq!(
+        fs::read_to_string(&exclude).unwrap(),
+        "# local rules\n*.swp\n/.orbit-research-tmp/\n"
+    );
+    fs::create_dir(root.join(".orbit-research-tmp")).unwrap();
+    fs::write(
+        root.join(".orbit-research-tmp/research-acceptance-1.json"),
+        "{}",
+    )
+    .unwrap();
+    assert_eq!(git(root, &["status", "--porcelain"]), "");
+
+    let second = prepare_workspace_operations(root).expect("repeat");
+    assert_eq!(second["changed"], false);
+    assert!(second.get("scratch_ignored").is_none());
+    assert_eq!(
+        fs::read_to_string(&exclude)
+            .unwrap()
+            .matches(".orbit-research-tmp")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn preparation_leaves_a_corpus_that_already_ignores_scratch_alone() {
+    let temp = fixture();
+    let root = temp.path();
+    fs::write(
+        root.join(".gitignore"),
+        "_data/**\n!_data/**/\n!_data/**/manifest.json\n/.orbit-research-tmp/\n",
+    )
+    .unwrap();
+    git(root, &["commit", "-qam", "ignore scratch"]);
+    legacy(root);
+    let exclude = root.join(".git/info/exclude");
+    let before = fs::read(&exclude).ok();
+    let receipt = prepare_workspace_operations(root).expect("prepare");
+    assert!(receipt.get("scratch_ignored").is_none());
+    assert_eq!(fs::read(&exclude).ok(), before);
+}

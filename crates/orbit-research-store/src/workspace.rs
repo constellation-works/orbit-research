@@ -53,7 +53,7 @@ pub fn init(path: &Path) -> Result<Value> {
     )?;
     fs::write(
         path.join(".gitignore"),
-        ".DS_Store\n__pycache__/\n.venv/\n.env\n\n# Research bytes are local; manifests are the committed evidence surface.\n**/data/*\n!**/data/manifest.json\n**/output/**\n_data/**\n!_data/**/\n!_data/**/manifest.json\n",
+        ".DS_Store\n__pycache__/\n.venv/\n.env\n\n# Research bytes are local; manifests are the committed evidence surface.\n**/data/*\n!**/data/manifest.json\n**/output/**\n_data/**\n!_data/**/\n!_data/**/manifest.json\n\n# Scratch the plugin's accept tool stages artifacts in.\n/.orbit-research-tmp/\n",
     )?;
     fs::write(
         path.join("_scripts/check.sh"),

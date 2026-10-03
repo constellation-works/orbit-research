@@ -69,6 +69,9 @@ pub enum WriteOutcome {
     Worktree(WorktreeWrite),
 }
 
+/// Dirty paths listed in a refusal before `+N more`.
+const DIRTY_PATH_LIMIT: usize = 10;
+
 struct Writer<'a> {
     corpus: &'a Corpus,
     state: PathBuf,
@@ -87,12 +90,14 @@ impl Corpus {
         derived_from: Vec<String>,
     ) -> Result<Reservation> {
         if request_key.is_empty() || request_key.len() > 256 {
-            return Err(Error::Invalid(
-                "Request key must contain 1–256 bytes".into(),
+            return Err(Error::InvalidInput(
+                "The request key must be 1-256 bytes long; use a short, non-empty identifier of your own and reuse it only to retry the same request".into(),
             ));
         }
         if !matches!(kind, "Q" | "H" | "T" | "R") {
-            return Err(Error::Invalid("Record kind must be Q, H, T or R".into()));
+            return Err(Error::InvalidInput(
+                "Record kind must be Q, H, T or R".into(),
+            ));
         }
         let title = edit::checked_title(title)?;
         self.git(&["rev-parse", "HEAD"])?;
@@ -112,7 +117,9 @@ impl Corpus {
                 let snapshot = self.snapshot()?;
                 for parent in &derived_from {
                     if !snapshot.records.iter().any(|r| &r.id == parent) {
-                        return Err(Error::Invalid(format!("Unknown predecessor {parent}")));
+                        return Err(Error::InvalidInput(format!(
+                            "Unknown predecessor {parent}: it is not in the corpus; list the corpus to see the ids that exist"
+                        )));
                     }
                 }
                 let next = snapshot
@@ -178,9 +185,21 @@ impl Corpus {
             expected_blob,
             |_, record| {
                 if record.kind != "Q" {
-                    return Err(Error::Invalid(
-                        "Only existing questions are editable".into(),
-                    ));
+                    let elsewhere = if record.kind == "R" {
+                        "a research item, which only its own run writes".to_owned()
+                    } else {
+                        format!(
+                            "a {}; edit it with `research revise --id {id}`",
+                            match record.kind.as_str() {
+                                "H" => "hypothesis",
+                                "T" => "theory",
+                                other => other,
+                            }
+                        )
+                    };
+                    return Err(Error::InvalidInput(format!(
+                        "revise-question edits questions only, and {id} is {elsewhere}"
+                    )));
                 }
                 edit::revise(&self.contract, record, &edit, &record::utc_date()?)
             },
@@ -280,13 +299,13 @@ impl Corpus {
                     // Render first so a wrong-kind request reports that, not staleness.
                     render(&snapshot, record)?;
                     return Err(Error::Conflict(format!(
-                        "{id} changed since it was opened; reload before editing"
+                        "{id} has changed since you read it; run `research show --id {id}` again and use its `git_blob` as the expected blob"
                     )));
                 }
                 let before = fs::read_to_string(self.root().join(&record.path))?;
                 if self.hash_bytes(before.as_bytes())? != expected_blob {
                     return Err(Error::Conflict(format!(
-                        "{id} changed while preparing revision"
+                        "{id} changed while the revision was being prepared; run `research show --id {id}` again and use its `git_blob` as the expected blob"
                     )));
                 }
                 let text = render(&snapshot, record)?;
@@ -366,13 +385,36 @@ impl<'a> Writer<'a> {
     }
 
     fn require_clean(&self) -> Result<()> {
-        if !self.corpus.git(&["status", "--porcelain"])?.is_empty() {
-            return Err(Error::Invalid(
-                "Write requires a clean corpus integration checkout; preserve existing edits first"
-                    .into(),
+        let status = self.corpus.git_bytes(&["status", "--porcelain"])?;
+        if status.is_empty() {
+            return Ok(());
+        }
+        let status = String::from_utf8_lossy(&status);
+        let dirty: Vec<&str> = status.lines().collect();
+        let mut message = format!(
+            "Write requires a clean corpus integration checkout; {} path{} with uncommitted changes in {}:",
+            dirty.len(),
+            if dirty.len() == 1 { "" } else { "s" },
+            self.corpus.root().display()
+        );
+        for line in dirty.iter().take(DIRTY_PATH_LIMIT) {
+            message.push_str("\n  ");
+            message.push_str(line);
+        }
+        if dirty.len() > DIRTY_PATH_LIMIT {
+            message.push_str(&format!("\n  +{} more", dirty.len() - DIRTY_PATH_LIMIT));
+        }
+        message.push_str("\nCommit, stash or remove them first, then retry.");
+        if dirty
+            .iter()
+            .any(|line| line.contains(".orbit-research-tmp"))
+        {
+            message.push_str(&format!(
+                " `.orbit-research-tmp/` is scratch left by an interrupted `accept`: delete it, and run `orbit-research workspace prepare-operations {}` so Git ignores it from now on.",
+                self.corpus.root().display()
             ));
         }
-        Ok(())
+        Err(Error::Invalid(message))
     }
 
     fn load(&self, key: &str, request_digest: &str) -> Result<Option<ReservationIntent>> {
@@ -390,7 +432,7 @@ impl<'a> Writer<'a> {
         })?;
         if intent.request_digest != request_digest {
             return Err(Error::Invalid(
-                "Request key was already used for different content".into(),
+                "This request key was already used for different content; omit the request key to let one be generated, or choose a new key (reuse a key only to retry the identical request)".into(),
             ));
         }
         intent.normalize_paths();

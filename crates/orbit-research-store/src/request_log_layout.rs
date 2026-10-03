@@ -69,8 +69,7 @@ pub(crate) fn location(corpus: &Corpus) -> Result<Location> {
     match fs::symlink_metadata(&location.legacy) {
         Ok(metadata) if metadata.is_file() => {
             check_marker(&location.legacy)?;
-            require_directory(&location.state)?;
-            check_marker(&location.state.join(LEDGER_NAME))?;
+            require_prepared_state(&location)?;
             location.root = location.state.clone();
             location.prepared = true;
         }
@@ -87,6 +86,51 @@ pub(crate) fn location(corpus: &Corpus) -> Result<Location> {
     Ok(location)
 }
 
+/// The layout marker says storage was prepared, so its directory and ledger
+/// must be there. Say which path is missing and how to restore it, rather than
+/// surfacing a bare OS error.
+fn require_prepared_state(location: &Location) -> Result<()> {
+    no_symlinks(&location.state)?;
+    match fs::symlink_metadata(&location.state) {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(Error::Refused(format!(
+                "Request storage is not a directory at {}",
+                location.state.display()
+            )));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(Error::Refused(format!(
+                "Shared request storage is missing: {} does not exist, although {} marks this corpus as prepared. Run `orbit-research workspace prepare-operations {}` on the primary checkout to recreate it; link records kept there are lost, but linking again with the same request key adopts the Orbit task already tagged for it",
+                location.state.display(),
+                location.legacy.display(),
+                location.primary.display()
+            )));
+        }
+        Err(error) => {
+            return Err(Error::Io(std::io::Error::new(
+                error.kind(),
+                format!(
+                    "Unable to inspect request storage at {}: {error}",
+                    location.state.display()
+                ),
+            )));
+        }
+    }
+    let ledger = location.state.join(LEDGER_NAME);
+    match check_marker(&ledger) {
+        Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(Error::Refused(format!(
+                "Request storage at {} has no {LEDGER_NAME} marker ({} is missing); it was not made by prepare-operations, so it is not adopted. Preserve it and move it aside, then run `orbit-research workspace prepare-operations {}`",
+                location.state.display(),
+                ledger.display(),
+                location.primary.display()
+            )))
+        }
+        other => other,
+    }
+}
+
 pub(crate) fn require_prepared(corpus: &Corpus) -> Result<()> {
     let location = location(corpus)?;
     if location.prepared {
@@ -98,8 +142,104 @@ pub(crate) fn require_prepared(corpus: &Corpus) -> Result<()> {
     )))
 }
 
+/// Name of the scratch directory the plugin's `accept` stages artifacts in.
+const SCRATCH_DIR: &str = ".orbit-research-tmp";
+
 pub(crate) fn prepare(path: &Path) -> Result<Value> {
-    prepare_with_exchange(path, exchange)
+    let mut receipt = prepare_with_exchange(path, exchange)?;
+    if ignore_scratch(path)? {
+        receipt["changed"] = json!(true);
+        receipt["scratch_ignored"] = json!(true);
+    }
+    Ok(receipt)
+}
+
+/// Make Git ignore the plugin's scratch directory, so an interrupted `accept`
+/// cannot leave the integration checkout dirty and refuse every later write.
+/// The rule goes in the repository's `info/exclude`, not the tracked
+/// `.gitignore`: editing that would itself dirty the checkout. Idempotent, and
+/// a no-op when the corpus already ignores the directory. Returns whether it wrote.
+fn ignore_scratch(path: &Path) -> Result<bool> {
+    let corpus = Corpus::open(path)?;
+    if corpus.is_ignored(&format!("{SCRATCH_DIR}/probe"))? {
+        return Ok(false);
+    }
+    let common = read::common_git_dir(corpus.root())?;
+    let info = common.join("info");
+    no_symlinks(&info)?;
+    fs::create_dir_all(&info)?;
+    let exclude = info.join("exclude");
+    no_symlinks(&exclude)?;
+    let mut text = match fs::read_to_string(&exclude) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(error.into()),
+    };
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text.push_str(&format!("/{SCRATCH_DIR}/\n"));
+    let mut temp = tempfile::NamedTempFile::new_in(&info)?;
+    temp.write_all(text.as_bytes())?;
+    temp.as_file().sync_all()?;
+    temp.persist(&exclude)
+        .map_err(|error| Error::Io(error.error))?;
+    Ok(true)
+}
+
+/// A prepared corpus whose state directory has been deleted: the layout marker
+/// in Git metadata is intact, but `_data/orbit-research-operations/` is gone.
+/// Recreate an empty one with its ledger. Only a path that does not exist at
+/// all is filled; any existing entry, however odd, is left to the checks that
+/// refuse it, so state this binary did not create is never adopted.
+fn recreate_missing_state(corpus: &Corpus) -> Result<Option<Value>> {
+    let layout = paths(corpus)?;
+    match fs::symlink_metadata(&layout.legacy) {
+        Ok(metadata) if metadata.is_file() => check_marker(&layout.legacy)?,
+        _ => return Ok(None),
+    }
+    match fs::symlink_metadata(&layout.state) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        _ => return Ok(None),
+    }
+    let parent = layout
+        .state
+        .parent()
+        .ok_or_else(|| Error::Internal("Missing state parent".into()))?;
+    create_directory(parent)?;
+    let staging = tempfile::Builder::new()
+        .prefix(".orbit-research-operations-")
+        .tempdir_in(parent)?;
+    {
+        let mut ledger = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(staging.path().join(LEDGER_NAME))?;
+        ledger.write_all(MARKER)?;
+        ledger.sync_all()?;
+    }
+    sync_directory(staging.path())?;
+    let staged = staging.keep();
+    // A directory renamed onto a missing name is atomic; onto a populated one
+    // it fails, so a state directory created meanwhile is never replaced.
+    if let Err(error) = fs::rename(&staged, &layout.state) {
+        let _ = fs::remove_dir_all(&staged);
+        return Err(Error::Refused(format!(
+            "Cannot recreate request storage at {}: {error}",
+            layout.state.display()
+        )));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&layout.state, fs::Permissions::from_mode(0o700))?;
+    }
+    sync_directory(&layout.state)?;
+    sync_directory(parent)?;
+    sync_directory(&layout.common)?;
+    let mut done = receipt(&location(corpus)?, true);
+    done["recreated"] = json!(true);
+    Ok(Some(done))
 }
 
 /// The exchange seam lets tests exercise unsupported filesystems and readers
@@ -135,6 +275,9 @@ pub(crate) fn prepare_with_exchange(
                 "Operational entry {STATE_PATH}/{name} must be ignored by Git before preparing operations"
             )));
         }
+    }
+    if let Some(recreated) = recreate_missing_state(&corpus)? {
+        return Ok(recreated);
     }
     let initial = location(&corpus)?;
     if initial.prepared {

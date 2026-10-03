@@ -1,32 +1,79 @@
 //! Canonical Markdown encoding and filename rules.
 use crate::{Error, Result};
+use orbit_research_common::CorpusIssue;
 use serde_json::Value;
 
-pub(crate) fn parse(text: &str) -> Result<(Value, String)> {
+/// Split a record file into its frontmatter and body. A failure names `path`
+/// and says what the file must look like.
+pub(crate) fn parse(path: &str, text: &str) -> Result<(Value, String)> {
+    let problem = |message: String| {
+        Error::Corpus(vec![CorpusIssue {
+            path: path.to_owned(),
+            field: None,
+            message,
+        }])
+    };
     let normalized = text.replace("\r\n", "\n");
-    let rest = normalized
-        .strip_prefix("---\n")
-        .ok_or_else(|| Error::Invalid("Missing frontmatter".into()))?;
-    let (front, body) = rest
-        .split_once("\n---\n")
-        .ok_or_else(|| Error::Invalid("Unclosed frontmatter".into()))?;
-    Ok((serde_yaml::from_str(front)?, body.to_owned()))
+    let rest = normalized.strip_prefix("---\n").ok_or_else(|| {
+        problem(
+            "missing frontmatter: the file must start with a line holding only `---`, then YAML fields, then a closing `---` line"
+                .into(),
+        )
+    })?;
+    let (front, body) = rest.split_once("\n---\n").ok_or_else(|| {
+        problem("unclosed frontmatter: add a line holding only `---` after the YAML fields".into())
+    })?;
+    let metadata = serde_yaml::from_str(front).map_err(|error| {
+        // The YAML sits below the opening `---`, so its line numbers are one short.
+        problem(format!(
+            "frontmatter is not valid YAML: {}",
+            shift_lines(&error.to_string(), 1)
+        ))
+    })?;
+    Ok((metadata, body.to_owned()))
 }
 
+/// Add `by` to every `line N` in a parser message.
+fn shift_lines(message: &str, by: usize) -> String {
+    let mut shifted = String::new();
+    let mut rest = message;
+    while let Some(at) = rest.find("line ") {
+        let (head, tail) = rest.split_at(at + "line ".len());
+        shifted.push_str(head);
+        let digits = tail.bytes().take_while(u8::is_ascii_digit).count();
+        match tail[..digits].parse::<usize>() {
+            Ok(line) => shifted.push_str(&(line + by).to_string()),
+            Err(_) => shifted.push_str(&tail[..digits]),
+        }
+        rest = &tail[digits..];
+    }
+    shifted.push_str(rest);
+    shifted
+}
+
+/// Split `Q001-short-slug.md` (or the directory `R001-short-slug`) into its id
+/// and slug. The error is a plain sentence for the caller to attach a path to.
 pub(crate) fn parse_record_name(
     kind: &str,
     name: &str,
     directory_layout: bool,
-) -> Result<(String, String)> {
+) -> std::result::Result<(String, String), String> {
+    let expected = if directory_layout {
+        format!("{kind}001-short-slug/ (a directory holding README.md)")
+    } else {
+        format!("{kind}001-short-slug.md")
+    };
+    let wrong = || {
+        format!(
+            "the name `{name}` is not a record name; use {expected}, with a three-digit id and a lowercase slug of letters, digits and single hyphens"
+        )
+    };
     let suffix = if directory_layout {
         name
     } else {
-        name.strip_suffix(".md")
-            .ok_or_else(|| Error::Invalid(format!("Record filename must end in .md: {name}")))?
+        name.strip_suffix(".md").ok_or_else(wrong)?
     };
-    let (id, slug) = suffix
-        .split_once('-')
-        .ok_or_else(|| Error::Invalid(format!("Record path must be {kind}###-slug: {name}")))?;
+    let (id, slug) = suffix.split_once('-').ok_or_else(wrong)?;
     if id.len() != kind.len() + 3
         || !id.starts_with(kind)
         || !id[kind.len()..].bytes().all(|byte| byte.is_ascii_digit())
@@ -38,9 +85,7 @@ pub(crate) fn parse_record_name(
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
     {
-        return Err(Error::Invalid(format!(
-            "Record path must be {kind}###-slug: {name}"
-        )));
+        return Err(wrong());
     }
     Ok((id.to_owned(), slug.to_owned()))
 }
@@ -164,7 +209,7 @@ pub(crate) fn scaffold(
         // path to the kebab-case of its title, accepts it.
         meta["slug"] = json!(slug);
     }
-    contract.validate(&meta, id)?;
+    contract.validate_input(&meta, id, kind)?;
     let directory = contract.schema["x-observatory"]["kinds"][kind]["directory"]
         .as_str()
         .ok_or_else(|| Error::Invalid("Missing owner directory".into()))?;

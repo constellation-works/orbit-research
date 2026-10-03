@@ -111,7 +111,7 @@ pub(crate) fn revise(
         metadata["orbit"] = serde_json::to_value(orbit)?;
     }
     metadata["updated"] = json!(today);
-    contract.validate(&metadata, &record.path)?;
+    contract.validate_input(&metadata, &record.path, &record.kind)?;
     let raw = match &edit.body {
         Some(body) => format!("\n{body}\n"),
         None => record.body.clone(),
@@ -214,7 +214,7 @@ pub(crate) fn assess(
         metadata["status"] = json!(status);
     }
     metadata["updated"] = json!(today);
-    contract.validate(&metadata, &record.path)?;
+    contract.validate_input(&metadata, &record.path, &record.kind)?;
     record::render(&metadata, &record.body)
 }
 
@@ -227,23 +227,23 @@ pub(crate) fn manifest_text(contract: &Contract, manifest: &Value) -> Result<Str
 /// Check a `data/manifest.json` value against the owner schema's
 /// `data_manifest` definition when it exports one.
 pub(crate) fn check_manifest(contract: &Contract, manifest: &Value) -> Result<()> {
-    if contract.schema["$defs"]["data_manifest"].is_object() {
-        let mut schema = contract.schema.clone();
-        if let Some(root) = schema.as_object_mut() {
-            root.remove("oneOf");
-            root.insert("$ref".into(), json!("#/$defs/data_manifest"));
+    if let Some(issues) = contract.manifest_issues(manifest) {
+        if issues.is_empty() {
+            return Ok(());
         }
-        let validator = jsonschema::JSONSchema::options()
-            .with_draft(jsonschema::Draft::Draft202012)
-            .compile(&schema)
-            .map_err(|e| Error::Invalid(format!("Invalid owner schema: {e}")))?;
-        if let Err(errors) = validator.validate(manifest) {
-            return Err(Error::InvalidInput(format!(
-                "data/manifest.json: {}",
-                errors.map(|e| e.to_string()).collect::<Vec<_>>().join("; ")
-            )));
-        }
-    } else if !manifest["inputs"].is_array() {
+        let lines: Vec<String> = issues
+            .iter()
+            .map(|(field, message)| match field {
+                Some(field) => format!("{field}: {message}"),
+                None => message.clone(),
+            })
+            .collect();
+        return Err(Error::InvalidInput(format!(
+            "data/manifest.json: {}",
+            lines.join("; ")
+        )));
+    }
+    if !manifest["inputs"].is_array() {
         return Err(Error::InvalidInput(
             "data/manifest.json must list its inputs".into(),
         ));
@@ -259,14 +259,14 @@ pub(crate) fn check_records(
     path: &str,
     text: &str,
 ) -> Result<()> {
-    let (metadata, body) = record::parse(text)?;
-    contract.validate(&metadata, path)?;
+    let (metadata, body) = record::parse(path, text)?;
     let mut all: BTreeMap<String, Record> =
         records.iter().map(|r| (r.id.clone(), r.clone())).collect();
     let changed = all
         .values_mut()
         .find(|r| r.path == path)
         .ok_or_else(|| Error::Invalid(format!("{path} is not a corpus record")))?;
+    contract.validate(&metadata, path, &changed.kind)?;
     if metadata["id"] != changed.id.as_str() {
         return Err(Error::Invalid(format!("Record ID/path mismatch: {path}")));
     }
@@ -278,7 +278,9 @@ pub(crate) fn check_records(
 pub(crate) fn checked_title(title: &str) -> Result<&str> {
     let title = title.trim();
     if title.is_empty() {
-        return Err(Error::Invalid("Title is required".into()));
+        return Err(Error::InvalidInput(
+            "Title is required; give the record a non-empty title".into(),
+        ));
     }
     Ok(title)
 }

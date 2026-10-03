@@ -20,6 +20,11 @@ pub enum Error {
     Refused(String),
     #[error("{0}")]
     Internal(String),
+    /// The corpus holds records that do not satisfy its contract. Every problem
+    /// found is carried so a caller can fix them in one pass; the text form is
+    /// capped, the structured form is not.
+    #[error("{}", render_issues(.0))]
+    Corpus(Vec<CorpusIssue>),
     /// `assess` could not verify that the cited research result was accepted.
     #[error(transparent)]
     Acceptance(#[from] AcceptanceFailure),
@@ -29,6 +34,47 @@ pub enum Error {
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Yaml(#[from] serde_yaml::Error),
+}
+
+/// One problem in one corpus file, in plain words. `field` names the
+/// frontmatter field when the problem is about one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CorpusIssue {
+    pub path: String,
+    pub field: Option<String>,
+    pub message: String,
+}
+
+impl std::fmt::Display for CorpusIssue {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.field {
+            Some(field) => write!(formatter, "{}: {field}: {}", self.path, self.message),
+            None => write!(formatter, "{}: {}", self.path, self.message),
+        }
+    }
+}
+
+/// How many problems the text form of a corpus error lists before `+N more`.
+pub const ISSUE_DISPLAY_LIMIT: usize = 20;
+
+/// One line for a single problem; otherwise a count and the first
+/// [`ISSUE_DISPLAY_LIMIT`] problems, one per line, then `+N more`.
+pub fn render_issues(issues: &[CorpusIssue]) -> String {
+    if let [only] = issues {
+        return only.to_string();
+    }
+    let mut text = format!("{} problems in the corpus:", issues.len());
+    for issue in issues.iter().take(ISSUE_DISPLAY_LIMIT) {
+        text.push('\n');
+        text.push_str(&issue.to_string());
+    }
+    if issues.len() > ISSUE_DISPLAY_LIMIT {
+        text.push_str(&format!(
+            "\n+{} more; fix these and run `orbit-research research check` again",
+            issues.len() - ISSUE_DISPLAY_LIMIT
+        ));
+    }
+    text
 }
 
 /// Why `assess` refused a research result for lack of verifiable acceptance.

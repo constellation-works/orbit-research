@@ -28,11 +28,30 @@ pub enum PlanShape {
     Synthesis { units: Vec<String> },
 }
 
-fn find_research<'a>(records: &'a [Record], research_id: &str) -> Result<&'a Record> {
-    records
-        .iter()
-        .find(|r| r.id == research_id && r.kind == "R")
-        .ok_or_else(|| Error::Invalid("Research item must be reserved before planning work".into()))
+/// The reserved research item `research_id`, or an error that says whether the
+/// id is unknown or names another kind of record, and how to reserve an item.
+pub(crate) fn find_research<'a>(
+    records: &'a [Record],
+    research_id: &str,
+    purpose: &str,
+) -> Result<&'a Record> {
+    const RESERVE: &str =
+        "reserve one with `research create --kind R --status planned` and use the id it returns";
+    match records.iter().find(|r| r.id == research_id) {
+        Some(record) if record.kind == "R" => Ok(record),
+        Some(record) => Err(Error::InvalidInput(format!(
+            "{research_id} is a {} record, not a research item; {purpose} needs an R id, so {RESERVE}",
+            match record.kind.as_str() {
+                "Q" => "question",
+                "H" => "hypothesis",
+                "T" => "theory",
+                other => other,
+            }
+        ))),
+        None => Err(Error::NotFound(format!(
+            "{research_id} is not a reserved research item in the corpus; {RESERVE}"
+        ))),
+    }
 }
 
 fn research_directory(record: &Record) -> Result<String> {
@@ -53,9 +72,9 @@ fn checked_unit(unit: &str) -> Result<()> {
             .bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
     {
-        return Err(Error::Invalid(
-            "Work unit must be a lowercase kebab-case name of at most 80 characters".into(),
-        ));
+        return Err(Error::InvalidInput(format!(
+            "Work unit \"{unit}\" is not a valid name; use lowercase letters, digits and single hyphens, at most 80 characters, like data-prep"
+        )));
     }
     Ok(())
 }
@@ -83,12 +102,14 @@ impl Corpus {
     /// creates nothing, in the corpus or in Orbit.
     pub fn plan(&self, research_id: &str, shape: PlanShape) -> Result<TaskDraft> {
         let snapshot = self.store.committed_snapshot()?;
-        let record = find_research(&snapshot.records, research_id)?;
+        let record = find_research(&snapshot.records, research_id, "planning work")?;
         let directory = research_directory(record)?;
         match shape {
             PlanShape::Investigation { objective } => {
                 if objective.trim().is_empty() {
-                    return Err(Error::Invalid("Work objective is required".into()));
+                    return Err(Error::InvalidInput(
+                        "A work objective is required: say what the work should find out or deliver".into(),
+                    ));
                 }
                 if record.metadata["status"] == "done" {
                     return Err(Error::Invalid(format!(
@@ -114,7 +135,9 @@ impl Corpus {
             PlanShape::Contribution { unit, objective } => {
                 checked_unit(&unit)?;
                 if objective.trim().is_empty() {
-                    return Err(Error::Invalid("Work objective is required".into()));
+                    return Err(Error::InvalidInput(
+                        "A work objective is required: say what the work should find out or deliver".into(),
+                    ));
                 }
                 let code = format!("{directory}/code/{unit}");
                 let artifacts = format!("{directory}/artifacts/{unit}");
@@ -141,15 +164,17 @@ impl Corpus {
             }
             PlanShape::Synthesis { units } => {
                 if units.is_empty() {
-                    return Err(Error::Invalid(
-                        "Synthesis needs at least one contributing work unit".into(),
+                    return Err(Error::InvalidInput(
+                        "Synthesis needs at least one contributing work unit; name the completed units to reconcile".into(),
                     ));
                 }
                 let mut inputs = Vec::new();
                 let mut unique = std::collections::BTreeSet::new();
                 for unit in &units {
                     if !unique.insert(unit) {
-                        return Err(Error::Invalid("Duplicate synthesis work unit".into()));
+                        return Err(Error::InvalidInput(format!(
+                            "Work unit \"{unit}\" is listed more than once; list each unit once"
+                        )));
                     }
                     checked_unit(unit)?;
                     inputs.push(format!("{directory}/artifacts/{unit}/findings.md"));

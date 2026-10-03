@@ -96,7 +96,54 @@ fn retry_returns_same_reservation_and_different_content_is_refused() {
             vec![],
         )
         .unwrap_err();
-    assert!(error.to_string().contains("different content"));
+    let message = error.to_string();
+    assert!(
+        message.contains("already used for different content"),
+        "{message}"
+    );
+    assert!(message.contains("omit the request key"), "{message}");
+    assert!(message.contains("choose a new key"), "{message}");
+}
+
+#[test]
+fn an_unusable_request_key_is_invalid_input_with_a_plain_range() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    for key in [String::new(), "k".repeat(257)] {
+        let error = corpus
+            .reserve(&key, "Q", "Keyed", "body", vec![], vec![])
+            .unwrap_err();
+        assert!(
+            matches!(error, orbit_research_common::Error::InvalidInput(_)),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains("1-256 bytes"), "{error}");
+        assert!(!error.to_string().contains('\u{2013}'), "{error}");
+    }
+}
+
+#[test]
+fn a_title_with_no_ascii_word_says_to_add_one() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    for title in ["日本語の質問", "!!! ???"] {
+        let error = corpus
+            .reserve("cjk", "Q", title, "body", vec![], vec![])
+            .unwrap_err();
+        assert!(
+            matches!(error, orbit_research_common::Error::InvalidInput(_)),
+            "{error:?}"
+        );
+        let message = error.to_string();
+        assert!(
+            message.contains("at least one ASCII letter or number"),
+            "{message}"
+        );
+        assert!(
+            message.contains("add an ASCII word to the title"),
+            "{message}"
+        );
+    }
 }
 
 #[test]
@@ -156,16 +203,53 @@ fn dirty_checkout_is_rejected_without_clobbering_existing_edits() {
     let error = corpus
         .reserve("dirty", "Q", "Should fail", "body", vec![], vec![])
         .unwrap_err();
+    let message = error.to_string();
     assert!(
-        error
-            .to_string()
-            .contains("clean corpus integration checkout")
+        message.contains("clean corpus integration checkout"),
+        "{message}"
+    );
+    // The refusal lists what is dirty, in `git status --porcelain` form.
+    assert!(
+        message.contains("\n   M notes.txt") || message.contains("\n  M notes.txt"),
+        "{message}"
     );
     assert_eq!(
         fs::read_to_string(temp.path().join("notes.txt")).unwrap(),
         before
     );
     assert_eq!(corpus.snapshot().unwrap().records.len(), 0);
+}
+
+#[test]
+fn the_dirty_path_list_is_capped_and_explains_plugin_scratch() {
+    let temp = fixture();
+    for number in 0..13 {
+        fs::write(temp.path().join(format!("stray-{number:02}.txt")), "x").unwrap();
+    }
+    fs::create_dir(temp.path().join(".orbit-research-tmp")).unwrap();
+    fs::write(
+        temp.path()
+            .join(".orbit-research-tmp/research-acceptance-1.json"),
+        "{}",
+    )
+    .unwrap();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let message = corpus
+        .reserve("dirty", "Q", "Should fail", "body", vec![], vec![])
+        .unwrap_err()
+        .to_string();
+    assert!(
+        message.contains("14 paths with uncommitted changes"),
+        "{message}"
+    );
+    assert!(message.contains("?? .orbit-research-tmp/"), "{message}");
+    assert!(message.contains("+4 more"), "{message}");
+    assert!(message.contains("stray-08.txt"), "{message}");
+    assert!(!message.contains("stray-12.txt"), "{message}");
+    assert!(
+        message.contains("workspace prepare-operations"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -250,7 +334,15 @@ fn stale_blob_is_refused_before_writing() {
     let error = corpus
         .revise_question("Q001", &old, "Stale edit", "body", vec!["two".into()])
         .unwrap_err();
-    assert!(error.to_string().contains("changed since it was opened"));
+    let message = error.to_string();
+    assert!(
+        message.contains("Q001 has changed since you read it"),
+        "{message}"
+    );
+    assert!(
+        message.contains("run `research show --id Q001` again and use its `git_blob`"),
+        "{message}"
+    );
     let record = &corpus.snapshot().unwrap().records[0];
     assert_eq!(record.metadata["title"], "First edit");
     assert!(!git(temp.path(), &["status", "--porcelain"]).contains("Q001"));
@@ -276,11 +368,15 @@ fn only_questions_are_editable() {
         let error = corpus
             .revise_question(id, "unused", "Edit", "body", vec![])
             .unwrap_err();
+        let message = error.to_string();
         assert!(
-            error
-                .to_string()
-                .contains("Only existing questions are editable"),
-            "{id}: {error}"
+            message.contains("revise-question edits questions only")
+                && message.contains(&format!("edit it with `research revise --id {id}`")),
+            "{id}: {message}"
+        );
+        assert!(
+            matches!(error, orbit_research_common::Error::InvalidInput(_)),
+            "{id}: {error:?}"
         );
     }
 }
