@@ -61,7 +61,7 @@ jobs:
   plugin:
     name: Installed Orbit plugin (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1; Rust 1.89.0
@@ -103,3 +103,7 @@ jobs:
         env:
           ORBIT_RESEARCH_TEST_ORBIT_BIN: ${{ runner.temp }}/orbit
         run: cargo test -p orbit-research-cli --test assess_installed_orbit --locked -- --ignored
+      - name: Run the v1 research loop end to end (scripted agent)
+        env:
+          ORBIT_RESEARCH_TEST_ORBIT_BIN: ${{ runner.temp }}/orbit
+        run: cargo test -p orbit-research-cli --test e2e_v1_loop --locked -- --ignored --nocapture
