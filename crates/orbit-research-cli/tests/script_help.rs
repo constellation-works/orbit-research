@@ -91,3 +91,53 @@ fn binary_bundler_prints_usage_with_a_zero_exit_and_still_rejects_bad_usage() {
         "the bundler must not write on a usage error"
     );
 }
+
+/// Runs the bash script through its own shebang, as `make` does, with `path`
+/// as the whole PATH.
+fn run_bash_script(script: &str, args: &[&str], path: &str) -> Output {
+    Command::new(repository_root().join("scripts").join(script))
+        .args(args)
+        .env_clear()
+        .env("PATH", path)
+        .output()
+        .expect("run the script")
+}
+
+#[test]
+fn dependency_checker_prints_usage_rejects_unknown_arguments_and_names_a_missing_cargo() {
+    for flag in ["--help", "-h"] {
+        let output = run_bash_script("check-dependency-direction.sh", &[flag], "/usr/bin:/bin");
+        assert_eq!(output.status.code(), Some(0), "{flag}: {output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.starts_with("usage: scripts/check-dependency-direction.sh"),
+            "{stdout}"
+        );
+    }
+    for args in [&["--bogus"][..], &["--self-test", "extra"][..], &["x"][..]] {
+        let output = run_bash_script("check-dependency-direction.sh", args, "/usr/bin:/bin");
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {output:?}");
+        assert!(output.stdout.is_empty(), "{args:?}: {output:?}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("unknown argument") && stderr.contains("usage:"),
+            "{args:?}: {stderr}"
+        );
+    }
+    // A PATH holding only bash: no cargo, so the script must say so plainly
+    // rather than fail inside `cargo metadata`.
+    let bin = tempfile::tempdir().expect("private PATH");
+    let bash = ["/bin/bash", "/usr/bin/bash"]
+        .into_iter()
+        .find(|path| Path::new(path).exists())
+        .expect("bash");
+    std::os::unix::fs::symlink(bash, bin.path().join("bash")).expect("bash link");
+    let output = run_bash_script(
+        "check-dependency-direction.sh",
+        &["--self-test"],
+        bin.path().to_str().expect("UTF-8 path"),
+    );
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("`cargo` was not found on PATH"), "{stderr}");
+}

@@ -8,6 +8,7 @@ use orbit_research_core::{
     AcceptanceFailure, Result,
     application::acceptance::{Acceptance, AcceptanceLookup},
 };
+use serde_json::Value;
 use std::path::PathBuf;
 
 /// Reads one named artifact of one Orbit task as text, `None` when the task
@@ -37,6 +38,32 @@ impl ArtifactReader for OrbitArtifacts {
     fn read(&self, task: &str, path: &str) -> Result<Option<String>> {
         read_task_artifact(&self.orbit, Some(&self.workspace), task, path)
     }
+}
+
+/// Decode a stored `research-acceptance.json` the way `assess` does: as the
+/// full [`Acceptance`] (research id, commit, blob, run id), so a partial or
+/// foreign document is unreadable, never accepted. The dashboard panel decodes
+/// with [`decode_value`], so the two cannot disagree about what is readable.
+pub(crate) fn decode(research_id: &str, task: &str, text: &str) -> Result<Acceptance> {
+    serde_json::from_str(text).map_err(|error| malformed(research_id, task, error))
+}
+
+/// [`decode`] for an artifact Orbit already parsed as JSON.
+pub(crate) fn decode_value(research_id: &str, task: &str, value: Value) -> Result<Acceptance> {
+    serde_json::from_value(value).map_err(|error| malformed(research_id, task, error))
+}
+
+fn malformed(
+    research_id: &str,
+    task: &str,
+    error: serde_json::Error,
+) -> orbit_research_core::Error {
+    AcceptanceFailure::Malformed {
+        research: research_id.into(),
+        task: task.into(),
+        reason: error.to_string(),
+    }
+    .into()
 }
 
 pub(crate) struct OrbitAcceptance<R = OrbitArtifacts> {
@@ -69,13 +96,6 @@ impl<R: ArtifactReader> AcceptanceLookup for OrbitAcceptance<R> {
         let Some(text) = text else {
             return Ok(None);
         };
-        serde_json::from_str(&text).map(Some).map_err(|error| {
-            AcceptanceFailure::Malformed {
-                research: research_id.into(),
-                task: task.into(),
-                reason: error.to_string(),
-            }
-            .into()
-        })
+        decode(research_id, task, &text).map(Some)
     }
 }

@@ -278,11 +278,24 @@ fn bad_arguments_are_refused_before_any_orbit_call() {
         ),
     ] {
         let output = harness.script(&args, true);
-        assert_ne!(output.status.code(), Some(0), "{args:?}: {output:?}");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "a malformed command line is a usage error: {args:?}: {output:?}"
+        );
         assert!(
             String::from_utf8_lossy(&output.stderr).contains(needle),
             "{args:?}: {output:?}"
         );
         assert_eq!(harness.stub_calls(), "");
     }
+}
+
+#[test]
+fn a_missing_option_value_is_a_usage_error() {
+    let harness = Harness::new();
+    let output = harness.script(&["--corpus"], false);
+    assert_eq!(output.status.code(), Some(2), "{output:?}");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--corpus needs"));
+    assert_eq!(harness.stub_calls(), "");
 }

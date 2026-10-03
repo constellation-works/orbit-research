@@ -40,7 +40,8 @@ struct Entry {
 }
 
 /// The cache directory of a prepared workspace, or `None` when the state
-/// directory is missing, unprepared or reached through a symlink.
+/// directory is missing, unprepared or reached through a symlink. The returned
+/// path may not exist yet; [`existing_directory`] and [`store`] each settle that.
 fn directory(workspace: &Path) -> Option<PathBuf> {
     let mut path = workspace.to_owned();
     for part in STATE_PATH.split('/') {
@@ -78,6 +79,12 @@ fn file_name(entry: &Entry) -> Option<String> {
     Some(format!("{id}-{task}-{}.json", entry.blob))
 }
 
+/// Whether `directory` is a real directory and not a symlink to one, which a
+/// plain `read` of a path below it would follow.
+fn existing_directory(directory: &Path) -> bool {
+    fs::symlink_metadata(directory).is_ok_and(|metadata| metadata.is_dir())
+}
+
 /// Whether acceptance of (`research_id`, `task`, `blob`) was recorded earlier.
 pub(crate) fn is_accepted(workspace: &Path, research_id: &str, task: &str, blob: &str) -> bool {
     let wanted = Entry {
@@ -88,6 +95,9 @@ pub(crate) fn is_accepted(workspace: &Path, research_id: &str, task: &str, blob:
     let (Some(directory), Some(name)) = (directory(workspace), file_name(&wanted)) else {
         return false;
     };
+    if !existing_directory(&directory) {
+        return false;
+    }
     let path = directory.join(name);
     let Ok(metadata) = fs::symlink_metadata(&path) else {
         return false;

@@ -17,7 +17,9 @@ use serde_json::{Value, json};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 /// Bound the complete exec envelope, including host context, before parsing.
 const MAX_PLUGIN_REQUEST_BYTES: u64 = 1024 * 1024;
@@ -113,6 +115,19 @@ pub(crate) trait TaskHost {
     fn task_state(&self, id: &str) -> Result<TaskState>;
     /// The named task artifact's parsed JSON content, if it has been stored.
     fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>>;
+    /// [`get_artifact`](Self::get_artifact) for the dashboard panels, which must
+    /// answer within a budget: every `orbit` call it makes is stopped at
+    /// `limit`, and the failure says whether Orbit was missing, too slow or
+    /// simply refused. The default suits test fakes, which never block.
+    fn get_artifact_limited(
+        &self,
+        id: &str,
+        path: &str,
+        _limit: CallLimit,
+    ) -> std::result::Result<Option<Value>, CallError> {
+        self.get_artifact(id, path)
+            .map_err(|error| CallError::Failed(error.to_string()))
+    }
     /// Store `source_path`'s bytes as the task artifact named `path`, via
     /// `orbit.task.artifact.put`. `source_path` must resolve inside the
     /// bound workspace: that callback reads real bytes off disk, never
@@ -124,12 +139,65 @@ pub(crate) trait TaskHost {
 /// `orbit tool run <name> --input <json>`. Reachable without a
 /// `requires.programs` declaration: a callback to a tool granted under
 /// `permissions.orbit_tools` is host-mediated, not an arbitrary subprocess.
-pub(crate) struct OrbitCliTaskHost;
+/// `orbit` is `ORBIT_BIN` or the one on `PATH` unless a test names another.
+#[derive(Default)]
+pub(crate) struct OrbitCliTaskHost {
+    orbit: Option<String>,
+}
+
+impl OrbitCliTaskHost {
+    #[cfg(test)]
+    pub(crate) fn with_orbit(orbit: impl Into<String>) -> Self {
+        Self {
+            orbit: Some(orbit.into()),
+        }
+    }
+
+    fn orbit(&self) -> String {
+        self.orbit.clone().unwrap_or_else(orbit_binary)
+    }
+}
 
 /// The `orbit` executable: `ORBIT_BIN` when set, else `orbit` on `PATH`. The
 /// plugin transport and the writer's acceptance lookup resolve it identically.
 pub(crate) fn orbit_binary() -> String {
     std::env::var("ORBIT_BIN").unwrap_or_else(|_| "orbit".into())
+}
+
+/// Why one `orbit tool run` call produced no answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CallError {
+    /// `orbit` could not be started: missing from `PATH`, not executable.
+    Unavailable(String),
+    /// `orbit` was started and killed at its time limit.
+    TimedOut(String),
+    /// `orbit` answered with a failure or something unreadable.
+    Failed(String),
+}
+
+impl From<CallError> for Error {
+    fn from(error: CallError) -> Self {
+        match error {
+            CallError::Unavailable(message)
+            | CallError::TimedOut(message)
+            | CallError::Failed(message) => Error::Internal(message),
+        }
+    }
+}
+
+/// A budget for a series of `orbit` calls: none runs longer than `per_call`,
+/// and none outlives `deadline`, so the series as a whole cannot either.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CallLimit {
+    pub(crate) per_call: Duration,
+    pub(crate) deadline: Instant,
+}
+
+impl CallLimit {
+    fn timeout(&self) -> Duration {
+        self.per_call
+            .min(self.deadline.saturating_duration_since(Instant::now()))
+    }
 }
 
 fn run_orbit_tool(name: &str, input: &Value) -> Result<Value> {
@@ -145,25 +213,106 @@ pub(crate) fn run_orbit_tool_with(
     name: &str,
     input: &Value,
 ) -> Result<Value> {
+    Ok(run_orbit_tool_limited(orbit, cwd, name, input, None)?)
+}
+
+/// [`run_orbit_tool_with`] that, given a `limit`, kills `orbit` when the call
+/// outlives it.
+pub(crate) fn run_orbit_tool_limited(
+    orbit: &str,
+    cwd: Option<&Path>,
+    name: &str,
+    input: &Value,
+    limit: Option<CallLimit>,
+) -> std::result::Result<Value, CallError> {
     let mut command = Command::new(orbit);
     command.args(["tool", "run", name, "--input", &input.to_string()]);
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let output = command.output().map_err(|error| {
-        Error::Internal(format!("failed to invoke `orbit tool run {name}`: {error}"))
-    })?;
+    let output = match limit {
+        None => command.output().map_err(|error| {
+            CallError::Unavailable(format!("failed to invoke `orbit tool run {name}`: {error}"))
+        })?,
+        Some(limit) => output_within(&mut command, name, limit.timeout())?,
+    };
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr);
-        return Err(Error::Internal(format!(
+        return Err(CallError::Failed(format!(
             "`orbit tool run {name}` failed: {}",
             message.trim()
         )));
     }
     serde_json::from_slice(&output.stdout).map_err(|error| {
-        Error::Internal(format!(
+        CallError::Failed(format!(
             "`orbit tool run {name}` returned non-JSON output: {error}"
         ))
+    })
+}
+
+/// Run `command` to completion, or kill it after `timeout`. The child's own
+/// process is the one killed, so an `orbit` that hangs is stopped; a
+/// grandchild it forked is not chased, and the pipes are not waited on after a
+/// kill for that reason.
+fn output_within(
+    command: &mut Command,
+    name: &str,
+    timeout: Duration,
+) -> std::result::Result<Output, CallError> {
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| {
+        CallError::Unavailable(format!("failed to invoke `orbit tool run {name}`: {error}"))
+    })?;
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        let (sender, receiver) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut bytes);
+            }
+            let _ = sender.send(bytes);
+        });
+        receiver
+    };
+    let stdout = drain(child.stdout.take().map(|pipe| Box::new(pipe) as _));
+    let stderr = drain(child.stderr.take().map(|pipe| Box::new(pipe) as _));
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {}
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(CallError::Failed(format!(
+                    "`orbit tool run {name}` could not be waited on: {error}"
+                )));
+            }
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(CallError::TimedOut(format!(
+                "`orbit tool run {name}` timed out after {timeout:?}"
+            )));
+        }
+        std::thread::sleep(remaining.min(Duration::from_millis(10)));
+    };
+    // The child has exited, so its pipes close; a grandchild holding one open
+    // must not hold the panel up either.
+    let collect = |receiver: mpsc::Receiver<Vec<u8>>| {
+        receiver
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap_or_default()
+    };
+    Ok(Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
     })
 }
 
@@ -177,11 +326,23 @@ pub(crate) fn read_task_artifact(
     id: &str,
     path: &str,
 ) -> Result<Option<String>> {
-    let listed = run_orbit_tool_with(
+    Ok(read_task_artifact_limited(orbit, cwd, id, path, None)?)
+}
+
+/// [`read_task_artifact`] whose two `orbit` calls each stop at `limit`.
+pub(crate) fn read_task_artifact_limited(
+    orbit: &str,
+    cwd: Option<&Path>,
+    id: &str,
+    path: &str,
+    limit: Option<CallLimit>,
+) -> std::result::Result<Option<String>, CallError> {
+    let listed = run_orbit_tool_limited(
         orbit,
         cwd,
         "orbit.task.show",
         &json!({"id": id, "fields": ["artifacts"]}),
+        limit,
     )?;
     let artifacts = listed.get("artifacts").cloned().unwrap_or(listed);
     let present = artifacts
@@ -192,18 +353,19 @@ pub(crate) fn read_task_artifact(
     if !present {
         return Ok(None);
     }
-    let output = run_orbit_tool_with(
+    let output = run_orbit_tool_limited(
         orbit,
         cwd,
         "orbit.task.artifact.get",
         &json!({"id": id, "path": path}),
+        limit,
     )?;
     output
         .get("content")
         .and_then(Value::as_str)
         .map(|content| Some(content.to_owned()))
         .ok_or_else(|| {
-            Error::Internal(format!(
+            CallError::Failed(format!(
                 "orbit.task.artifact.get did not return text content for {path}"
             ))
         })
@@ -274,12 +436,27 @@ impl TaskHost for OrbitCliTaskHost {
     }
 
     fn get_artifact(&self, id: &str, path: &str) -> Result<Option<Value>> {
-        let Some(content) = read_task_artifact(&orbit_binary(), None, id, path)? else {
+        let Some(content) = read_task_artifact(&self.orbit(), None, id, path)? else {
             return Ok(None);
         };
         serde_json::from_str(&content)
             .map(Some)
             .map_err(|error| Error::Internal(format!("stored {path} is not valid JSON: {error}")))
+    }
+
+    fn get_artifact_limited(
+        &self,
+        id: &str,
+        path: &str,
+        limit: CallLimit,
+    ) -> std::result::Result<Option<Value>, CallError> {
+        let Some(content) = read_task_artifact_limited(&self.orbit(), None, id, path, Some(limit))?
+        else {
+            return Ok(None);
+        };
+        serde_json::from_str(&content)
+            .map(Some)
+            .map_err(|error| CallError::Failed(format!("stored {path} is not valid JSON: {error}")))
     }
 
     fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()> {
@@ -758,7 +935,7 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
 /// process streams is a Rust `Err`; a bad request or a Core refusal is
 /// reported as `ok:false` in the reply, never a nonzero exit.
 pub fn serve_plugin_tool_call(reader: impl Read, writer: impl Write) -> Result<()> {
-    serve_plugin_tool_call_with_host(reader, writer, &OrbitCliTaskHost)
+    serve_plugin_tool_call_with_host(reader, writer, &OrbitCliTaskHost::default())
 }
 
 pub(crate) fn serve_plugin_tool_call_with_host(

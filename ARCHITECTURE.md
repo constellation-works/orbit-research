@@ -53,7 +53,7 @@ workspace leaf; no workspace crate dependency is permitted.
   is the one exception: it validates its empty-object input and answers from
   `orbit_research_core::VERSION` without opening a corpus,
   so it still answers when the bound workspace holds none. `.orbit-plugin/plugin.yaml` declares
-  `list`, `show`, `check`, `version` and `plan` as sandboxed, read-only tools, plus the four
+  `list`, `show`, `check`, `version`, `plan` and `validate` as sandboxed, read-only tools, plus the four
   panel sources below; their handlers do not use the plugin's operational write grants, except that
   `awaiting-acceptance` may write its acceptance cache (below). Their input schemas
   in `.orbit-plugin/schemas/*.request.json` are copies of
@@ -98,7 +98,9 @@ workspace leaf; no workspace crate dependency is permitted.
   Orbit also parses a plugin reply into a map without insertion order, so keys reach the
   dashboard alphabetically; every key is chosen so that alphabetical order is the reading
   order (`id, question, tags, tasks, updated`; `id, reason, result, status, task, updated`;
-  `id, name, research, revision, status, verdict, when`).
+  `id, name, research, revision, status, verdict, when`). A table is capped at 200 rows;
+  the last row says `+N more not shown; use `orbit-research research list --corpus <path>``
+  in a column the panel already has, so the cap adds no column.
   Cells are flat scalars: lists are comma-joined, absent values are `null`, dates are
   `YYYY-MM-DD` and titles are cut at 80 characters. `open-questions` lists the newest
   update first (ties by id, descending) and shows at most three linked tasks in numeric
@@ -117,17 +119,37 @@ workspace leaf; no workspace crate dependency is permitted.
   as superseded. `awaiting-acceptance` takes the research items with both
   `orbit.task` and `orbit.run` (read from the working tree like the other panels; in the
   primary checkout that differs from HEAD only during uncommitted edits, which writers refuse) and reads each task's `research-acceptance.json` through the
-  same `TaskHost::get_artifact` callbacks `accept` uses (`orbit.task.show`,
-  `orbit.task.artifact.get`, both already in `permissions.orbit_tools`). A task that cannot
-  be read is `acceptance unknown` with a short `reason`, never accepted, and after three
-  straight failures or 20 seconds the remaining rows stop calling back. A result counts as
-  accepted only when the artifact names that research id and the README blob committed at
-  HEAD (the bar `assess` applies); a changed result shows `result changed since accepted`.
-  `src/acceptance_cache.rs` remembers each positive answer per (research id, task, blob) in
-  `_data/orbit-research-operations/acceptance/`, inside the plugin's write grant, only when
-  `workspace prepare-operations` has already marked that directory, never through a symlink,
-  write-once, and re-verified on read (the file's content must repeat the key). It can only
-  hide a row, never add one, and a denied write just means the next refresh asks Orbit again. The callbacks resolve their identity from
+  same `orbit.task.show` and `orbit.task.artifact.get` callbacks `accept` uses (both already in
+  `permissions.orbit_tools`), by spawning `orbit tool run` through `TaskHost::get_artifact_limited`.
+  Every such call is killed after 5 seconds, and all of them together stop at a 20 second
+  budget, so one hung `orbit` cannot outlive the plugin backend's own 30 second timeout: the
+  panel always answers. A result counts as accepted only when its artifact decodes as the full
+  `Acceptance` (research id, commit, blob and run id; `src/acceptance.rs`'s `decode_value`, the
+  decoder behind `assess`'s lookup) and passes `Acceptance::verify` (Core,
+  `application/acceptance.rs`) against the research id and the README blob in the working tree. That is
+  the one bar `assess` applies, shared as code, so the panel cannot call accepted what `assess` refuses. A
+  changed result shows `result changed since accepted` and an artifact naming another result shows
+  `acceptance names another result`. An artifact that does not decode, such as a partial one
+  without a commit or run id, is `acceptance unknown` with reason `artifact unreadable` and is never cached.
+  A task that cannot be read is also `acceptance unknown`, with a short `reason` that
+  names the cause once (`orbit not available` when `orbit` cannot be started, `orbit call timed out`,
+  `time budget exceeded`, otherwise `task unreadable`; later rows say `earlier tasks unreadable`
+  after three straight failures with no success, and nothing is retried once `orbit` is missing). It is never
+  shown as accepted by guesswork. The `reason` column appears only when some row has one. Rows are ordered by state
+  (awaiting acceptance, result changed since accepted, acceptance unknown), then id.
+  `src/acceptance_cache.rs` remembers a positive answer, and only a positive one, as a small
+  file per (research id, task, README blob) in `_data/orbit-research-operations/acceptance/`.
+  It is written after a live read passed the bar above, and only when `workspace prepare-operations`
+  has already marked the state directory, best effort and write-once; a denied write just means the next
+  refresh asks Orbit again. A cache hit needs no Orbit call, so a cached acceptance stays hidden
+  even while Orbit is unreachable: that is by design, because a stored acceptance is immutable
+  (`accept` never replaces one) and the blob is part of the key, so an edited README misses. A task
+  with no cache entry that cannot be read is never assumed accepted. Reads and writes check every path component below the workspace with
+  `symlink_metadata` (the state directory, its marker, the `acceptance` directory and the entry) and never
+  follow a symlink; a read also re-verifies that the file's content repeats its key. The cache is
+  trusted local state under the plugin's own write grant, the same trust as the corpus: someone who can write
+  `_data/orbit-research-operations/` can plant a well-formed entry that hides a row. It can only hide a
+  row, never add one, and `assess` never consults it. The callbacks resolve their identity from
   the backend's own session, not from the caller's capability, so by Orbit's source a panel
   read (an Agent capability session, empty input) takes the same path as `accept`; the
   installed-plugin test `awaiting_acceptance_reads_task_artifacts_through_callbacks`
@@ -210,6 +232,8 @@ exist and carry `orbit.task`, the lookup is asked for that task's acceptance,
 and the artifact must name the R and the exact README blob at HEAD. Each
 failure is a distinct `AcceptanceFailure` (`NoTask`, `Missing`, `Unreachable`,
 `Malformed`, `WrongResearch`, `StaleBlob`) carried by `Error::Acceptance`. The
+research-id and blob checks are `Acceptance::verify`, which the dashboard's
+`awaiting-acceptance` panel calls as well, so both apply one bar. The
 store's `assess` hands the callback its snapshot for this check. Acceptance
 never supplies a verdict: the caller always states it.
 
