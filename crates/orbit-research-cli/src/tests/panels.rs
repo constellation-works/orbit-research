@@ -374,7 +374,7 @@ fn awaiting_acceptance_stops_calling_back_after_repeated_failures() {
 }
 
 #[test]
-fn awaiting_acceptance_only_counts_results_committed_at_head() {
+fn awaiting_acceptance_reads_the_working_tree_like_every_other_panel() {
     let temp = research_corpus();
     let path = temp.path().join("research/R003-warm/README.md");
     let text = fs::read_to_string(&path).expect("R003");
@@ -388,11 +388,15 @@ fn awaiting_acceptance_only_counts_results_committed_at_head() {
     .expect("uncommitted edit");
     let host = ArtifactHost::accepted(temp.path(), "ORB-1", "R001");
     let output = panel("awaiting-acceptance", temp.path(), &host);
-    assert_eq!(output[0]["id"], "R002");
-    assert_eq!(rows(&output).len(), 1, "{output}");
+    // The delivery is only in the working tree, which `check`, `list` and the
+    // other panels read too, so this panel counts it.
+    let ids: Vec<&str> = rows(&output)
+        .iter()
+        .map(|row| row["id"].as_str().expect("id"))
+        .collect();
+    assert_eq!(ids, ["R002", "R003"], "{output}");
     assert!(
-        !host
-            .reads
+        host.reads
             .lock()
             .expect("reads")
             .contains(&"ORB-3".to_owned())
@@ -460,7 +464,7 @@ fn a_workspace_without_a_corpus_shows_a_short_message_not_an_error() {
     }
     assert_eq!(
         panel("corpus-health", temp.path(), &ArtifactHost::default()),
-        json!({"Corpus": "No corpus", "Detail": message})
+        json!({"Status": "No research corpus in this workspace", "Detail": message})
     );
 }
 
@@ -472,13 +476,76 @@ fn an_invalid_corpus_names_the_problem_without_a_raw_error_dump() {
     let host = ArtifactHost::default();
     let table = panel("open-questions", temp.path(), &host);
     let message = table[0]["status"].as_str().expect("status message");
+    let path = temp.path().display();
     assert_eq!(
         message,
-        "The research corpus cannot be read: Non-monotonic IDs: expected Q001, found Q002. Run `orbit-research research check` for details."
+        format!(
+            "The research corpus at {path} cannot be read: questions/Q002-gap.md: id: Q002 leaves a gap: expected Q001 next (ids run from 001 with no gaps). Run `orbit-research research check --corpus {path}` for the full list."
+        )
     );
     let health = panel("corpus-health", temp.path(), &host);
     assert_eq!(health["Corpus"], "Invalid");
     assert_eq!(health["Detail"], message);
+}
+
+#[test]
+fn every_panel_gives_the_same_unavailable_answer_for_a_schema_failure() {
+    let long_title = "x".repeat(300);
+    let mut records = vec![
+        question("Q001", "one", &long_title, "bogus", "[]", "[]"),
+        question("Q002", "two", "Two", "bogus", "[]", "[]"),
+    ];
+    records.push(result(
+        "R001",
+        "r",
+        "done",
+        "[]",
+        "[]",
+        Some(("ORB-1", "jrun-1")),
+    ));
+    let temp = corpus_with(&records);
+    let host = ArtifactHost::default();
+    let path = temp.path().display();
+    let expected = format!(
+        "The research corpus at {path} cannot be read: questions/Q001-one.md: status: \"bogus\" is not allowed; allowed values: open, answered, dropped. 1 more problem not shown. Run `orbit-research research check --corpus {path}` for the full list."
+    );
+    for verb in ["open-questions", "awaiting-acceptance", "hypotheses"] {
+        let output = panel(verb, temp.path(), &host);
+        let message = output[0]["status"].as_str().expect("status");
+        assert_eq!(message, expected, "{verb}");
+        // Never a JSON dump cut mid-token.
+        assert!(
+            !message.contains('{') && !message.contains("oneOf"),
+            "{verb}: {message}"
+        );
+    }
+    assert_eq!(
+        panel("corpus-health", temp.path(), &host),
+        json!({"Corpus": "Invalid", "Detail": expected})
+    );
+    assert!(host.reads.lock().expect("reads").is_empty());
+}
+
+#[test]
+fn a_very_long_problem_is_cut_at_a_word_with_an_ellipsis() {
+    let slug = "a-slug-long-enough-to-push-the-first-problem-past-the-width-of-the-panel-and-then-some-more-words";
+    let temp = corpus_with(&[question("Q001", slug, "One", "bogus", "[]", "[]")]);
+    let output = panel("open-questions", temp.path(), &ArtifactHost::default());
+    let message = output[0]["status"].as_str().expect("status");
+    let path = temp.path().display();
+    assert!(
+        message.contains(&format!(
+            "… Run `orbit-research research check --corpus {path}`"
+        )),
+        "{message}"
+    );
+    // Cut between words, so the last kept word is whole.
+    assert!(
+        message.contains(&format!(
+            "questions/Q001-{slug}.md: status: \"bogus\" is not allowed;"
+        )),
+        "{message}"
+    );
 }
 
 #[test]

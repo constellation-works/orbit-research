@@ -84,8 +84,17 @@ fn reports_missing_corpus_contract_with_path() {
         message.contains(&temp.path().display().to_string()),
         "{message}"
     );
-    assert!(message.contains("missing the corpus contract"), "{message}");
-    assert!(message.contains("_scripts/schema.json"), "{message}");
+    assert!(
+        message.contains("_scripts/schema.json is missing"),
+        "{message}"
+    );
+    assert!(
+        message.contains(&format!(
+            "`orbit-research workspace init {}`",
+            temp.path().canonicalize().unwrap().display()
+        )),
+        "{message}"
+    );
     assert!(!message.contains("No such file or directory"), "{message}");
 }
 
@@ -198,7 +207,13 @@ fn rejects_duplicate_record_ids() {
     );
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(error.to_string().contains("Duplicate record ID: Q001"));
+    let message = error.to_string();
+    assert!(
+        message.contains(
+            "questions/Q001-second.md: id: Q001 is already used by questions/Q001-first.md"
+        ),
+        "{message}"
+    );
 }
 
 #[test]
@@ -212,11 +227,9 @@ fn rejects_missing_references() {
     );
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Q001 answered_by references missing R999")
-    );
+    assert!(error.to_string().contains(
+        "questions/Q001-missing.md: answered_by: references R999, which is not in the corpus"
+    ));
 }
 
 #[test]
@@ -237,11 +250,9 @@ fn rejects_an_indirect_missing_lineage_reference_without_panicking() {
     finish_fixture(&temp);
 
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("Q002 derived_from references missing Q999")
-    );
+    assert!(error.to_string().contains(
+        "questions/Q002-two.md: derived_from: references Q999, which is not in the corpus"
+    ));
 }
 
 #[test]
@@ -261,7 +272,11 @@ fn rejects_lineage_cycles() {
     );
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(error.to_string().contains("Lineage cycle at Q001"));
+    assert!(
+        error
+            .to_string()
+            .contains("derived_from: Q001 derives from itself through a cycle")
+    );
 }
 
 #[cfg(unix)]
@@ -358,7 +373,11 @@ fn rejects_invalid_frontmatter() {
     write(temp.path(), "questions/Q001-invalid.md", "plain markdown");
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(error.to_string().contains("Missing frontmatter"));
+    let message = error.to_string();
+    assert!(
+        message.starts_with("questions/Q001-invalid.md: missing frontmatter"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -386,7 +405,12 @@ fn rejects_a_slug_that_disagrees_with_the_filename_or_title() {
     );
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(error.to_string().contains("Record slug/path mismatch"));
+    let message = error.to_string();
+    assert!(
+        message.contains("questions/Q001-wrong-slug.md: title: the title gives the path slug \"expected-title\" but the path uses \"wrong-slug\""),
+        "{message}"
+    );
+    assert!(message.contains("add `slug: wrong-slug`"), "{message}");
 }
 
 #[test]
@@ -403,7 +427,7 @@ fn rejects_gaps_in_ids_per_record_kind() {
     assert!(
         error
             .to_string()
-            .contains("Non-monotonic IDs: expected Q001")
+            .contains("questions/Q002-second.md: id: Q002 leaves a gap: expected Q001 next")
     );
 }
 
@@ -421,7 +445,7 @@ fn rejects_references_to_the_wrong_record_kind() {
     assert!(
         error
             .to_string()
-            .contains("answered_by references Q record Q001; expected H or R")
+            .contains("answered_by: references Q001, a question record; expected H or R")
     );
 }
 
@@ -439,7 +463,7 @@ fn rejects_assessment_references_and_revisions_outside_the_hypothesis() {
     assert!(
         error
             .to_string()
-            .contains("assessments[0].research references H record H001; expected R")
+            .contains("assessments[0].research: references H001, a hypothesis record; expected R")
     );
 
     let temp = start_fixture();
@@ -457,7 +481,9 @@ fn rejects_assessment_references_and_revisions_outside_the_hypothesis() {
     );
     finish_fixture(&temp);
     let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
-    assert!(error.to_string().contains("beyond hypothesis revision 1"));
+    assert!(error.to_string().contains(
+        "assessments[0].revision: is against revision 2, beyond the hypothesis's revision 1"
+    ));
 }
 
 #[test]
@@ -512,4 +538,155 @@ fn published_distinguishes_invalid_refs_from_valid_non_ancestors() {
         &["commit-tree", "HEAD^{tree}", "-m", "unrelated root"],
     );
     assert!(!corpus.published(&unrelated, "HEAD").unwrap());
+}
+
+const OPEN: &str = "title: T\nstatus: open\ntags: [x]\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\nanswered_by: []";
+
+fn issues(error: orbit_research_common::Error) -> Vec<orbit_research_common::CorpusIssue> {
+    match error {
+        orbit_research_common::Error::Corpus(issues) => issues,
+        other => panic!("expected structured corpus problems, got {other}"),
+    }
+}
+
+#[test]
+fn a_bad_enum_value_names_the_file_field_value_and_allowed_values() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q001-t.md",
+        &format!(
+            "id: Q001\n{}",
+            OPEN.replace("status: open", "status: bogus")
+        ),
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    let issues = issues(error);
+    assert_eq!(issues.len(), 1, "{issues:?}");
+    assert_eq!(issues[0].path, "questions/Q001-t.md");
+    assert_eq!(issues[0].field.as_deref(), Some("status"));
+    assert_eq!(
+        issues[0].message,
+        "\"bogus\" is not allowed; allowed values: open, answered, dropped"
+    );
+}
+
+#[test]
+fn schema_failures_never_dump_json_regexes_or_oneof() {
+    let temp = start_fixture();
+    record(
+        temp.path(),
+        "questions/Q001-t.md",
+        "id: X1\ntitle: T\nstatus: open\ntags: [x, \"\"]\nderived_from: [nope]\ncreated: yesterday\nupdated: 2026-01-01\nanswered_by: []\nextra: 1",
+        "body",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    let message = error.to_string();
+    for raw in ["oneOf", "^[", "$\"", "{\"", "does not match"] {
+        assert!(!message.contains(raw), "{raw} leaked: {message}");
+    }
+    assert!(
+        message.contains("id: \"X1\" is not a record id; expected an id like Q001"),
+        "{message}"
+    );
+    assert!(message.contains("tags[1]: must not be empty"), "{message}");
+    assert!(
+        message.contains("derived_from[0]: \"nope\" is not a record id"),
+        "{message}"
+    );
+    assert!(
+        message.contains("created: \"yesterday\" is not a date; expected YYYY-MM-DD"),
+        "{message}"
+    );
+    assert!(
+        message.contains("extra: is not a field of this kind of record; remove it"),
+        "{message}"
+    );
+}
+
+#[test]
+fn yaml_errors_name_the_file_and_the_file_line() {
+    let temp = start_fixture();
+    write(
+        temp.path(),
+        "questions/Q001-t.md",
+        "---\nid: [unclosed\n---\nbody",
+    );
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.starts_with("questions/Q001-t.md: frontmatter is not valid YAML:"),
+        "{message}"
+    );
+    // The bad bracket opens on the file's second line, the first below `---`.
+    assert!(message.contains("line 3"), "{message}");
+}
+
+#[test]
+fn every_problem_is_reported_in_one_pass_and_the_text_form_is_capped() {
+    let temp = start_fixture();
+    for number in 1..=25 {
+        record(
+            temp.path(),
+            &format!("questions/Q{number:03}-t.md"),
+            &format!(
+                "id: Q{number:03}\n{}",
+                OPEN.replace("status: open", "status: bogus")
+            ),
+            "body",
+        );
+    }
+    write(temp.path(), "questions/Q026-t.md", "no frontmatter");
+    finish_fixture(&temp);
+    let error = Corpus::open(temp.path()).unwrap().snapshot().unwrap_err();
+    let text = error.to_string();
+    let all = issues(error);
+    assert_eq!(all.len(), 26);
+    assert!(text.starts_with("26 problems in the corpus:"), "{text}");
+    // Header, 20 problems and the `+N more` line.
+    assert_eq!(text.lines().count(), 22, "{text}");
+    assert!(text.contains("+6 more"), "{text}");
+}
+
+#[test]
+fn a_bad_record_name_and_a_bad_file_are_reported_together() {
+    let temp = start_fixture();
+    write(temp.path(), "questions/Q1-short.md", "x");
+    write(temp.path(), "questions/Q001-t.md", "no frontmatter");
+    finish_fixture(&temp);
+    let all = issues(Corpus::open(temp.path()).unwrap().snapshot().unwrap_err());
+    let paths: Vec<&str> = all.iter().map(|issue| issue.path.as_str()).collect();
+    assert_eq!(paths, ["questions/Q1-short.md", "questions/Q001-t.md"]);
+    assert!(
+        all[0].message.contains("use Q001-short-slug.md"),
+        "{:?}",
+        all[0]
+    );
+}
+
+#[test]
+fn a_missing_owner_directory_is_named() {
+    let temp = start_fixture();
+    fs::remove_dir(temp.path().join("theories")).unwrap();
+    command(temp.path(), &["init", "-q"]);
+    command(temp.path(), &["config", "user.email", "t@example.invalid"]);
+    command(temp.path(), &["config", "user.name", "t"]);
+    command(temp.path(), &["add", "."]);
+    command(
+        temp.path(),
+        &["commit", "-q", "--allow-empty", "-m", "fixture"],
+    );
+    let message = Corpus::open(temp.path())
+        .unwrap()
+        .snapshot()
+        .unwrap_err()
+        .to_string();
+    assert!(
+        message.starts_with("theories/: the directory is missing; create it"),
+        "{message}"
+    );
 }

@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use orbit_research_common::{Record, Snapshot};
+pub use orbit_research_common::{CorpusIssue, Record, Snapshot};
 
 /// A record's location in an owner directory, named but not yet read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,8 +35,8 @@ impl Corpus {
         let root = root.canonicalize().map_err(|error| {
             if error.kind() == std::io::ErrorKind::NotFound {
                 Error::Invalid(format!(
-                    "Corpus path does not exist: {}",
-                    requested_root.display()
+                    "No research corpus at {path}: the path does not exist. Create one with `orbit-research workspace init {path}`",
+                    path = requested_root.display()
                 ))
             } else {
                 Error::Invalid(format!(
@@ -51,9 +51,10 @@ impl Corpus {
             .map_err(|error| match error {
                 Error::Io(error) if error.kind() == std::io::ErrorKind::NotFound => {
                     Error::Invalid(format!(
-                        "Corpus at {} is missing the corpus contract: {}",
+                        "No research corpus at {}: {} is missing. To start one, run `orbit-research workspace init {}` (it needs a new or empty directory)",
                         root.display(),
-                        schema_path.display()
+                        schema_path.display(),
+                        root.display()
                     ))
                 }
                 Error::Io(error) => Error::Invalid(format!(
@@ -132,13 +133,30 @@ impl Corpus {
     }
 
     /// Every record entry named in the owner directories (working tree, or the
-    /// `committed` paths of one revision), without reading its contents.
+    /// `committed` paths of one revision), without reading its contents. A name
+    /// that is not a record name is an error naming it.
     pub(crate) fn record_entries(
         &self,
         contract: &Contract,
         committed: Option<&[String]>,
     ) -> Result<Vec<RecordEntry>> {
+        let (entries, issues) = self.scan_entries(contract, committed)?;
+        if issues.is_empty() {
+            Ok(entries)
+        } else {
+            Err(Error::Corpus(issues))
+        }
+    }
+
+    /// The well-named entries, plus one issue for each name that is not a
+    /// record name or each owner directory that is missing.
+    fn scan_entries(
+        &self,
+        contract: &Contract,
+        committed: Option<&[String]>,
+    ) -> Result<(Vec<RecordEntry>, Vec<CorpusIssue>)> {
         let mut entries = Vec::new();
+        let mut issues = Vec::new();
         let kinds = contract.schema["x-observatory"]["kinds"]
             .as_object()
             .ok_or_else(|| Error::Invalid("Missing record kinds".into()))?;
@@ -154,16 +172,41 @@ impl Corpus {
                     .map(str::to_owned)
                     .collect()
             } else {
-                fs::read_dir(self.safe_path(Path::new(directory))?)?
-                    .map(|entry| entry.map(|e| e.file_name().to_string_lossy().into_owned()))
-                    .collect::<std::io::Result<_>>()?
+                let listing = self
+                    .safe_path(Path::new(directory))
+                    .and_then(|path| Ok(fs::read_dir(path)?));
+                match listing {
+                    Ok(listing) => listing
+                        .map(|entry| entry.map(|e| e.file_name().to_string_lossy().into_owned()))
+                        .collect::<std::io::Result<_>>()?,
+                    Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                        issues.push(CorpusIssue {
+                            path: format!("{directory}/"),
+                            field: None,
+                            message: "the directory is missing; create it (an empty directory holding a .gitkeep file is enough)".into(),
+                        });
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
             };
             for name in names {
                 if !name.starts_with(kind) {
                     continue;
                 }
-                let (id, slug) = parse_record_name(kind, &name, spec["layout"] == "directory")?;
-                let relative = if spec["layout"] == "directory" {
+                let layout_is_directory = spec["layout"] == "directory";
+                let (id, slug) = match parse_record_name(kind, &name, layout_is_directory) {
+                    Ok(parsed) => parsed,
+                    Err(message) => {
+                        issues.push(CorpusIssue {
+                            path: format!("{directory}/{name}"),
+                            field: None,
+                            message,
+                        });
+                        continue;
+                    }
+                };
+                let relative = if layout_is_directory {
                     Path::new(directory).join(&name).join("README.md")
                 } else {
                     Path::new(directory).join(&name)
@@ -181,10 +224,11 @@ impl Corpus {
                 });
             }
         }
-        Ok(entries)
+        Ok((entries, issues))
     }
 
     /// Parse and schema-check every record, without whole-corpus graph checks.
+    /// Every unreadable record is reported together, not just the first.
     pub(crate) fn read_records(
         &self,
         contract: &Contract,
@@ -192,18 +236,42 @@ impl Corpus {
     ) -> Result<BTreeMap<String, Record>> {
         let mut records = BTreeMap::new();
         let paths = committed.map(|view| view.paths()).transpose()?;
-        for entry in self.record_entries(contract, paths.as_deref())? {
+        let (entries, mut issues) = self.scan_entries(contract, paths.as_deref())?;
+        for entry in entries {
             let bytes = if let Some(view) = committed {
                 view.bytes(&entry.path)?
             } else {
                 self.working_bytes(&entry.path)?
             };
-            let record = self.decode_record(contract, &entry, &bytes)?;
-            if records.insert(record.id.clone(), record).is_some() {
-                return Err(Error::Invalid(format!("Duplicate record ID: {}", entry.id)));
+            let record = match self.decode_record(contract, &entry, &bytes) {
+                Ok(record) => record,
+                Err(Error::Corpus(found)) => {
+                    issues.extend(found);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            if let Some(first) = records
+                .get(&record.id)
+                .map(|first: &Record| first.path.clone())
+            {
+                issues.push(CorpusIssue {
+                    path: entry.path,
+                    field: Some("id".into()),
+                    message: format!(
+                        "{} is already used by {first}; ids must be unique",
+                        entry.id
+                    ),
+                });
+                continue;
             }
+            records.insert(record.id.clone(), record);
         }
-        Ok(records)
+        if issues.is_empty() {
+            Ok(records)
+        } else {
+            Err(Error::Corpus(issues))
+        }
     }
 
     /// One record from its bytes: frontmatter, owner schema, ID and frozen slug.
@@ -213,32 +281,55 @@ impl Corpus {
         entry: &RecordEntry,
         bytes: &[u8],
     ) -> Result<Record> {
+        let problem = |field: Option<&str>, message: String| {
+            Error::Corpus(vec![CorpusIssue {
+                path: entry.path.clone(),
+                field: field.map(str::to_owned),
+                message,
+            }])
+        };
         let text = std::str::from_utf8(bytes)
-            .map_err(|_| Error::Invalid(format!("{} is not UTF-8", entry.path)))?;
-        let (metadata, body) = parse(text)?;
-        contract.validate(&metadata, &entry.path)?;
+            .map_err(|_| problem(None, "the file is not valid UTF-8 text".into()))?;
+        let (metadata, body) = parse(&entry.path, text)?;
+        contract.validate(&metadata, &entry.path, &entry.kind)?;
         let id = metadata["id"]
             .as_str()
-            .ok_or_else(|| Error::Invalid("Missing id".into()))?
+            .ok_or_else(|| problem(Some("id"), "required field is missing".into()))?
             .to_owned();
         if id != entry.id {
-            return Err(Error::Invalid(format!(
-                "Record ID/path mismatch: {}",
-                entry.path
-            )));
+            return Err(problem(
+                Some("id"),
+                format!(
+                    "the id is {id} but the file name says {}; make them agree",
+                    entry.id
+                ),
+            ));
         }
-        if metadata["slug"]
+        if let Some(declared) = metadata["slug"]
             .as_str()
-            .is_some_and(|declared| declared != entry.slug)
-            || metadata["slug"].is_null()
-                && metadata["title"]
-                    .as_str()
-                    .is_some_and(|title| kebab(title) != entry.slug)
+            .filter(|declared| *declared != entry.slug)
         {
-            return Err(Error::Invalid(format!(
-                "Record slug/path mismatch: {}",
-                entry.path
-            )));
+            return Err(problem(
+                Some("slug"),
+                format!(
+                    "the slug is \"{declared}\" but the path uses \"{}\"; the slug is frozen when the record is created, so change the field to match the path",
+                    entry.slug
+                ),
+            ));
+        }
+        if metadata["slug"].is_null()
+            && let Some(title) = metadata["title"].as_str()
+            && kebab(title) != entry.slug
+        {
+            return Err(problem(
+                Some("title"),
+                format!(
+                    "the title gives the path slug \"{}\" but the path uses \"{}\"; keep the path and add `slug: {}` to the frontmatter (the slug is frozen when the record is created)",
+                    kebab(title),
+                    entry.slug,
+                    entry.slug
+                ),
+            ));
         }
         Ok(Record {
             id,

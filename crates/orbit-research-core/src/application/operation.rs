@@ -141,12 +141,103 @@ fn decode<T: DeserializeOwned + JsonSchema>(
     let validator = validator
         .as_ref()
         .map_err(|error| Error::Internal(format!("Invalid built-in request schema: {error}")))?;
-    if let Err(mut errors) = validator.validate(&input) {
-        let message = errors
-            .next()
-            .map(|error| error.to_string())
-            .unwrap_or_else(|| "Invalid operation arguments".into());
-        return Err(Error::InvalidInput(message));
+    if let Err(errors) = validator.validate(&input) {
+        let mut messages: Vec<String> = errors.map(|error| input_message(&error)).collect();
+        messages.dedup();
+        if messages.is_empty() {
+            messages.push("Invalid operation arguments".into());
+        }
+        return Err(Error::InvalidInput(messages.join("; ")));
     }
     Ok(request)
+}
+
+/// One input-schema failure in plain words, naming the argument. Raw validator
+/// text quotes patterns and instance dumps, which tell a caller nothing to fix.
+fn input_message(error: &jsonschema::ValidationError<'_>) -> String {
+    use jsonschema::{error::ValidationErrorKind as Kind, paths::PathChunk};
+    let mut field = String::new();
+    for chunk in &error.instance_path {
+        match chunk {
+            PathChunk::Property(name) => {
+                if !field.is_empty() {
+                    field.push('.');
+                }
+                field.push_str(name);
+            }
+            PathChunk::Index(index) => field.push_str(&format!("[{index}]")),
+            PathChunk::Keyword(_) => {}
+        }
+    }
+    let name = if field.is_empty() {
+        "the input".to_owned()
+    } else {
+        format!("`{field}`")
+    };
+    let value = match error.instance.as_ref() {
+        Value::String(text) => format!("\"{}\"", text.chars().take(60).collect::<String>()),
+        Value::Array(_) | Value::Object(_) => "that value".to_owned(),
+        other => other.to_string(),
+    };
+    match &error.kind {
+        Kind::MinLength { limit: 1 } => format!("{name} is required and must not be empty"),
+        Kind::MinLength { limit } => format!("{name} must be at least {limit} characters"),
+        Kind::MaxLength { limit } => format!("{name} must be at most {limit} characters"),
+        Kind::Pattern { pattern } => format!("{name} {value} {}", pattern_expectation(pattern)),
+        Kind::Required { property } => {
+            format!("`{}` is required", property.as_str().unwrap_or("a field"))
+        }
+        Kind::Enum { options } => {
+            let allowed = options
+                .as_array()
+                .map(|options| {
+                    options
+                        .iter()
+                        .map(|option| {
+                            option
+                                .as_str()
+                                .map_or_else(|| option.to_string(), str::to_owned)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default();
+            format!("{name} {value} is not allowed; allowed values: {allowed}")
+        }
+        Kind::Minimum { limit } => format!("{name} must be at least {limit}"),
+        Kind::Maximum { limit } => format!("{name} must be at most {limit}"),
+        Kind::Type { .. } => format!("{name} has the wrong type"),
+        Kind::AdditionalProperties { unexpected } => format!(
+            "unknown field{} {}",
+            if unexpected.len() == 1 { "" } else { "s" },
+            unexpected
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        _ => format!("{name} is not valid"),
+    }
+}
+
+/// What an id-shaped pattern asks for, without printing the regular expression.
+fn pattern_expectation(pattern: &str) -> String {
+    let kind = |letter: &str| match letter {
+        "Q" => Some("question"),
+        "H" => Some("hypothesis"),
+        "T" => Some("theory"),
+        "R" => Some("research"),
+        _ => None,
+    };
+    if pattern == "^[QHTR][0-9]{3}$" {
+        return "is not a record id; expected an id like Q001".to_owned();
+    }
+    if let Some(letter) = pattern
+        .strip_prefix('^')
+        .and_then(|rest| rest.strip_suffix("[0-9]{3}$"))
+        && let Some(name) = kind(letter)
+    {
+        return format!("is not a {name} id; expected an id like {letter}001");
+    }
+    "is not in the expected format".to_owned()
 }

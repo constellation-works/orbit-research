@@ -19,7 +19,13 @@ the journal's lock while moving them to `_data/orbit-research-operations/`.
 The plugin grants writes only to that ignored operational directory and its
 `.orbit-research-tmp/` acceptance scratch directory. It does not need to write
 Git metadata or canonical research records. An existing unprepared corpus
-refuses linking with the preparation command before creating an Orbit task.
+refuses linking with the preparation command before creating an Orbit task. If
+`_data/orbit-research-operations/` is later deleted while its Git-metadata marker
+remains, linking and `work-links` name the missing path, and `prepare-operations`
+recreates the directory empty. It fills only a path that does not exist: an existing
+directory (even empty), a symlink or a tracked path is refused, never adopted. The same
+command adds `.orbit-research-tmp/` to the repository's local `info/exclude` unless the
+corpus already ignores it.
 
 To exercise an installed plugin with an existing Orbit binary:
 

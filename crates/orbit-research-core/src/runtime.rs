@@ -44,7 +44,7 @@ impl Research {
     }
 
     /// Records and owner schema read from the checkout's HEAD commit, ignoring
-    /// uncommitted working-tree edits. Delivered results are judged here.
+    /// uncommitted working-tree edits. Work plans and links read this view.
     pub fn committed_snapshot(&self) -> Result<Snapshot> {
         self.store.committed_snapshot()
     }

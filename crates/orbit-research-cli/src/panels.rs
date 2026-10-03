@@ -69,12 +69,12 @@ pub(crate) fn serve(verb: &str, input: Value, workspace_root: &Path, host: &dyn 
         return error_envelope("invalid_request", error.to_string());
     }
     let (shape, built) = match verb {
-        "open-questions" => (Shape::Table, build(workspace_root, false, open_questions)),
-        "hypotheses" => (Shape::Table, build(workspace_root, false, hypotheses)),
-        "corpus-health" => (Shape::Kv, build(workspace_root, false, corpus_health)),
+        "open-questions" => (Shape::Table, build(workspace_root, open_questions)),
+        "hypotheses" => (Shape::Table, build(workspace_root, hypotheses)),
+        "corpus-health" => (Shape::Kv, build(workspace_root, corpus_health)),
         _ => (
             Shape::Table,
-            build(workspace_root, true, |snapshot| {
+            build(workspace_root, |snapshot| {
                 awaiting_acceptance(snapshot, host, workspace_root)
             }),
         ),
@@ -89,38 +89,59 @@ enum Shape {
     Kv,
 }
 
-/// Open the corpus and derive one view. `committed` selects the HEAD commit
-/// instead of the working tree, for judgements about delivered work.
-fn build(root: &Path, committed: bool, view: impl FnOnce(&Snapshot) -> Value) -> Result<Value> {
+/// Open the corpus and derive one view. Every panel reads the working tree,
+/// the same view `research check`, `list` and `show` read, so a panel that says
+/// the corpus is unreadable and a `check` that says it is valid cannot disagree.
+/// (`awaiting-acceptance` once read HEAD; in the primary checkout the two
+/// differ only while someone has uncommitted edits, which writers refuse anyway.)
+fn build(root: &Path, view: impl FnOnce(&Snapshot) -> Value) -> Result<Value> {
     let research = Research::open(root)?;
-    let snapshot = if committed {
-        research.committed_snapshot()?
-    } else {
-        research.snapshot()?
-    };
-    Ok(view(&snapshot))
+    Ok(view(&research.snapshot()?))
 }
 
-/// What a panel shows when the corpus cannot be read: a short sentence, never
-/// the raw error. A workspace with no schema file is the common, benign case.
+/// What a panel shows when the corpus cannot be read: where it is, the first
+/// problem in a short sentence, and the exact command that lists them all.
+/// Never the raw error. A workspace with no schema file is the common, benign case.
 fn unavailable(shape: Shape, root: &Path, error: &Error) -> Value {
     let has_schema = std::fs::symlink_metadata(root.join("_scripts/schema.json")).is_ok();
     let (label, message) = if has_schema {
-        let problem = error.to_string();
-        let problem = problem.lines().next().unwrap_or_default();
+        let (first, more) = match error {
+            Error::Corpus(issues) => (
+                issues.first().map(ToString::to_string).unwrap_or_default(),
+                issues.len().saturating_sub(1),
+            ),
+            other => (
+                other
+                    .to_string()
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned(),
+                0,
+            ),
+        };
+        let more = match more {
+            0 => String::new(),
+            1 => " 1 more problem not shown.".to_owned(),
+            count => format!(" {count} more problems not shown."),
+        };
         (
-            "Invalid",
+            ("Corpus", "Invalid"),
             format!(
-                "The research corpus cannot be read: {} Run `orbit-research research check` for details.",
-                sentence(&truncate(problem, PROBLEM_WIDTH))
+                "The research corpus at {path} cannot be read: {}{more} Run `orbit-research research check --corpus {path}` for the full list.",
+                sentence(&truncate_words(&first, PROBLEM_WIDTH)),
+                path = root.display()
             ),
         )
     } else {
-        ("No corpus", NO_CORPUS.to_owned())
+        (
+            ("Status", "No research corpus in this workspace"),
+            NO_CORPUS.to_owned(),
+        )
     };
     match shape {
         Shape::Table => status_rows(message),
-        Shape::Kv => json!({"Corpus": label, "Detail": message}),
+        Shape::Kv => json!({label.0: label.1, "Detail": message}),
     }
 }
 
@@ -177,6 +198,18 @@ fn truncate(value: &str, max: usize) -> String {
     }
     let kept: String = line.chars().take(max.saturating_sub(1)).collect();
     format!("{}…", kept.trim_end())
+}
+
+/// One line of at most `max` characters, cut at a word boundary and ended with
+/// an ellipsis, so a long problem never stops in the middle of a word or value.
+fn truncate_words(value: &str, max: usize) -> String {
+    let line = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() <= max {
+        return line;
+    }
+    let head: String = line.chars().take(max.saturating_sub(1)).collect();
+    let cut = head.rfind(' ').map_or(head.as_str(), |at| &head[..at]);
+    format!("{}…", cut.trim_end_matches([' ', ',', ';', ':']))
 }
 
 fn title_cell(record: &Record) -> Value {

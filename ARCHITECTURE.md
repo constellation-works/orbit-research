@@ -94,14 +94,19 @@ workspace leaf; no workspace crate dependency is permitted.
   update first (ties by id, descending) and shows at most three linked tasks in numeric
   order, then `+N more`. An empty result, a workspace with no
   corpus and an unreadable corpus are each one row `{"status": "<sentence>"}` (for the `kv`
-  panel a `Corpus`/`Detail` pair), never an `ok:false` that the dashboard would print as a raw
-  error. The tools take no input, have no `Operation` (their output is dashboard-shaped, so
+  panel a `Status`/`Detail` pair for no corpus and `Corpus: Invalid`/`Detail` for an unreadable one), never an `ok:false` that the dashboard would print as a raw
+  error. An unreadable corpus row gives the corpus path, the first problem in one short
+  sentence cut at a word (plus a count of the rest) and the exact command
+  `orbit-research research check --corpus <path>`; never a raw dump. Every panel reads the
+  working tree, the view `check`, `list` and `show` read, so the advice to run `check`
+  always matches what the panel saw. The tools take no input, have no `Operation` (their output is dashboard-shaped, so
   they are not on the MCP or CLI operation surface) and pin their schema to the registry's
   empty shape, like `version`. `hypotheses` shows one row per hypothesis revision and
   research result, each result's latest verdict on that revision; results that disagree
   keep separate rows and mark the revision disputed, and earlier revisions keep their rows
-  as superseded. `awaiting-acceptance` takes the research items committed at HEAD with both
-  `orbit.task` and `orbit.run` and reads each task's `research-acceptance.json` through the
+  as superseded. `awaiting-acceptance` takes the research items with both
+  `orbit.task` and `orbit.run` (read from the working tree like the other panels; in the
+  primary checkout that differs from HEAD only during uncommitted edits, which writers refuse) and reads each task's `research-acceptance.json` through the
   same `TaskHost::get_artifact` callbacks `accept` uses (`orbit.task.show`,
   `orbit.task.artifact.get`, both already in `permissions.orbit_tools`). A task that cannot
   be read is `acceptance unknown` with a short `reason`, never accepted, and after three
@@ -268,6 +273,28 @@ filesystems, tracked or unignored state, foreign entries and symlinks refuse whi
 preserving the legacy log. Prepared storage is shared with linked worktrees through
 Git's primary-worktree identity. Standalone access to an unprepared corpus retains the
 legacy layout; sandboxed plugin linking requires preparation before any task callback.
+
+Preparation also recreates a deleted `_data/orbit-research-operations/` when the Git-metadata
+marker is intact: only a state path that does not exist at all is filled, by an atomic rename
+of a staged directory holding the `.layout` ledger, after the same ignored/untracked checks.
+An existing directory, symlink or tracked path is never adopted or replaced, and link records
+kept in the deleted directory are not recoverable (linking again with the same request key
+adopts the Orbit task already tagged for it). Every access to a prepared corpus whose state is
+missing refuses with the missing path and the preparation command. Preparation also adds
+`/.orbit-research-tmp/` (the plugin's acceptance scratch) to the repository's local
+`info/exclude` when the corpus does not already ignore it, so an interrupted `accept` cannot
+leave the checkout dirty; the tracked `.gitignore` is not edited, which would itself dirty the
+checkout. Fresh corpora carry the same rule in their `.gitignore`.
+
+Corpus validation reports problems, not the first failure. `validation.rs` judges each record
+against its own kind's definition in the owner contract (never the top-level `oneOf`) and
+describes each schema failure as file, field, offending value and allowed values; the
+whole-corpus rules (references, numbering, lineage, duplicate ids) and filename, frontmatter
+and YAML failures name their file too. All of them travel as `Error::Corpus(Vec<CorpusIssue>)`
+(`path`, `field`, `message`). The text form lists the first 20 then `+N more`; `--json` and the
+plugin envelope carry every issue under `error.problems`. Plugin code `corpus_unavailable`
+means the corpus or its storage is unusable; bad caller input is `invalid_request`, an
+absent record `record_not_found`.
 
 Work planning uses `Corpus::committed_snapshot`: schema and records are read from
 one pinned commit. Browsing uses `snapshot`, a working-tree view whose revision is

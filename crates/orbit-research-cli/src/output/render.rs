@@ -7,7 +7,28 @@ use std::io::{self, Write};
 
 pub(crate) struct Invalid {
     pub(crate) message: String,
+    /// Structured problems for machine output (`path`, `field`, `message`
+    /// objects for a corpus that fails validation). The text form already lists
+    /// them in `message`, so it does not repeat them.
     pub(crate) problems: Option<Vec<Value>>,
+}
+
+impl From<&orbit_research_core::Error> for Invalid {
+    fn from(error: &orbit_research_core::Error) -> Self {
+        let problems = match error {
+            orbit_research_core::Error::Corpus(issues) => Some(
+                issues
+                    .iter()
+                    .map(|issue| json!(issue))
+                    .collect::<Vec<Value>>(),
+            ),
+            _ => None,
+        };
+        Self {
+            message: error.to_string(),
+            problems,
+        }
+    }
 }
 
 impl From<String> for Invalid {
@@ -117,11 +138,6 @@ pub(crate) fn render_error(
             writeln!(out, "{}", safe_text(&error.message))?;
         } else {
             writeln!(out, "error: {}", safe_text(&error.message))?;
-        }
-        if let Some(problems) = &error.problems {
-            for problem in problems {
-                detail(out, problem, "")?;
-            }
         }
         Ok(())
     }

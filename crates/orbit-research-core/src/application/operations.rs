@@ -1,5 +1,6 @@
 //! Local request correlations. Scientific records remain entirely in the corpus.
 //! Rebuildable links point to Orbit, which owns task/run authority.
+use super::work::find_research;
 use crate::{Error, Research as Corpus, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -26,6 +27,16 @@ pub struct LinkPreparation {
     pub context_files: Vec<String>,
 }
 
+/// A link's request key is 1-256 bytes. An input error, not a corpus problem.
+pub fn check_request_key(request_key: &str) -> Result<()> {
+    if request_key.is_empty() || request_key.len() > 256 {
+        return Err(Error::InvalidInput(
+            "The request key must be 1-256 bytes long; use a short, non-empty identifier of your own and reuse it only to retry the same link".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn digest(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -40,15 +51,7 @@ impl Corpus {
     /// reserved. Reads only the committed snapshot; records nothing.
     pub fn link_context_files(&self, research_id: &str) -> Result<Vec<String>> {
         let snapshot = self.store.committed_snapshot()?;
-        let record = snapshot
-            .records
-            .iter()
-            .find(|r| r.id == research_id && r.kind == "R")
-            .ok_or_else(|| {
-                Error::NotFound(format!(
-                    "{research_id} must be reserved before it can be linked"
-                ))
-            })?;
+        let record = find_research(&snapshot.records, research_id, "linking")?;
         let directory = std::path::Path::new(&record.path)
             .parent()
             .ok_or_else(|| Error::Invalid("Missing research directory".into()))?
@@ -61,11 +64,7 @@ impl Corpus {
     /// identical retry's prior intent. Refuses when `research_id` was never
     /// reserved, or when the key was already used for a different item.
     pub fn link_intent(&self, request_key: &str, research_id: &str) -> Result<LinkPreparation> {
-        if request_key.is_empty() || request_key.len() > 256 {
-            return Err(Error::Invalid(
-                "Request key must contain 1-256 bytes".into(),
-            ));
-        }
+        check_request_key(request_key)?;
         let context_files = self.link_context_files(research_id)?;
 
         let log = self.store.request_log()?;
@@ -73,7 +72,7 @@ impl Corpus {
         if let Some(existing) = log.read::<Link>(&key)? {
             if existing.research_id != research_id {
                 return Err(Error::Conflict(format!(
-                    "Request key was already used to link {}, not {research_id}",
+                    "This request key was already used to link {}, not {research_id}; choose a new request key for {research_id} (reuse a key only to retry the same link)",
                     existing.research_id
                 )));
             }

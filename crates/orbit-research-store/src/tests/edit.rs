@@ -14,7 +14,7 @@ fn contract() -> Contract {
 }
 
 fn record(kind: &str, path: &str, text: &str) -> Record {
-    let (metadata, body) = record::parse(text).expect("fixture record");
+    let (metadata, body) = record::parse("fixture.md", text).expect("fixture record");
     Record {
         id: metadata["id"].as_str().expect("id").into(),
         kind: kind.into(),
@@ -38,7 +38,9 @@ fn corpus() -> Vec<Record> {
 }
 
 fn parsed(text: &str) -> Value {
-    record::parse(text).expect("rendered record").0
+    record::parse("rendered.md", text)
+        .expect("rendered record")
+        .0
 }
 
 fn assessment(revision: u64, verdict: &str) -> Assessment {
@@ -209,7 +211,9 @@ fn record_checks_catch_dangling_references_without_git() {
     let text = edit::revise(&contract(), &records[1], &edit, "2026-02-01").expect("revise");
     let error = edit::check_records(&contract(), &records, &records[1].path, &text).unwrap_err();
     assert!(
-        error.to_string().contains("references missing H999"),
+        error.to_string().contains(
+            "research/R001-study/README.md: tests: references H999, which is not in the corpus"
+        ),
         "{error}"
     );
 }

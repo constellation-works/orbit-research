@@ -8,7 +8,7 @@ use crate::panels;
 use orbit_research_core::{
     Error, Research, Result,
     api::Application,
-    application::{Operation, acceptance::Acceptance},
+    application::{Operation, acceptance::Acceptance, operations::check_request_key},
     delivery::{DeliveryReport, Expected},
 };
 use schemars::JsonSchema;
@@ -47,7 +47,7 @@ fn error_code(error: &Error) -> &'static str {
         Error::Conflict(_) => "conflict",
         Error::Refused(_) => "refused",
         Error::Acceptance(_) => "acceptance_required",
-        Error::Invalid(_) => "corpus_unavailable",
+        Error::Invalid(_) | Error::Corpus(_) => "corpus_unavailable",
         Error::Internal(_) => "internal",
         Error::Io(_) => "io_error",
         Error::Json(_) | Error::Yaml(_) => "internal",
@@ -56,6 +56,16 @@ fn error_code(error: &Error) -> &'static str {
 
 pub(crate) fn error_envelope(code: &str, message: impl Into<String>) -> Value {
     json!({"ok": false, "error": {"code": code, "message": message.into(), "retryable": false}})
+}
+
+/// The failure reply for a Core error. A corpus that fails validation also
+/// carries every problem as a `{path, field, message}` object under `problems`.
+pub(crate) fn error_reply(error: &Error) -> Value {
+    let mut reply = error_envelope(error_code(error), error.to_string());
+    if let Error::Corpus(issues) = error {
+        reply["error"]["problems"] = json!(issues);
+    }
+    reply
 }
 
 /// The plugin protocol's `version` tool reports Core's own version
@@ -325,6 +335,8 @@ fn link(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Result<Valu
     if input.description.trim().is_empty() {
         input.description = input.title.clone();
     }
+    // An unusable key is the caller's mistake: say so before touching the corpus.
+    check_request_key(&input.request_key)?;
     let app = Application::local(workspace_root)?;
     if let Some(supplied) = &input.context_files {
         let derived = app.link_context_files(&input.research_id)?;
@@ -378,7 +390,7 @@ fn link(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Result<Valu
 fn link_output(workspace_root: &Path, input: Value, host: &dyn TaskHost) -> Value {
     match link(workspace_root, input, host) {
         Ok(output) => json!({"ok": true, "output": output}),
-        Err(error) => error_envelope(error_code(&error), error.to_string()),
+        Err(error) => error_reply(&error),
     }
 }
 
@@ -449,7 +461,7 @@ fn validate_output(request: &Value, input: Value) -> Value {
                 .collect::<Vec<_>>()
                 .join("; "),
         ),
-        Err(error) => error_envelope(error_code(&error), error.to_string()),
+        Err(error) => error_reply(&error),
     }
 }
 
@@ -631,12 +643,12 @@ fn accept_output(input: Value, workspace_root: &Path, host: &dyn TaskHost) -> Va
     // empty, non-Git workspace refuses here, deterministically, with no host
     // callback involved.
     if let Err(error) = Research::open(workspace_root) {
-        return error_envelope(error_code(&error), error.to_string());
+        return error_reply(&error);
     }
     let task = input.task_id.as_str();
     let state = match host.task_state(task) {
         Ok(state) => state,
-        Err(error) => return error_envelope(error_code(&error), error.to_string()),
+        Err(error) => return error_reply(&error),
     };
     if state.status != "review" && state.status != "done" {
         return error_envelope(
@@ -661,7 +673,7 @@ fn accept_output(input: Value, workspace_root: &Path, host: &dyn TaskHost) -> Va
         })
     }) {
         Ok(report) => report,
-        Err(error) => return error_envelope(error_code(&error), error.to_string()),
+        Err(error) => return error_reply(&error),
     };
     if !report.valid() {
         return error_envelope(
@@ -687,7 +699,7 @@ fn accept_output(input: Value, workspace_root: &Path, host: &dyn TaskHost) -> Va
                 "recorded": outcome.recorded,
             },
         }),
-        Err(error) => error_envelope(error_code(&error), error.to_string()),
+        Err(error) => error_reply(&error),
     }
 }
 
@@ -741,7 +753,7 @@ fn handle(request_bytes: &[u8], host: &dyn TaskHost) -> Value {
     };
     match Application::local(&workspace_root).and_then(|app| app.execute(operation, input)) {
         Ok(output) => json!({"ok": true, "output": output}),
-        Err(error) => error_envelope(error_code(&error), error.to_string()),
+        Err(error) => error_reply(&error),
     }
 }
 

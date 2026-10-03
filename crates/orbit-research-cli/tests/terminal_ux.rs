@@ -283,8 +283,14 @@ fn corpus_diagnostics_are_actionable_for_unborn_missing_and_non_git_paths() {
     assert_structured_error(&output, 1);
     let error = parse_json(&output.stderr);
     let message = error["error"]["message"].as_str().expect("error message");
-    assert!(message.contains("missing the corpus contract"), "{message}");
-    assert!(message.contains("_scripts/schema.json"), "{message}");
+    assert!(
+        message.contains("_scripts/schema.json is missing"),
+        "{message}"
+    );
+    assert!(
+        message.contains("`orbit-research workspace init "),
+        "{message}"
+    );
 
     let non_git = temp.path().join("non-git");
     std::fs::create_dir(&non_git).expect("non-git fixture");
