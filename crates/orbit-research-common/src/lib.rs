@@ -20,12 +20,64 @@ pub enum Error {
     Refused(String),
     #[error("{0}")]
     Internal(String),
+    /// `assess` could not verify that the cited research result was accepted.
+    #[error(transparent)]
+    Acceptance(#[from] AcceptanceFailure),
     #[error(transparent)]
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
     #[error(transparent)]
     Yaml(#[from] serde_yaml::Error),
+}
+
+/// Why `assess` refused a research result for lack of verifiable acceptance.
+/// Each variant names the next step, so a caller never has to guess whether to
+/// accept, re-accept or fix the environment. None of them is ever downgraded to
+/// an accepted result.
+#[derive(Debug, thiserror::Error)]
+pub enum AcceptanceFailure {
+    #[error(
+        "{research} has no `orbit.task` in its frontmatter, so its acceptance cannot be found; link the record to its Orbit task and run the plugin's `accept` tool before assessing"
+    )]
+    NoTask { research: String },
+    #[error(
+        "task {task} has no `research-acceptance.json` for {research}; run the plugin's `accept` tool on that task before assessing"
+    )]
+    Missing { research: String, task: String },
+    #[error(
+        "Orbit could not provide the acceptance for {research} from task {task}: {reason}; run from the corpus checkout with Orbit installed (ORBIT_BIN or PATH) and the workspace registered, then retry"
+    )]
+    Unreachable {
+        research: String,
+        task: String,
+        reason: String,
+    },
+    #[error(
+        "task {task}'s `research-acceptance.json` for {research} is unreadable: {reason}; re-run the plugin's `accept` tool or inspect the artifact"
+    )]
+    Malformed {
+        research: String,
+        task: String,
+        reason: String,
+    },
+    #[error(
+        "task {task}'s `research-acceptance.json` accepts {found}, not {research}; the record's `orbit.task` points at the wrong task"
+    )]
+    WrongResearch {
+        research: String,
+        task: String,
+        found: String,
+    },
+    #[error(
+        "{research} changed after task {task} accepted it (accepted blob {accepted}, current blob {current}); validate and accept the current result again before assessing"
+    )]
+    StaleBlob {
+        research: String,
+        task: String,
+        accepted: String,
+        current: String,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

@@ -4,7 +4,7 @@ pub mod bootstrap;
 pub mod runtime;
 
 pub use bootstrap::{init_workspace, prepare_workspace_operations};
-pub use orbit_research_common::{Error, Record, Reservation, Result, Snapshot};
+pub use orbit_research_common::{AcceptanceFailure, Error, Record, Reservation, Result, Snapshot};
 pub use orbit_research_store::delivery;
 pub use runtime::{Application, Research};
 // Preserve existing callers while internal ownership follows the module layers.

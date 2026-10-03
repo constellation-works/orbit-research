@@ -35,7 +35,11 @@ any other record refuses. Pass `--mode` to refuse when the checkout is not the
 mode you expect.
 
 `research assess` appends an explicit verdict to a hypothesis against an existing
-revision and an accepted research result. A changed hypothesis statement gets a
+revision and an accepted research result: it finds the R's `orbit.task`, fetches
+that task's `research-acceptance.json` through Orbit, and refuses unless it names
+that R and the README as it is now. If the README changed after `accept`, run
+validation and `accept` again; if Orbit is unreachable, fix `ORBIT_BIN`/`PATH` and
+retry. A changed hypothesis statement gets a
 new revision; earlier verdicts stay on theirs. Failed controls are
 `inconclusive`, never `supports`. Preserve conflicting evidence, failed controls,
 limitations, and lineage; do not strengthen a conclusion from task or delivery

@@ -48,11 +48,28 @@ against a Git-backed fixture with an in-memory task host:
 cargo test -p orbit-research-cli --bin orbit-research --locked tests::plugin
 ```
 
+The same fixture feeds `assess`: the lookup that production composes reads what
+`accept` stored, a README amended afterwards is refused as stale, and a fake
+`orbit` executable (named by `ORBIT_BIN`) covers the process adapter and its
+refusals, including through the real binary's CLI and MCP surfaces
+(`tests/assess_acceptance.rs`).
+
 These deterministic checks do not run an investigation provider. The installed
 test changes no existing Orbit workspace or plugin installation. It is ignored
 in the ordinary test suite because it needs Orbit's native sandbox; CI runs it
 with a checksum-verified Orbit 0.25.0 binary, alongside validation and conformance
 testing of a clean Git export.
+
+`tests/assess_installed_orbit.rs` runs `research assess` against a real Orbit
+binary in a private HOME and Orbit root, without installing or enabling any plugin:
+it puts the `accept`-shaped artifact on a real task with `orbit.task.artifact.put`
+and checks acceptance, a missing artifact, an amended README and an unreachable
+Orbit. It is ignored in the ordinary suite and runs in the same CI job:
+
+```sh
+ORBIT_RESEARCH_TEST_ORBIT_BIN=/absolute/path/to/orbit \
+  cargo test -p orbit-research-cli --test assess_installed_orbit --locked -- --ignored
+```
 
 The manifest requires Orbit 0.25.0 or newer. On macOS, Orbit 0.24.0 denied
 metadata access to its callback-session directory, preventing the callback

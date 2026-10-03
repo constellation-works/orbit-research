@@ -10,6 +10,7 @@ use crate::command::application::compose;
 use crate::output::{Invalid, OutputSink};
 use crate::parse::{Cli, Command, WorkspaceOperation};
 
+mod acceptance;
 mod command;
 mod mcp;
 mod output;

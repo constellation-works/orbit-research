@@ -21,8 +21,9 @@ formats, actionable corpus failures, empty results, and closed stdout.
 through the actual MCP subprocess, and verifies idempotent create/revise retries,
 stale-edit refusal, and unchanged HEAD/status after refused operations.
 `research.assess` is exercised as a refusal through both CLI and MCP: production
-composition deliberately uses `NoAcceptanceStore`, so positive assessment still
-requires an injected acceptance adapter. Existing Core acceptance tests cover
+composition then used `NoAcceptanceStore`, so positive assessment required an injected
+acceptance adapter (superseded: the CLI now wires a lookup that reads the task's
+`research-acceptance.json` through Orbit; see `ARCHITECTURE.md`). Existing Core acceptance tests cover
 that policy boundary; this audit does not introduce another receipt store.
 
 Manual native Mac PTY checks covered a narrow 40-column table, Unicode text,

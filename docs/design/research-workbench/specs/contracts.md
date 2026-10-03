@@ -63,7 +63,10 @@ lineage and assessments stay frozen. A hypothesis title or body change bumps its
 `revision` and reopens its status; earlier assessments stay on their revision.
 `assess` appends `{date, research, revision, verdict, strength, note}` to a
 hypothesis. It refuses a revision the hypothesis never had, a citation that is
-not an R, and an R without acceptance evidence. Entries are never rewritten or
+not an R, and an R whose acceptance cannot be verified: the R has no
+`orbit.task`, its task has no `research-acceptance.json`, the artifact is
+unreadable or names another record, the README blob differs from the accepted
+one, or Orbit cannot be reached. Entries are never rewritten or
 reordered. For the current revision, status follows the owner schema's
 `verdict_status`, except that a dropped hypothesis stays dropped. The verdict is
 always the author's; neither execution success nor acceptance supplies it.
