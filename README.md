@@ -70,6 +70,11 @@ only that adjacent binary. Regenerate request schemas with
 `scripts/generate-plugin-schemas.sh`; the Cargo drift checks read the generated
 files in `.orbit-plugin/schemas/`.
 
+The v1 loop is proven end to end by `tests/e2e_v1_loop.rs` (CI's installed-Orbit job, a
+scripted agent) and exercised once with a real crew by `scripts/e2e-live.sh`, which is guarded
+by `--live` and `ORBIT_RESEARCH_LIVE_CONFIRM=yes`; see
+[`docs/plugin-validation.md`](docs/plugin-validation.md).
+
 ## Design and structure
 
 - [Architecture](ARCHITECTURE.md): the four crates and module ownership.

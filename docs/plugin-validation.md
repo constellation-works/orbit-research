@@ -90,6 +90,92 @@ ORBIT_RESEARCH_TEST_ORBIT_BIN=/absolute/path/to/orbit \
   cargo test -p orbit-research-cli --test assess_installed_orbit --locked -- --ignored
 ```
 
+## The v1 loop, end to end
+
+`tests/e2e_v1_loop.rs` is the repeatable proof that the whole v1 loop works on a
+disposable corpus. It is ignored in the ordinary suite and runs in the same CI job as the
+other installed tests, with `--nocapture` so each scenario's evidence is readable in the log:
+
+```sh
+ORBIT_RESEARCH_TEST_ORBIT_BIN=/absolute/path/to/orbit \
+  cargo test -p orbit-research-cli --test e2e_v1_loop --locked -- --ignored --nocapture
+```
+
+It creates the corpus with `workspace init` (the bundled schema) in a private HOME and Orbit
+root, installs and enables the canonical plugin there (the helpers are shared with
+`plugin_v2.rs` through `tests/common/`), and drives the ten scenarios of the plugin spec's
+"Acceptance scenarios for v1" through the real installed plugin and the real
+`orbit run job research_investigation`. Every assertion and log line is prefixed with its
+scenario name:
+
+| Scenario | What the test does |
+|---|---|
+| capture-and-return | `capture` a question, `list` it from fresh processes and the plugin, no task exists, `open-questions` shows it |
+| reserve-and-link | reserve two hypotheses and seven results, `plan` then `link` each: one task per result, an identical retry adopts it |
+| investigation | `orbit run job` with a scripted agent: every step completes, the task reaches `review`, the delivery commit holds exactly the README, manifest, code and artifact |
+| validation gate | four runs whose record has a missing section, a wrong run id, a tampered input digest or a hand-allocated id fail at the `plugin.tool_call` validate step; nothing commits, the corpus stays clean, the task stays out of `review` |
+| acceptance | `accept` refuses a failed run and a never-dispatched task and stores nothing; before acceptance `assess` refuses; `accept` stores `research-acceptance.json` (read back through `orbit.task.artifact.get`) and a re-run is idempotent |
+| negative result | a run whose control fails delivers a valid result, is accepted, and `assess` records `inconclusive` |
+| revised hypothesis | a body edit bumps the revision to 2 and reopens the status while the revision-1 assessment stays; `assess` against revision 3 refuses |
+| concurrency | four simultaneous primary writers get four ids and four commits; a stale expected blob refuses |
+| sandbox | the manifest has the default sandbox, no `unsandboxed` and no `requires.programs`; `orbit plugin doctor` has nothing to report for `research` |
+| corpus independence | only owner-layout paths are tracked, no file names Nebula or a sibling path, no remote, every worktree lives in the disposable root, the schema is the bundled one |
+
+The four panels are read before acceptance (both delivered results `awaiting acceptance`),
+after `accept` (the accepted one is gone), after the assessments and the revision (the
+hypothesis rows, current and superseded) and finally through an MCP session without operator
+capability, which must equal the CLI answers.
+
+The investigation agent is scripted, not a provider. Orbit's executor definitions are YAML
+files in the Orbit root (`resources/executors/<name>.yaml`); Orbit starts the definition's
+`command` with the prompt on stdin, the run worktree as working directory and the run's
+`ORBIT_*` environment, and reads the terminal `agent_message` of its stdout as the response
+envelope. Orbit's own fake-agent tests substitute a CLI exactly this way
+(`crates/orbit-core/tests/pi_fake_agent.rs`, `orbit-agent/src/providers/codex/codex_output.rs`
+for the Codex JSONL shape, and the executor-onboarding runbook). The test points the shipped
+`codex` executor at `tests/fixtures/e2e_agent.sh`, makes the `sol` crew the default and enables
+it, so `worktree_setup`, the shipped `research_investigate` `agent_loop` step, the plugin's own
+validate step, `git_commit`, `git_merge` and `update_task` all run unmodified. The script does
+what the activity's instruction tells an agent to do (reads the stub, runs a small experiment
+with a control, writes the README and manifest with the worktree-mode writer, names the new
+files as task context and persists an execution summary) and never commits or moves the task.
+Nothing calls a provider.
+
+One difference from production: a directory install has no verified first-party origin (Orbit's
+`first_party_source` accepts only a `git+` URL of a constellation-works repository), so its tools
+register as `research.<verb>`. The test's export rewrites the `research_validate` activity from
+`orbit.research.validate` to `research.validate`; no other plugin file differs from the
+repository.
+
+## The live smoke run
+
+`scripts/e2e-live.sh` is the operator script for the one live run: the same loop with a real
+crew, on a disposable corpus, after the plugin has been installed and enabled on the host. It
+spends real money, so it does nothing but print its plan unless it is given `--live` and
+`ORBIT_RESEARCH_LIVE_CONFIRM=yes`. The guard exists because an earlier version of the script
+was run for real while its argument handling was being tested; its refusal paths are now covered by
+`tests/e2e_live_script.rs`, which runs the script with a stub `orbit`, a private HOME and a PATH
+holding only the stub plus the system directories.
+
+```sh
+scripts/e2e-live.sh --plan                       # steps only, touches nothing
+ORBIT_RESEARCH_LIVE_CONFIRM=yes scripts/e2e-live.sh \
+  --live --corpus /path/outside/any/repo/live-smoke --crew <crew>
+```
+
+The corpus directory must be new (or empty) and outside every Git work tree. The script
+registers it as an Orbit workspace, captures a small deterministic question (a seeded fair coin
+against a 60%-heads control coin over 100,000 flips), creates the hypothesis and the reserved
+result, drafts and links the task, runs `orbit run job research_investigation`, waits (at most
+`--max-minutes`, default 45), reports the delivered Result section and the provider and model
+Orbit recorded, runs `accept` twice (the second must be idempotent), appends the assessment you
+name with `--verdict`/`--strength` (default `inconclusive`/`anecdote`; it never infers one) and
+prints the four panels. It never installs, enables, upgrades or grants anything. Evidence goes to
+`<corpus>.evidence/`: `commands.log`, `timings.tsv`, every command's stdout and stderr,
+`run-show.json`, `summary.txt`, `panels/`, `artifacts/`, `state.env` (ids, so `--resume` skips
+finished steps) and `cleanup.txt`, whose commands (workspace deregistration, worktree removal,
+deleting the corpus) are printed at the end and never run.
+
 The manifest requires Orbit 0.25.0 or newer. On macOS, Orbit 0.24.0 denied
 metadata access to its callback-session directory, preventing the callback
 resolver from recognizing the host's live identity even though the inherited
