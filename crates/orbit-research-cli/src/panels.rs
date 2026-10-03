@@ -126,7 +126,7 @@ fn unavailable(shape: Shape, root: &Path, error: &Error) -> Value {
             count => format!(" {count} more problems not shown."),
         };
         (
-            "Invalid",
+            ("Corpus", "Invalid"),
             format!(
                 "The research corpus at {path} cannot be read: {}{more} Run `orbit-research research check --corpus {path}` for the full list.",
                 sentence(&truncate_words(&first, PROBLEM_WIDTH)),
@@ -134,11 +134,14 @@ fn unavailable(shape: Shape, root: &Path, error: &Error) -> Value {
             ),
         )
     } else {
-        ("No corpus", NO_CORPUS.to_owned())
+        (
+            ("Status", "No research corpus in this workspace"),
+            NO_CORPUS.to_owned(),
+        )
     };
     match shape {
         Shape::Table => status_rows(message),
-        Shape::Kv => json!({"Corpus": label, "Detail": message}),
+        Shape::Kv => json!({label.0: label.1, "Detail": message}),
     }
 }
 

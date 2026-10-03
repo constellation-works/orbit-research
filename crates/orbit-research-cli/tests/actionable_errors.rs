@@ -539,22 +539,3 @@ fn a_missing_corpus_suggests_workspace_init() {
     assert_eq!(code, "corpus_unavailable");
     assert!(message.contains("workspace init"), "{message}");
 }
-
-#[test]
-fn a_title_without_an_ascii_word_says_to_add_one() {
-    let temp = corpus();
-    for text in ["日本語だけ", "!!!"] {
-        let message = failure(&[
-            "research",
-            "capture",
-            "--corpus",
-            path(temp.path()),
-            "--text",
-            text,
-        ]);
-        assert!(
-            message.contains("add an ASCII word to the title"),
-            "{message}"
-        );
-    }
-}

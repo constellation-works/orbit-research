@@ -11,7 +11,7 @@ tests:
     input: {}
     expect:
       output:
-        Corpus: No corpus
+        Status: No research corpus in this workspace
         Detail: "This workspace has no research corpus yet. Run `orbit-research workspace init <path>` to create one."
   - name: corpus_health_refuses_unknown_input_fields
     tool: corpus-health

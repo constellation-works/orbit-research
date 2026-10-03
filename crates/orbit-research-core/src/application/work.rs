@@ -112,7 +112,7 @@ impl Corpus {
                     ));
                 }
                 if record.metadata["status"] == "done" {
-                    return Err(Error::Invalid(format!(
+                    return Err(Error::InvalidInput(format!(
                         "{research_id} is already done and its result is delivered, so another investigation would redo it. Reserve a new research item derived from {research_id} for follow-up work"
                     )));
                 }
@@ -182,7 +182,7 @@ impl Corpus {
                 let committed = self.store.committed_paths()?;
                 for (unit, input) in units.iter().zip(&inputs) {
                     if !committed.contains(input) {
-                        return Err(Error::Invalid(format!(
+                        return Err(Error::InvalidInput(format!(
                             "There is no contribution named {unit} for {research_id}: {input} is not committed. Merge that contribution before planning the synthesis, or check the unit name"
                         )));
                     }

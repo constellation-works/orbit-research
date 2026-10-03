@@ -464,7 +464,7 @@ fn a_workspace_without_a_corpus_shows_a_short_message_not_an_error() {
     }
     assert_eq!(
         panel("corpus-health", temp.path(), &ArtifactHost::default()),
-        json!({"Corpus": "No corpus", "Detail": message})
+        json!({"Status": "No research corpus in this workspace", "Detail": message})
     );
 }
 

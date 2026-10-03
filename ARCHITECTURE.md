@@ -94,7 +94,7 @@ workspace leaf; no workspace crate dependency is permitted.
   update first (ties by id, descending) and shows at most three linked tasks in numeric
   order, then `+N more`. An empty result, a workspace with no
   corpus and an unreadable corpus are each one row `{"status": "<sentence>"}` (for the `kv`
-  panel a `Corpus`/`Detail` pair), never an `ok:false` that the dashboard would print as a raw
+  panel a `Status`/`Detail` pair for no corpus and `Corpus: Invalid`/`Detail` for an unreadable one), never an `ok:false` that the dashboard would print as a raw
   error. An unreadable corpus row gives the corpus path, the first problem in one short
   sentence cut at a word (plus a count of the rest) and the exact command
   `orbit-research research check --corpus <path>`; never a raw dump. Every panel reads the

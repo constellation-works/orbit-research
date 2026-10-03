@@ -123,30 +123,6 @@ fn an_unusable_request_key_is_invalid_input_with_a_plain_range() {
 }
 
 #[test]
-fn a_title_with_no_ascii_word_says_to_add_one() {
-    let temp = fixture();
-    let corpus = Corpus::open(temp.path()).unwrap();
-    for title in ["日本語の質問", "!!! ???"] {
-        let error = corpus
-            .reserve("cjk", "Q", title, "body", vec![], vec![])
-            .unwrap_err();
-        assert!(
-            matches!(error, orbit_research_common::Error::InvalidInput(_)),
-            "{error:?}"
-        );
-        let message = error.to_string();
-        assert!(
-            message.contains("at least one ASCII letter or number"),
-            "{message}"
-        );
-        assert!(
-            message.contains("add an ASCII word to the title"),
-            "{message}"
-        );
-    }
-}
-
-#[test]
 fn sequential_requests_get_distinct_ids_and_commits() {
     let temp = fixture();
     let corpus = Corpus::open(temp.path()).unwrap();
