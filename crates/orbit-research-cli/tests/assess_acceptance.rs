@@ -144,7 +144,7 @@ impl Fixture {
             "blob": blob, "run_id": "run-1", "artifact_digests": {},
         });
         self.state(
-            "orbit.task.artifact.get.out",
+            "orbit.task.artifact.out",
             &json!({"media_type": "application/json", "content": artifact.to_string()}).to_string(),
         );
     }
@@ -247,7 +247,7 @@ fn assess_refuses_each_unverifiable_acceptance_through_the_real_cli() {
         &json!({"artifacts": [{"path": "research-acceptance.json"}]}).to_string(),
     );
     fixture.state(
-        "orbit.task.artifact.get.out",
+        "orbit.task.artifact.out",
         &json!({"content": "{}"}).to_string(),
     );
     let message = fixture.refused(orbit);
@@ -264,7 +264,7 @@ fn assess_appends_the_verdict_when_the_task_artifact_matches_the_current_readme(
     assert_eq!(result["mode"], "primary", "{result}");
     let calls = fs::read_to_string(fixture.root.join(".git/fake-orbit/calls")).expect("calls");
     assert!(
-        calls.contains("orbit.task.artifact.get {\"id\":\"task-1\""),
+        calls.contains("orbit.task.artifact {\"action\":\"get\",\"id\":\"task-1\""),
         "{calls}"
     );
     let hypothesis =

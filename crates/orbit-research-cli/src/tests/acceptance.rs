@@ -172,7 +172,7 @@ mod fake_orbit {
         let workspace = Workspace::new();
         workspace.state("orbit.task.show.out", listing());
         workspace.state(
-            "orbit.task.artifact.get.out",
+            "orbit.task.artifact.out",
             json!({"media_type": "application/json", "content": stored().to_string()}).to_string(),
         );
         let acceptance = workspace.lookup().expect("lookup").expect("acceptance");
@@ -184,7 +184,7 @@ mod fake_orbit {
         );
         assert!(
             calls.contains(
-                r#"orbit.task.artifact.get {"id":"task-1","path":"research-acceptance.json"}"#
+                r#"orbit.task.artifact {"action":"get","id":"task-1","path":"research-acceptance.json"}"#
             ),
             "{calls}"
         );
@@ -205,7 +205,7 @@ mod fake_orbit {
             json!([{"path": "research-acceptance.json", "size": 8}]).to_string(),
         );
         workspace.state(
-            "orbit.task.artifact.get.out",
+            "orbit.task.artifact.out",
             json!({"content": stored().to_string()}).to_string(),
         );
         assert!(workspace.lookup().expect("lookup").is_some());
@@ -220,7 +220,7 @@ mod fake_orbit {
         );
         assert!(workspace.lookup().expect("lookup").is_none());
         assert!(
-            !workspace.calls().contains("artifact.get"),
+            !workspace.calls().contains("orbit.task.artifact"),
             "{}",
             workspace.calls()
         );
@@ -259,7 +259,7 @@ mod fake_orbit {
         let workspace = Workspace::new();
         workspace.state("orbit.task.show.out", listing());
         workspace.state(
-            "orbit.task.artifact.get.out",
+            "orbit.task.artifact.out",
             json!({"content": "{\"unexpected\":true}"}).to_string(),
         );
         let refused = failure(workspace.lookup());
@@ -271,7 +271,7 @@ mod fake_orbit {
         let workspace = Workspace::new();
         workspace.state("orbit.task.show.out", listing());
         workspace.state(
-            "orbit.task.artifact.get.out",
+            "orbit.task.artifact.out",
             json!({"content_base64": "e30="}).to_string(),
         );
         let refused = failure(workspace.lookup());
