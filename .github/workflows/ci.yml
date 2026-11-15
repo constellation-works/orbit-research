@@ -58,10 +58,22 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test -p orbit-research-store --lib --locked portable_reservation_and_revision_retry_after_receipt_loss
 
+  # The manifest's floor (`requires.orbit` in .orbit-plugin/plugin.yaml) and the
+  # current release, each checksum-verified. When the floor or the current
+  # release changes, update the version and sha256 together with
+  # docs/plugin-validation.md.
   plugin:
-    name: Installed Orbit plugin (Linux)
+    name: Installed Orbit plugin (Linux, Orbit ${{ matrix.orbit }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - orbit: 0.25.0
+            sha256: 20fb33831213e4785d29172ea4944f19c76332764806e8928164a3bbf20d593a
+          - orbit: 0.50.0
+            sha256: 5988250a5210e8b8ef93b35593466bb85a331a28e3c89541655ad45ad6942de1
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1; Rust 1.89.0
@@ -71,12 +83,13 @@ jobs:
       - run: cargo build -p orbit-research-cli --locked
       - name: Download and verify pinned Orbit
         shell: bash
+        env:
+          ORBIT_VERSION: ${{ matrix.orbit }}
+          ORBIT_SHA256: ${{ matrix.sha256 }}
         run: |
           curl --fail --location --retry 3 --output "$RUNNER_TEMP/orbit.tar.gz" \
-            https://github.com/constellation-works/orbit/releases/download/v0.25.0/orbit-x86_64-unknown-linux-gnu.tar.gz
-          printf '%s  %s\n' \
-            '20fb33831213e4785d29172ea4944f19c76332764806e8928164a3bbf20d593a' \
-            "$RUNNER_TEMP/orbit.tar.gz" | sha256sum --check -
+            "https://github.com/constellation-works/orbit/releases/download/v${ORBIT_VERSION}/orbit-x86_64-unknown-linux-gnu.tar.gz"
+          printf '%s  %s\n' "$ORBIT_SHA256" "$RUNNER_TEMP/orbit.tar.gz" | sha256sum --check -
           tar -xzf "$RUNNER_TEMP/orbit.tar.gz" -C "$RUNNER_TEMP" orbit
           "$RUNNER_TEMP/orbit" --version
       - name: Validate and test a clean plugin export

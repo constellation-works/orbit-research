@@ -188,6 +188,43 @@ impl Installed {
         }
     }
 
+    /// The stored task artifact `path`, as Orbit returns it (`content` is its text).
+    /// Orbit 0.50 registers `orbit.task.artifact` with an `action`; earlier
+    /// releases answer that name with `tool_not_found` and register
+    /// `orbit.task.artifact.get`.
+    pub fn artifact_get(&self, task: &str, path: &str) -> Value {
+        let fetch = |name: &str, input: Value| {
+            self.command()
+                .env("ORBIT_OPERATOR", "1")
+                .args(["tool", "run", name, "--input", &input.to_string()])
+                .output()
+                .expect("read artifact")
+        };
+        let current = fetch(
+            "orbit.task.artifact",
+            json!({"action": "get", "id": task, "path": path}),
+        );
+        let output = if current.status.success() {
+            current
+        } else {
+            let error: Value = serde_json::from_slice(&current.stderr).expect("error JSON");
+            assert_eq!(error["code"], "tool_not_found", "{current:?}");
+            fetch("orbit.task.artifact.get", json!({"id": task, "path": path}))
+        };
+        json_output(output, "read task artifact")
+    }
+
+    /// Whether this Orbit's `mcp serve` gates tools behind `--toolset`.
+    pub fn serves_toolsets(&self) -> bool {
+        let output = self
+            .command()
+            .args(["mcp", "serve", "--help"])
+            .output()
+            .expect("Orbit mcp serve help");
+        assert!(output.status.success(), "{output:?}");
+        String::from_utf8_lossy(&output.stdout).contains("--toolset")
+    }
+
     pub fn cli_tool(&self, tool: &str, input: &Value) -> Output {
         // A fully cleared shell has no caller identity. Use Orbit's explicit
         // audited operator override for CLI QA.
@@ -272,6 +309,11 @@ impl Mcp {
         command.args(["mcp", "serve", "--workspace", &fixture.workspace]);
         if operator {
             command.arg("--operator");
+        } else if fixture.serves_toolsets() {
+            // Orbit 0.50 serves a plugin's tools to a non-operator session only
+            // when the `plugins` toolset is enabled; older releases have no such
+            // flag and serve them unconditionally.
+            command.args(["--toolset", "plugins"]);
         }
         #[cfg(unix)]
         command.process_group(0);

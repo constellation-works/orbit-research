@@ -6,6 +6,42 @@ prefer `orbit.task.artifact` with an action and fall back to the corresponding
 all three names. The installed own-session test exercises acceptance and assessment
 on Orbit 0.25.0 and 0.50.0, including installation with those grants.
 
+## Orbit releases the installed tests run against
+
+The three `--ignored` installed suites (`plugin_v2`, `assess_installed_orbit` and
+`e2e_v1_loop`) run against two checksum-verified Orbit releases: **0.25.0**, the
+manifest's floor (`requires.orbit`), and **0.50.0**, the current release. CI's `plugin`
+job is a matrix over both. It runs `plugin validate`, `plugin test` (the conformance
+goldens) and the three suites for each, `fail-fast` is off and a failure on either
+release fails the job. The versions and their sha256 live in the matrix in
+`.github/workflows/ci.yml`; change them together with this section when the floor or
+the current release moves.
+
+To run them locally, download a release, check it against the release's
+`orbit-checksums.txt`, and point the suites at the binary. Each suite makes its own
+HOME, Orbit root, corpus and plugin export, so nothing in your Orbit installation is
+read or changed, and it behaves the same on a developer machine and a bare runner:
+
+```sh
+v=0.50.0   # or 0.25.0
+curl --fail --location --output orbit.tar.gz \
+  https://github.com/constellation-works/orbit/releases/download/v$v/orbit-x86_64-unknown-linux-gnu.tar.gz
+mkdir orbit-$v && tar -xzf orbit.tar.gz -C orbit-$v orbit   # check the sha256 first
+cargo build -p orbit-research-cli --locked
+for suite in plugin_v2 assess_installed_orbit e2e_v1_loop; do
+  ORBIT_RESEARCH_TEST_ORBIT_BIN=$PWD/orbit-$v/orbit \
+    cargo test -p orbit-research-cli --test $suite --locked -- --ignored --nocapture
+done
+```
+
+The suites adapt to the release where its surface differs: a non-operator MCP session
+passes `--toolset plugins` when `orbit mcp serve` has that flag (0.50 serves plugin tools
+only with the toolset enabled), and artifact reads and writes use `orbit.task.artifact`
+with an `action`, falling back to `.get`/`.put` on `tool_not_found`. The
+`research_investigate` activity's tool allowlist names no friction tool, because
+0.25 registers `orbit.friction.add` and friends while 0.50 registers one `orbit.friction`,
+and Orbit refuses an allowlist entry that matches no registered tool.
+
 The required local gate is `make test`. It covers the plugin request schemas,
 exec input limits, launcher failures and a real Git-backed fixture corpus.
 The plugin's sixteen conformance goldens (twelve tools) cover its corpus-independent
@@ -89,13 +125,13 @@ source rather than leaving it `acceptance unknown`.
 These deterministic checks do not run an investigation provider. The installed
 test changes no existing Orbit workspace or plugin installation. It is ignored
 in the ordinary test suite because it needs Orbit's native sandbox; CI runs it
-with a checksum-verified Orbit 0.25.0 binary, alongside validation and conformance
-testing of a clean Git export.
+with a checksum-verified binary of each release above, alongside validation and
+conformance testing of a clean Git export.
 
 `tests/assess_installed_orbit.rs` runs `research assess` against a real Orbit
 binary in a private HOME and Orbit root, without installing or enabling any plugin:
-it puts the `accept`-shaped artifact on a real task with `orbit.task.artifact.put`
-and checks acceptance, a missing artifact, an amended README and an unreachable
+it puts the `accept`-shaped artifact on a real task with `orbit.task.artifact`
+(`action: put`, or `orbit.task.artifact.put` on a release that predates the action) and checks acceptance, a missing artifact, an amended README and an unreachable
 Orbit. It is ignored in the ordinary suite and runs in the same CI job:
 
 ```sh
@@ -146,8 +182,9 @@ files in the Orbit root (`resources/executors/<name>.yaml`); Orbit starts the de
 envelope. Orbit's own fake-agent tests substitute a CLI exactly this way
 (`crates/orbit-core/tests/pi_fake_agent.rs`, `orbit-agent/src/providers/codex/codex_output.rs`
 for the Codex JSONL shape, and the executor-onboarding runbook). The test points the shipped
-`codex` executor at `tests/fixtures/e2e_agent.sh`, makes the `sol` crew the default and enables
-it, so `worktree_setup`, the shipped `research_investigate` `agent_loop` step, the plugin's own
+`codex` executor at `tests/fixtures/e2e_agent.sh`, makes the `sol` crew the default (and the only
+member of every complexity pool, which outranks the default and which Orbit 0.50 seeds from the provider CLIs on the
+machine) and enables it, so `worktree_setup`, the shipped `research_investigate` `agent_loop` step, the plugin's own
 validate step, `git_commit`, `git_merge` and `update_task` all run unmodified. The script does
 what the activity's instruction tells an agent to do (reads the stub, runs a small experiment
 with a control, writes the README and manifest with the worktree-mode writer, names the new

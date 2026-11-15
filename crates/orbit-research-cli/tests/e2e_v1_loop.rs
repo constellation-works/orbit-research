@@ -208,10 +208,40 @@ impl Lab {
         };
         // A runner with no provider CLI leaves every crew disabled. Enable the
         // `sol` crew (the Codex lane) and make it the default so linked tasks
-        // draw it.
+        // draw it. A task's complexity pool outranks `workflow.default_crew`, and
+        // Orbit 0.50 seeds a fresh root's pools from the provider CLIs it finds,
+        // so a developer machine would draw another crew: pin every pool to `sol`.
         for args in [
             ["config", "set", "--global", "crews.sol.enabled", "true"],
             ["config", "set", "--global", "workflow.default_crew", "sol"],
+            [
+                "config",
+                "set",
+                "--global",
+                "workflow.low_complexity_crews",
+                r#"["sol"]"#,
+            ],
+            [
+                "config",
+                "set",
+                "--global",
+                "workflow.medium_complexity_crews",
+                r#"["sol"]"#,
+            ],
+            [
+                "config",
+                "set",
+                "--global",
+                "workflow.hard_complexity_crews",
+                r#"["sol"]"#,
+            ],
+            [
+                "config",
+                "set",
+                "--global",
+                "workflow.xhard_complexity_crews",
+                r#"["sol"]"#,
+            ],
         ] {
             let output = lab.command().args(args).output().expect("orbit config");
             assert!(output.status.success(), "{args:?}: {output:?}");
@@ -1005,10 +1035,7 @@ fn v1_research_loop_on_a_disposable_corpus() {
                 .trim()
         ),
     );
-    let stored = lab.orbit_tool(
-        "orbit.task.artifact.get",
-        &json!({"id": t1, "path": "research-acceptance.json"}),
-    );
+    let stored = lab.artifact_get(&t1, "research-acceptance.json");
     let stored: Value = serde_json::from_str(stored["content"].as_str().expect("artifact content"))
         .expect("acceptance JSON");
     s.eq(

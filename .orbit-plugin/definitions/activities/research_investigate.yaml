@@ -112,7 +112,6 @@ spec:
     9. Return a short summary and the research ID.
   tools:
     - orbit.task.*
-    - orbit.friction.*
     - orbit.search
     - proc.spawn
   proc_allowed_programs:

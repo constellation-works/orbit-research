@@ -136,14 +136,16 @@ impl Fixture {
             .to_owned()
     }
 
+    fn orbit_tool_output(&self, name: &str, input: &Value) -> Output {
+        self.orbit_command()
+            .args(["tool", "run", name, "--input", &input.to_string()])
+            .output()
+            .expect("run Orbit tool")
+    }
+
     fn tool(&self, name: &str, input: Value) -> Value {
-        let output = self.ok(self.orbit_command().args([
-            "tool",
-            "run",
-            name,
-            "--input",
-            &input.to_string(),
-        ]));
+        let output = self.orbit_tool_output(name, &input);
+        assert!(output.status.success(), "{name}: {output:?}");
         serde_json::from_slice(&output.stdout).expect("Orbit tool JSON")
     }
 
@@ -203,10 +205,19 @@ impl Fixture {
         fs::create_dir_all(&scratch).expect("Orbit scratch directory");
         let source = scratch.join("research-acceptance.json");
         fs::write(&source, artifact.to_string()).expect("stage artifact");
-        self.tool(
-            "orbit.task.artifact.put",
-            json!({"id": task, "source_path": source, "path": "research-acceptance.json"}),
-        );
+        // Orbit 0.50 registers `orbit.task.artifact` with an `action`; releases
+        // before that register `orbit.task.artifact.put` and answer the new name
+        // with `tool_not_found`, as the plugin's own `accept` expects.
+        let input = json!({"id": task, "source_path": source, "path": "research-acceptance.json"});
+        let mut with_action = input.clone();
+        with_action["action"] = json!("put");
+        let current = self.orbit_tool_output("orbit.task.artifact", &with_action);
+        if current.status.success() {
+            return;
+        }
+        let error: Value = serde_json::from_slice(&current.stderr).expect("error JSON");
+        assert_eq!(error["code"], "tool_not_found", "{current:?}");
+        self.tool("orbit.task.artifact.put", input);
     }
 
     fn assess(&self, orbit: &Path) -> Output {
