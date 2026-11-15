@@ -292,9 +292,14 @@ impl Corpus {
         render: impl FnOnce(&Snapshot, &Record) -> Result<String>,
     ) -> Result<Reservation> {
         let writer = Writer::open(self)?;
-        let intent = match writer.load(&key, &request_digest)? {
-            Some(intent) => intent,
-            None => {
+        let loaded = writer.load(&key, &request_digest)?;
+        let superseded = match &loaded {
+            Some(intent) => writer.superseded(intent, expected_blob)?,
+            None => false,
+        };
+        let intent = match loaded {
+            Some(intent) if !superseded => intent,
+            _ => {
                 writer.require_clean()?;
                 let snapshot = self.snapshot()?;
                 let record = snapshot
@@ -331,7 +336,11 @@ impl Corpus {
                     }],
                 };
                 intent.normalize_paths();
-                writer.save_new(&key, &intent)?;
+                if superseded {
+                    writer.replace(&key, &intent)?;
+                } else {
+                    writer.save_new(&key, &intent)?;
+                }
                 intent
             }
         };
@@ -453,6 +462,33 @@ impl<'a> Writer<'a> {
             &serde_json::to_vec(intent)?,
             false,
         )
+    }
+
+    /// Put a new intent in place of a finished one that [`Self::superseded`].
+    fn replace(&self, key: &str, intent: &ReservationIntent) -> Result<()> {
+        atomic_write(
+            &self.state.join(format!("{key}.json")),
+            &serde_json::to_vec(intent)?,
+            true,
+        )
+    }
+
+    /// Whether a finished rewrite has stopped answering its key. A rewrite's
+    /// key covers the request and the blob it starts from, so the key comes
+    /// round again when the record returns to that blob (edited to B, then
+    /// back to A). The stored receipt then describes a write that was since
+    /// undone: the request is a new write, not a retry.
+    fn superseded(&self, intent: &ReservationIntent, expected_blob: &str) -> Result<bool> {
+        if intent.reservation.is_none()
+            || self.corpus.hash_bytes(intent.text.as_bytes())? == expected_blob
+        {
+            return Ok(false);
+        }
+        match fs::read(self.corpus.root().join(&intent.path)) {
+            Ok(current) => Ok(self.corpus.hash_bytes(&current)? == expected_blob),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn finish(&self, key: &str, mut intent: ReservationIntent) -> Result<Reservation> {
