@@ -5,11 +5,11 @@
 `accept` takes `task_id` and `research_id`. It reads the task's status and run from
 Orbit, re-runs the `validate` checks on the published commit of the corpus, and stores
 `research-acceptance.json` on the task: record id, README blob, commit, input digests
-and run id.  contains only hashes computed from bytes available during
-acceptance.  records local inputs’ manifest declarations, which are
-not themselves proof of byte verification;  names those whose bytes were
+and run id. `artifact_digests` contains only hashes computed from bytes available during
+acceptance. `declared_input_digests` records local inputs’ manifest declarations, which are
+not themselves proof of byte verification; `unverified_inputs` names those whose bytes were
 unavailable. Shared inputs belong to their own manifest. Job-delivered data bytes are
-normally absent on the primary checkout.  checks the README blob, not data bytes or
+normally absent on the primary checkout. `assess` checks the README blob, not data bytes or
 these digests, so replacing data behind an accepted result is not detected.
 
 It refuses:
