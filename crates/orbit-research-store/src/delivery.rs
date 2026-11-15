@@ -107,6 +107,8 @@ pub struct DeliveryReport {
     /// own manifest owns that evidence. `accept` persists this alongside the
     /// record id, blob, commit and run id.
     pub artifact_digests: BTreeMap<String, String>,
+    /// Manifest-declared digests for local inputs; not proof of byte verification.
+    pub declared_input_digests: BTreeMap<String, String>,
 }
 
 impl DeliveryReport {
@@ -134,6 +136,7 @@ impl Corpus {
             findings: Vec::new(),
             unverified_inputs: Vec::new(),
             artifact_digests: BTreeMap::new(),
+            declared_input_digests: BTreeMap::new(),
         };
         if gate.contract.schema != self.contract.schema {
             report.fail(
@@ -336,6 +339,9 @@ impl Corpus {
                 );
                 continue;
             }
+            report
+                .declared_input_digests
+                .insert(name.to_owned(), declared.to_owned());
             let bytes = match self.working_bytes(&data_path) {
                 Ok(bytes) => bytes,
                 Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {

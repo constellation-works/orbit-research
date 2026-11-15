@@ -1521,6 +1521,48 @@ fn stored_acceptance(host: &FakeTaskHost) -> Value {
 }
 
 #[test]
+fn acceptance_records_unverified_declaration_and_honours_legacy_retry() {
+    let delivered = delivered();
+    let ignore = delivered.worktree.join(".gitignore");
+    let mut rules = fs::read_to_string(&ignore).expect("ignore rules");
+    rules.push_str("research/*/data/*\n!research/*/data/manifest.json\n");
+    fs::write(ignore, rules).expect("ignore data bytes");
+    delivered.merge_into_primary();
+    let host = FakeTaskHost::default();
+    host.seed_task_state("task-1", "review", Some("run-1"));
+    let first = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(first["ok"], true, "{first}");
+    let mut stored = stored_acceptance(&host);
+    assert_eq!(stored["artifact_digests"], json!({}));
+    assert_eq!(
+        stored["declared_input_digests"]["input.csv"],
+        "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
+    );
+    assert_eq!(stored["unverified_inputs"], json!(["input.csv"]));
+    let object = stored.as_object_mut().expect("object");
+    object.remove("declared_input_digests");
+    object.remove("unverified_inputs");
+    host.seed_artifact("task-1", "research-acceptance.json", stored.clone());
+    let retry = call_accept(delivered.primary.path(), "task-1", "R001", &host);
+    assert_eq!(retry["ok"], true, "{retry}");
+    assert_eq!(retry["output"]["recorded"], false);
+    assert_eq!(stored_acceptance(&host), stored);
+}
+
+#[test]
+fn accept_refuses_changed_declared_evidence() {
+    let reply =
+        accept_conflict_after_tampering("declared_input_digests", json!({"input.csv": "00"}));
+    assert_eq!(reply["error"]["code"], "conflict", "{reply}");
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .expect("message")
+            .contains("declared_input_digests")
+    );
+}
+
+#[test]
 fn accept_retry_after_an_unrelated_commit_is_idempotent_and_keeps_the_first_commit() {
     let delivered = delivered();
     delivered.merge_into_primary();

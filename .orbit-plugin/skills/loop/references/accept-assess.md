@@ -5,7 +5,12 @@
 `accept` takes `task_id` and `research_id`. It reads the task's status and run from
 Orbit, re-runs the `validate` checks on the published commit of the corpus, and stores
 `research-acceptance.json` on the task: record id, README blob, commit, input digests
-and run id.
+and run id.  contains only hashes computed from bytes available during
+acceptance.  records local inputs’ manifest declarations, which are
+not themselves proof of byte verification;  names those whose bytes were
+unavailable. Shared inputs belong to their own manifest. Job-delivered data bytes are
+normally absent on the primary checkout.  checks the README blob, not data bytes or
+these digests, so replacing data behind an accepted result is not detected.
 
 It refuses:
 
@@ -14,7 +19,9 @@ It refuses:
 - any `validate` finding, including an R whose `orbit.task` and `orbit.run` do not
   name that task and its run;
 - stored evidence that differs from what it would record, naming the differing field
-  (`research_id`, `blob`, `run_id` or `artifact_digests`).
+  (`research_id`, `blob`, `run_id`, `artifact_digests`, `declared_input_digests`
+  or `unverified_inputs`). Older artifacts without the last two fields remain valid
+  and retries compare their existing evidence without inventing missing declarations.
 
 A retry whose evidence matches is idempotent whatever the current HEAD: it returns the
 stored acceptance with `recorded: false` and never rewrites its commit. An acceptance

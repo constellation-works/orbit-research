@@ -25,6 +25,13 @@ pub struct Acceptance {
     /// sha256 of each locally-verified manifest input, by name.
     #[serde(default)]
     pub artifact_digests: BTreeMap<String, String>,
+    /// Manifest declarations, not evidence that the bytes were re-verified.
+    /// Absent in earlier acceptance artifacts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_input_digests: Option<BTreeMap<String, String>>,
+    /// Inputs whose bytes were unavailable to the accepting checkout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unverified_inputs: Option<Vec<String>>,
 }
 
 impl Acceptance {

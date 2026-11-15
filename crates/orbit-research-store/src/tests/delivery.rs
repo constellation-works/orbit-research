@@ -82,6 +82,11 @@ fn absent_input_bytes_are_reported_unverified_not_failed() {
         .unwrap();
     assert!(report.valid(), "{:?}", report.findings);
     assert_eq!(report.unverified_inputs, ["input.csv"]);
+    assert!(report.artifact_digests.is_empty());
+    assert_eq!(
+        report.declared_input_digests["input.csv"],
+        format!("{:x}", Sha256::digest(b"a,b\n1,2\n"))
+    );
 }
 
 #[test]

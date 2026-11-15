@@ -752,7 +752,8 @@ struct AcceptOutcome {
 
 /// The evidence-identity fields on which a stored acceptance differs from the
 /// one a retry would record. Identity is research id, README blob, run id and
-/// artifact digests; `commit` is not part of it.
+/// artifact digests and, when present in the stored artifact, declarations and
+/// unverified inputs; `commit` is not part of it.
 fn evidence_differences(stored: &Acceptance, candidate: &Acceptance) -> Vec<&'static str> {
     let mut differing = Vec::new();
     if stored.research_id != candidate.research_id {
@@ -766,6 +767,20 @@ fn evidence_differences(stored: &Acceptance, candidate: &Acceptance) -> Vec<&'st
     }
     if stored.artifact_digests != candidate.artifact_digests {
         differing.push("artifact_digests");
+    }
+    if stored
+        .declared_input_digests
+        .as_ref()
+        .is_some_and(|v| Some(v) != candidate.declared_input_digests.as_ref())
+    {
+        differing.push("declared_input_digests");
+    }
+    if stored
+        .unverified_inputs
+        .as_ref()
+        .is_some_and(|v| Some(v) != candidate.unverified_inputs.as_ref())
+    {
+        differing.push("unverified_inputs");
     }
     differing
 }
@@ -790,6 +805,8 @@ fn accept_record(
         })?,
         run_id: run.to_owned(),
         artifact_digests: report.artifact_digests.clone(),
+        declared_input_digests: Some(report.declared_input_digests.clone()),
+        unverified_inputs: Some(report.unverified_inputs.clone()),
     };
     if let Some(existing) = host.get_artifact(task, ACCEPTANCE_ARTIFACT_PATH)? {
         let existing: Acceptance = serde_json::from_value(existing).map_err(|error| {
@@ -908,6 +925,8 @@ fn accept_output(input: Value, workspace_root: &Path, host: &dyn TaskHost) -> Va
                 "blob": outcome.acceptance.blob,
                 "run_id": outcome.acceptance.run_id,
                 "artifact_digests": outcome.acceptance.artifact_digests,
+                "declared_input_digests": outcome.acceptance.declared_input_digests,
+                "unverified_inputs": outcome.acceptance.unverified_inputs,
                 "recorded": outcome.recorded,
             },
         }),

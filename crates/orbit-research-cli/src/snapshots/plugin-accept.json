@@ -13,10 +13,14 @@
       "artifact_digests": {
         "input.csv": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
       },
+      "declared_input_digests": {
+        "input.csv": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
+      },
       "recorded": false,
       "research_id": "R001",
       "run_id": "run-1",
-      "task_id": "task-1"
+      "task_id": "task-1",
+      "unverified_inputs": []
     }
   },
   "run_failed": {
@@ -49,10 +53,14 @@
       "artifact_digests": {
         "input.csv": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
       },
+      "declared_input_digests": {
+        "input.csv": "492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470"
+      },
       "recorded": true,
       "research_id": "R001",
       "run_id": "run-1",
-      "task_id": "task-1"
+      "task_id": "task-1",
+      "unverified_inputs": []
     }
   },
   "validate_fails_at_published_commit": {

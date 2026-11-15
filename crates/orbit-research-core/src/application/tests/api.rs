@@ -80,6 +80,8 @@ fn acceptance(research: &str, blob: &str) -> Acceptance {
         blob: blob.into(),
         run_id: "run-1".into(),
         artifact_digests: Default::default(),
+        declared_input_digests: None,
+        unverified_inputs: None,
     }
 }
 
