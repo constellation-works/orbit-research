@@ -708,3 +708,29 @@ fn a_result_directory_without_its_readme_is_named_beside_the_readable_records() 
     assert_eq!(found[1].0, "research/R003-not-a-directory/README.md");
     assert!(found[1].1.contains("is a file"), "{found:?}");
 }
+
+#[test]
+fn ignores_non_record_files_but_rejects_malformed_record_candidates() {
+    let temp = canonical_fixture();
+    let root = temp.path();
+    write(root, "research/README.md", "Index of results.");
+    write(root, "hypotheses/HOWTO.md", "How to write a hypothesis.");
+    command(root, &["add", "."]);
+    command(root, &["commit", "-q", "-m", "index files"]);
+    let corpus = Corpus::open(root).unwrap();
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 4);
+    assert_eq!(corpus.committed_snapshot().unwrap().records.len(), 4);
+
+    write(root, "research/R1-foo/README.md", "x");
+    command(root, &["add", "."]);
+    command(root, &["commit", "-q", "-m", "mistyped record"]);
+    for error in [
+        corpus.snapshot().unwrap_err(),
+        corpus.committed_snapshot().unwrap_err(),
+    ] {
+        let all = issues(error);
+        let paths: Vec<&str> = all.iter().map(|issue| issue.path.as_str()).collect();
+        assert_eq!(paths, ["research/R1-foo"], "{all:?}");
+        assert!(all[0].message.contains("is not a record name"), "{all:?}");
+    }
+}

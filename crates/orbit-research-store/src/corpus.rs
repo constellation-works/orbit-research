@@ -175,7 +175,8 @@ impl Corpus {
 
     /// Every record entry named in the owner directories (working tree, or the
     /// `committed` paths of one revision), without reading its contents. A name
-    /// that is not a record name is an error naming it.
+    /// that starts with the kind letter and a digit but is not a record name is
+    /// an error naming it; any other name is not a record and is ignored.
     pub(crate) fn record_entries(
         &self,
         contract: &Contract,
@@ -189,8 +190,8 @@ impl Corpus {
         }
     }
 
-    /// The well-named entries, plus one issue for each name that is not a
-    /// record name or each owner directory that is missing, and the ids such
+    /// The well-named entries, plus one issue for each record candidate whose
+    /// name is not a record name or each owner directory that is missing, and the ids such
     /// badly named entries start with (they exist, but cannot be read).
     fn scan_entries(
         &self,
@@ -234,7 +235,13 @@ impl Corpus {
                 }
             };
             for name in names {
-                if !name.starts_with(kind) {
+                // Only a name that looks like a record (its kind letter and a
+                // digit) is a candidate, so an index file such as `README.md`
+                // is ignored while a mistyped record name stays an error.
+                let candidate = name
+                    .strip_prefix(kind.as_str())
+                    .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()));
+                if !candidate {
                     continue;
                 }
                 let layout_is_directory = spec["layout"] == "directory";
