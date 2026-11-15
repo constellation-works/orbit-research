@@ -50,7 +50,7 @@ impl Research {
     }
 
     /// The delivery gate: check one research record in this checkout (a run
-    /// worktree or the primary) against the checkout's HEAD. Read-only.
+    /// worktree or the primary) against the delivery's base. Read-only.
     pub fn validate_delivery(&self, expected: &Expected<'_>) -> Result<DeliveryReport> {
         self.store.validate_delivery(expected)
     }

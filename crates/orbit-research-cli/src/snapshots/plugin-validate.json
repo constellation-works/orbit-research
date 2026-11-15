@@ -10,7 +10,7 @@
   "id_allocated_in_worktree": {
     "error": {
       "code": "id_allocated",
-      "message": "id_allocated: R002 (research/R002-stray/README.md) is not in the checkout's HEAD; only primary-mode create allocates IDs",
+      "message": "id_allocated: R002 (research/R002-stray/README.md) is not in the delivery's base; only primary-mode create allocates IDs",
       "retryable": false
     },
     "ok": false

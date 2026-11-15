@@ -157,8 +157,12 @@ while the run's work is in its worktree. The record is the optional
 `research_id` input, or else the one the worktree-mode writer bound the worktree
 to. The record must name `context.task_id` and `context.job_run_id` in
 `orbit.task` and `orbit.run`; without that run context the call refuses with
-`run_context_required`. Against the checkout's HEAD, the gate requires:
+`run_context_required`. The gate compares the checkout with the delivery's base:
+in a linked worktree the commit where its history left the primary checkout's,
+in the primary checkout HEAD. It reads the owner schema and the other records
+from that base, and requires:
 
+- `_scripts/schema.json` equals the base's;
 - the record parses and passes the owner schema, ID and slug rules;
 - the owner's README sections (`## Question`, `## Method`, `## Result`,
   `## Limitations`, `## Next`) are present in order, each non-empty and not
@@ -168,14 +172,15 @@ to. The record must name `context.task_id` and `context.job_run_id` in
   that digest and any declared `size`. Absent bytes, which are never committed,
   are reported as `unverified_inputs` and do not fail the gate;
 - every reference target exists in the checkout;
-- no record path is absent from HEAD (no allocated ID), no other record changed
+- no record path is absent from the base (no allocated ID), no other record changed
   or disappeared, and the whole corpus passes the checker's rules.
 
 Any finding replies `ok:false`. The error code is the first finding's reason
 (`research_unbound`, `record_invalid`, `section_missing`,
 `section_placeholder`, `orbit_task_mismatch`, `orbit_run_mismatch`,
 `manifest_invalid`, `artifact_digest_mismatch`, `dangling_lineage`,
-`id_allocated`, `other_record_changed` or `corpus_invalid`), and the message
+`id_allocated`, `other_record_changed`, `corpus_invalid` or
+`contract_changed`), and the message
 lists every finding. Orbit fails a step only on `ok:false`, not on
 `valid:false` output. The gate reads Git in-process and spawns nothing, so it
 runs under the plugin sandbox.

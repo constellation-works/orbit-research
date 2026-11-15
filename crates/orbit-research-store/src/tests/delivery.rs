@@ -242,3 +242,78 @@ fn section_problems_are_reported_beside_an_invalid_record() {
         "{message}"
     );
 }
+
+/// Drop the README section rule from the worktree's schema, as a run that
+/// wanted its unwritten stub to pass would.
+fn weaken_schema(run: &Run) {
+    let path = run.linked.join("_scripts/schema.json");
+    let mut schema: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    schema["x-observatory"]["readme_sections"] = json!([]);
+    fs::write(path, serde_json::to_vec_pretty(&schema).unwrap()).unwrap();
+}
+
+fn commit_all(run: &Run) {
+    git(&run.linked, &["add", "-A"]);
+    git(&run.linked, &["commit", "-q", "-m", "committed by the run"]);
+}
+
+#[test]
+fn a_schema_edited_in_the_worktree_fails_and_the_base_rules_still_apply() {
+    let written = delivered();
+    weaken_schema(&written);
+    assert_eq!(reasons(&written, &EXPECTED), [Reason::ContractChanged]);
+
+    // The unwritten stub does not pass by deleting the rule it breaks.
+    let stub = run();
+    weaken_schema(&stub);
+    let found = reasons(
+        &stub,
+        &Expected {
+            research_id: Some("R001"),
+            ..EXPECTED
+        },
+    );
+    assert_eq!(found[0], Reason::ContractChanged, "{found:?}");
+    assert!(found.contains(&Reason::SectionPlaceholder), "{found:?}");
+}
+
+#[test]
+fn changes_the_run_committed_are_still_the_runs_changes() {
+    let run = delivered();
+    weaken_schema(&run);
+    commit_all(&run);
+    assert_eq!(reasons(&run, &EXPECTED), [Reason::ContractChanged]);
+
+    let run = delivered();
+    let question = run.linked.join("questions/Q001-a-question.md");
+    let text = fs::read_to_string(&question).unwrap();
+    fs::write(&question, text.replace("Why?", "Why not?")).unwrap();
+    commit_all(&run);
+    assert_eq!(reasons(&run, &EXPECTED), [Reason::OtherRecordChanged]);
+
+    let run = delivered();
+    let stray = run.linked.join("research/R003-stray");
+    fs::create_dir_all(&stray).unwrap();
+    fs::write(
+        stray.join("README.md"),
+        "---\nid: R003\ntitle: Stray\nstatus: planned\ntags: []\nderived_from: []\ncreated: 2026-01-01\nupdated: 2026-01-01\ntests: []\n---\n\nStray.\n",
+    )
+    .unwrap();
+    commit_all(&run);
+    assert_eq!(reasons(&run, &EXPECTED), [Reason::IdAllocated]);
+}
+
+#[test]
+fn records_the_primary_checkout_added_are_not_the_runs_changes() {
+    let run = delivered();
+    Corpus::open(run.primary.path())
+        .unwrap()
+        .reserve("q2", "Q", "A later question", "And then?", vec![], vec![])
+        .unwrap();
+    // The primary advanced; the run's branch has not taken it in.
+    assert_eq!(reasons(&run, &EXPECTED), []);
+    // The run's branch takes the primary's history in.
+    let primary_head = git(run.primary.path(), &["rev-parse", "HEAD"]);
+    git(&run.linked, &["merge", "-q", "--no-edit", &primary_head]);
+    assert_eq!(reasons(&run, &EXPECTED), []);
+}

@@ -108,6 +108,25 @@ impl Corpus {
         })
     }
 
+    /// The owner schema and records at `revision`, with a corpus view that
+    /// applies that schema to this checkout's files. The delivery gate reads
+    /// its rules and its baseline from here, never from the working tree.
+    pub(crate) fn pinned(&self, revision: &str) -> Result<(Self, Snapshot)> {
+        git::read::with_commit(self.root(), revision, |committed| {
+            let bytes = committed.bytes("_scripts/schema.json")?;
+            let label = format!("_scripts/schema.json at {}", committed.revision());
+            let contract = Contract::from_bytes(&bytes).map_err(|error| in_file(error, &label))?;
+            let snapshot = self.read_snapshot(&contract, committed.revision(), Some(&committed))?;
+            Ok((
+                Self {
+                    root: self.root.clone(),
+                    contract,
+                },
+                snapshot,
+            ))
+        })
+    }
+
     /// Every file path in HEAD's tree, for checks about what a commit holds
     /// beyond its records (for example a contribution's findings).
     pub fn committed_paths(&self) -> Result<Vec<String>> {
