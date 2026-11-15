@@ -6,9 +6,10 @@ Core owns research application policy and composition. Follow the repository
 - `application/`: shared use cases, planning and local request correlation.
 - `bootstrap.rs`: local assembly and workspace initialization delegation.
 - `runtime.rs`: process-scoped handles; no scheduler or execution engine.
-- `assets/`: bundled data, including research guidance under `skills/`. The
-  plugin's job and activities live in `.orbit-plugin/definitions/jobs/` and `.orbit-plugin/definitions/activities/`,
-  not here.
+
+The crate bundles no data. The plugin's skill, job and activities live in
+`.orbit-plugin/skills/`, `.orbit-plugin/definitions/jobs/` and
+`.orbit-plugin/definitions/activities/`, not here.
 
 Use local research types. Do not import Orbit utilities, types or implementation
 crates. Persistence belongs in Store, passive shared values in Common, transport

@@ -4,7 +4,7 @@ metadata:
   name: research
   version: 0.1.0
   description: >-
-    Read-only access to the orbit-research canonical Q/H/T/R corpus: a
+    The orbit-research canonical Q/H/T/R corpus in Orbit: read access to a
     validated snapshot, single-record detail and corpus health, generated
     from the shared operation registry rather than hand-duplicated schemas;
     task drafting and linking; the research_investigation job with its
