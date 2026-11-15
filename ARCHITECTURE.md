@@ -246,11 +246,19 @@ never imports Core or reads files.
 Store owns its packaged `assets/schema.json`. Do not introduce a parallel
 `resources/` directory.
 
-The research skill has one copy, `.orbit-plugin/skills/native/SKILL.md`, declared under
-`spec.skills` (Orbit links it into provider discovery as `research-native`; its name is
-`orbit-research-native`). Core embeds that same file as `RESEARCH_NATIVE_SKILL` and the CLI
-exposes it through its resource command, so the installed skill and the binary's guidance
-cannot drift. The plugin's job and activities are Orbit plugin definitions under
+The research skill has one copy, the directory `.orbit-plugin/skills/loop/`, declared under
+`spec.skills`. Orbit links a plugin skill into provider discovery as `<namespace>-<directory>`,
+here `research-loop`, and the frontmatter `name` is the same. `SKILL.md` holds the procedure:
+finding the corpus, the loop, investigating without the job, the writer modes and the scientific
+safeguards. Topics an agent needs only in one situation are `references/<name>.md`, each linked
+from `SKILL.md` with the situation that calls for it. Core embeds the same files, `SKILL.md` as
+`RESEARCH_LOOP_SKILL` and each reference in `RESEARCH_LOOP_REFERENCES`, and the CLI's `resource`
+command returns them: the skill by default (with every reference in its JSON form) and one
+reference with `--reference <name>`. The installed skill and the binary's guidance therefore
+cannot drift. `tests/skill_walkthrough.rs` runs the `sh` blocks of `SKILL.md` and of the
+references as written, and fails when a file under `references/` is not embedded or not linked
+from `SKILL.md`, so adding a reference means adding it to `RESEARCH_LOOP_REFERENCES` and to the
+skill's list. The plugin's job and activities are Orbit plugin definitions under
 `.orbit-plugin/definitions/`, not Core assets. No routines or auto-tasks are shipped.
 
 CLI `src/mcp.rs` owns stdio protocol framing and session handling, with sibling

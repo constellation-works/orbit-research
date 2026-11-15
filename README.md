@@ -15,8 +15,11 @@ runs and delivery.
 5. `research assess` records the verdict only against an acceptance that matches
    the README at HEAD, and updates the hypothesis status.
 
-The plugin's [`orbit-research-native` skill](.orbit-plugin/skills/native/SKILL.md)
-walks through the loop and its refusals. [ARCHITECTURE.md](ARCHITECTURE.md) has the contracts.
+The plugin's [`research-loop` skill](.orbit-plugin/skills/loop/SKILL.md) walks through the
+loop, including what an agent does when it investigates in its own session instead of
+dispatching the job; its [`references/`](.orbit-plugin/skills/loop/references/) cover the
+refusals and edge cases. `orbit-research resource` prints the same text.
+[ARCHITECTURE.md](ARCHITECTURE.md) has the contracts.
 
 ## Orbit plugin
 

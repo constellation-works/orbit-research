@@ -170,6 +170,6 @@ fn execute(cli: Cli) -> Result<(Value, u8), Invalid> {
                 0,
             ))
         }
-        Command::Resource { .. } => Ok(command::resource::render()),
+        Command::Resource { reference, .. } => Ok(command::resource::render(reference.as_deref())),
     }
 }

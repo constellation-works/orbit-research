@@ -1,10 +1,15 @@
-//! The skill's loop works as written. The test extracts the loop's `sh` blocks
-//! from `.orbit-plugin/skills/native/SKILL.md` and runs them, verbatim and in
-//! order, on a fresh corpus: init, capture, create the hypothesis, reserve the
-//! result, plan. Blocks marked `sh orbit` call Orbit and are not run; the `link`
-//! step they lead to is driven here through the real `orbit-tool` backend with
-//! the plan's output passed straight through, against a stub `orbit` that is
-//! the only `orbit` on PATH. Nothing here can reach a real Orbit.
+//! The skill works as written. The test extracts the loop's `sh` blocks from
+//! `.orbit-plugin/skills/loop/SKILL.md` and runs them, verbatim and in order,
+//! on a fresh corpus: init, capture, create the hypothesis, reserve the result,
+//! plan. Blocks marked `sh orbit` call Orbit and are not run; the `link` step
+//! they lead to is driven here through the real `orbit-tool` backend with the
+//! plan's output passed straight through, against a stub `orbit` that is the
+//! only `orbit` on PATH. Nothing here can reach a real Orbit.
+//!
+//! The same shell state then runs the `sh` blocks of the skill's references and
+//! of its "Investigate in your own session" section, and the test pins what
+//! that section says about `accept` and `assess`. A second test checks that
+//! the binary ships exactly the skill directory's files.
 #![cfg(unix)]
 
 use serde_json::{Value, json};
@@ -14,11 +19,14 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const SKILL: &str = include_str!("../../../.orbit-plugin/skills/native/SKILL.md");
+const SKILL: &str = include_str!("../../../.orbit-plugin/skills/loop/SKILL.md");
+const LOOP: &str = "## The loop";
+const OWN_SESSION: &str = "## Investigate in your own session";
 const BINARY: &str = env!("CARGO_BIN_EXE_orbit-research");
 
 /// A stub `orbit`: logs each call, keeps one task and answers the two
 /// callbacks `link` makes. The input of `orbit.task.add` is kept for the test.
+/// `orbit.task.show` answers as a task in `review` that no job ran.
 const STUB_ORBIT: &str = r#"#!/bin/sh
 dir=$(dirname "$0")
 printf '%s\n' "$*" >> "$dir/calls.log"
@@ -29,6 +37,7 @@ case "$3" in
     printf '%s' "$5" > "$dir/added.json"
     echo STUB-1 > "$dir/task"
     echo '{"id":"STUB-1"}' ;;
+  orbit.task.show) echo '{"status":"review","job_run_id":null,"artifacts":[]}' ;;
   *) echo "unexpected orbit call: $*" >&2; exit 1 ;;
 esac
 "#;
@@ -92,15 +101,48 @@ impl Harness {
     }
 }
 
-/// The fenced blocks of `info` kind in the skill's loop section, in order.
-fn loop_blocks(info: &str) -> Vec<String> {
-    let start = SKILL.find("## The loop").expect("the loop section");
-    let end = SKILL
-        .find("## Two writer modes")
-        .expect("the end of the loop");
+/// The skill directory, read from the checkout.
+fn skill_directory() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.orbit-plugin/skills/loop")
+}
+
+/// The skill's `references/<name>.md` files as (name, text), sorted by name.
+fn reference_files() -> Vec<(String, String)> {
+    let mut files: Vec<_> = fs::read_dir(skill_directory().join("references"))
+        .expect("the references directory")
+        .map(|entry| entry.expect("entry").path())
+        .map(|path| {
+            assert_eq!(
+                path.extension().and_then(|extension| extension.to_str()),
+                Some("md"),
+                "references are Markdown files: {path:?}"
+            );
+            let name = path
+                .file_stem()
+                .expect("stem")
+                .to_string_lossy()
+                .into_owned();
+            (name, fs::read_to_string(&path).expect("reference text"))
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// The text of the skill's `heading` section, up to the next `## ` heading.
+fn section(heading: &str) -> &'static str {
+    let start = SKILL
+        .find(&format!("\n{heading}\n"))
+        .unwrap_or_else(|| panic!("no `{heading}` section in the skill"));
+    let body = &SKILL[start + 1 + heading.len()..];
+    body.find("\n## ").map_or(body, |end| &body[..end])
+}
+
+/// The fenced blocks of `info` kind in `text`, in order.
+fn fenced_blocks(text: &str, info: &str) -> Vec<String> {
     let mut blocks = Vec::new();
     let mut current: Option<String> = None;
-    for line in SKILL[start..end].lines() {
+    for line in text.lines() {
         match (&mut current, line.strip_prefix("```")) {
             (None, Some(opening)) if opening == info => current = Some(String::new()),
             (Some(block), Some("")) => {
@@ -128,23 +170,29 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
     let harness = Harness::new();
 
     // The documented order: the result is reserved before it is planned.
-    let blocks = loop_blocks("sh");
+    let blocks = fenced_blocks(section(LOOP), "sh");
+    let commands = blocks.concat();
+    let order = [
+        "workspace init",
+        "research capture",
+        "--kind H",
+        "--kind R --status planned",
+        "research plan",
+    ]
+    .map(|needle| {
+        commands
+            .find(needle)
+            .unwrap_or_else(|| panic!("no `{needle}` command in the skill's loop"))
+    });
+    assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{order:?}");
     let position = |needle: &str| {
         blocks
             .iter()
             .position(|block| block.contains(needle))
             .unwrap_or_else(|| panic!("no `{needle}` block in the skill"))
     };
-    let order = [
-        position("workspace init"),
-        position("research capture"),
-        position("--kind H"),
-        position("--kind R --status planned"),
-        position("research plan"),
-    ];
-    assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{order:?}");
     assert!(
-        loop_blocks("sh orbit")
+        fenced_blocks(section(LOOP), "sh orbit")
             .iter()
             .any(|block| block.contains("orbit.research.link")),
         "the loop's link step is documented"
@@ -296,5 +344,177 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
         Path::new(&corpus)
             .join("_data/orbit-research-operations")
             .is_dir()
+    );
+
+    // The same shell, continued: the references' `sh` blocks, then the skill's
+    // own-session path. The test stands in for the experiment by drafting the
+    // body and the manifest that the block's comment asks for.
+    let orbit_calls = harness.orbit_calls();
+    let mut steps = format!(
+        "set -eu\ncorpus='{}'\nscratch='{}'\n",
+        corpus.display(),
+        scratch[0].display()
+    );
+    for (_, text) in reference_files() {
+        steps.push_str(&fenced_blocks(&text, "sh").concat());
+    }
+    assert!(
+        steps.contains("workspace prepare-operations"),
+        "the corpus reference's preparation step is run: {steps}"
+    );
+    steps.push_str(concat!(
+        "printf '## Question\\n\\nDoes it hold?\\n\\n## Method\\n\\nTwo runs and a control.\\n\\n",
+        "## Result\\n\\nThe control failed.\\n\\n## Limitations\\n\\nOne host.\\n\\n",
+        "## Next\\n\\nRepeat with a working control.\\n' > \"$scratch/body.md\"\n",
+        "printf '{\"inputs\": []}\\n' > \"$scratch/manifest.json\"\n",
+    ));
+    let own_session = fenced_blocks(section(OWN_SESSION), "sh");
+    assert!(
+        own_session.concat().contains("--mode worktree"),
+        "the own-session path writes with the worktree writer"
+    );
+    steps.push_str(&own_session.concat());
+    let output = harness
+        .command("/bin/sh")
+        .args(["-c", &steps])
+        .output()
+        .expect("run the own-session steps");
+    assert!(
+        output.status.success(),
+        "the skill's own-session commands failed: {output:?}\n{steps}"
+    );
+    assert_eq!(
+        harness.orbit_calls(),
+        orbit_calls,
+        "the own-session path never calls Orbit"
+    );
+
+    // The result is committed on the corpus's branch and nothing is left over.
+    let result = show("R001");
+    assert_eq!(result["metadata"]["status"], "done");
+    assert_eq!(result["metadata"]["tests"], json!(["H001"]));
+    assert!(
+        result["body"]
+            .as_str()
+            .is_some_and(|body| body.contains("The control failed.")),
+        "{result}"
+    );
+    assert_eq!(git(&["rev-parse", "--abbrev-ref", "HEAD"]), "main");
+    assert_eq!(git(&["status", "--porcelain", "--untracked-files=all"]), "");
+    assert_eq!(
+        git(&["worktree", "list", "--porcelain"])
+            .lines()
+            .filter(|line| line.starts_with("worktree "))
+            .count(),
+        1,
+        "the linked worktree was removed"
+    );
+
+    // What the skill says about that result: `accept` refuses a task no job
+    // ran, and `assess` refuses a result with no acceptance.
+    let mut child = harness
+        .command(BINARY)
+        .arg("orbit-tool")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("start the plugin backend");
+    let request = json!({
+        "schema_version": 1,
+        "tool": "accept",
+        "input": {"task_id": "STUB-1", "research_id": "R001"},
+        "context": {"workspace_root": corpus},
+    });
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(request.to_string().as_bytes())
+        .expect("send the request");
+    let refused = json_of(&child.wait_with_output().expect("reply"));
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(
+        refused["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("no recorded run")),
+        "{refused}"
+    );
+    let hypothesis = show("H001");
+    let assess = harness
+        .command(BINARY)
+        .args(["research", "assess", "--corpus"])
+        .arg(&corpus)
+        .args(["--id", "H001", "--research", "R001", "--revision", "1"])
+        .args(["--verdict", "inconclusive", "--strength", "anecdote"])
+        .args([
+            "--expected-blob",
+            hypothesis["git_blob"].as_str().expect("blob"),
+        ])
+        .output()
+        .expect("assess");
+    assert!(!assess.status.success(), "{assess:?}");
+    assert_eq!(show("H001")["metadata"]["assessments"], json!([]));
+}
+
+#[test]
+fn the_binary_ships_exactly_the_skill_directory() {
+    // The frontmatter name is the name Orbit links the skill under.
+    let frontmatter = SKILL
+        .strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .map(|(frontmatter, _)| frontmatter)
+        .expect("frontmatter");
+    let field = |name: &str| {
+        frontmatter
+            .lines()
+            .find_map(|line| line.strip_prefix(&format!("{name}: ")))
+            .unwrap_or_else(|| panic!("no `{name}` in the frontmatter"))
+    };
+    assert_eq!(field("name"), "research-loop");
+    assert!(
+        field("description").len() < 1024,
+        "the description stays under the provider limit"
+    );
+
+    let files = reference_files();
+    assert!(!files.is_empty());
+    let resource = |arguments: &[&str]| {
+        json_of(
+            &Command::new(BINARY)
+                .args(["--json", "resource"])
+                .args(arguments)
+                .output()
+                .expect("resource"),
+        )
+    };
+    let whole = resource(&[]);
+    assert_eq!(whole["skill"], SKILL);
+    let shipped = whole["references"].as_object().expect("references");
+    assert_eq!(
+        shipped.keys().collect::<Vec<_>>(),
+        files.iter().map(|(name, _)| name).collect::<Vec<_>>(),
+        "every file under references/ is embedded, and nothing else"
+    );
+    for (name, text) in &files {
+        assert_eq!(shipped[name], text.as_str(), "{name}");
+        let one = resource(&["--reference", name]);
+        assert_eq!(one["reference"]["name"], name.as_str());
+        assert_eq!(one["reference"]["text"], text.as_str());
+        let plain = Command::new(BINARY)
+            .args(["resource", "--reference", name])
+            .output()
+            .expect("resource");
+        assert!(plain.status.success(), "{plain:?}");
+        assert_eq!(String::from_utf8_lossy(&plain.stdout), text.as_str());
+        assert_eq!(
+            SKILL.matches(&format!("(references/{name}.md)")).count(),
+            1,
+            "the skill links `{name}` once"
+        );
+    }
+    assert_eq!(
+        SKILL.matches("](references/").count(),
+        files.len(),
+        "the skill links no reference that does not exist"
     );
 }

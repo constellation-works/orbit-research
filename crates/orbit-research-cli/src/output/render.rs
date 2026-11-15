@@ -118,7 +118,11 @@ pub(crate) fn render(
                     if record_count == 1 { "" } else { "s" },
                     if tag_count == 1 { "" } else { "s" },
                 )
-            } else if let Some(skill) = value.get("skill").and_then(Value::as_str) {
+            } else if let Some(skill) = value
+                .get("skill")
+                .or_else(|| value.pointer("/reference/text"))
+                .and_then(Value::as_str)
+            {
                 // The packaged text already ends with a newline.
                 write!(out, "{}", safe_text(skill.trim_end_matches('\n')))?;
                 writeln!(out)

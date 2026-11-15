@@ -14,7 +14,8 @@ Parser, MCP, plugin-transport and panel tests live under `src/tests/`, renderer 
 under `src/output/tests/`; golden output fixtures live under `src/snapshots/`.
 Composed subprocess tests and the plugin schema/registry parity check stay
 under crate-root `tests/`. The shared research skill is the plugin's own
-`.orbit-plugin/skills/native/SKILL.md`, embedded by Core and exposed by CLI.
+`.orbit-plugin/skills/loop/` (`SKILL.md` and `references/*.md`), embedded by Core and exposed
+by the CLI's `resource` command; `tests/skill_walkthrough.rs` runs its `sh` blocks as written.
 `src/panels.rs` owns the four dashboard panel sources; their shapes follow Orbit's
 generic panel renderer (see ARCHITECTURE.md), and their tests are `src/tests/panels.rs`. This crate has no packaged tool templates;
 `.orbit-plugin/plugin.yaml`, `.orbit-plugin/schemas/*.request.json` and `.orbit-plugin/definitions/{jobs,activities}/`

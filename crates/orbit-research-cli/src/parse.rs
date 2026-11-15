@@ -130,11 +130,15 @@ pub(crate) enum Command {
     /// Serve one Orbit plugin tool call over the sandboxed `exec` backend protocol
     /// (one stdin JSON request, one stdout JSON reply). Not for interactive use.
     OrbitTool,
-    /// Print the packaged native workflow instructions.
+    /// Print the packaged research skill, or one of its references.
     Resource {
         /// Packaged workflow resource version.
         #[arg(long, default_value = "1", value_parser = ["1"])]
         version: String,
+        /// Print one of the skill's references instead of the skill, by the
+        /// name the skill lists it under.
+        #[arg(long, value_name = "NAME", value_parser = reference_names())]
+        reference: Option<String>,
     },
 }
 
@@ -385,4 +389,13 @@ pub(crate) enum WriterMode {
     Auto,
     Primary,
     Worktree,
+}
+
+/// The packaged skill's reference names, as `resource --reference` accepts them.
+fn reference_names() -> clap::builder::PossibleValuesParser {
+    orbit_research_core::RESEARCH_LOOP_REFERENCES
+        .iter()
+        .map(|(name, _)| *name)
+        .collect::<Vec<_>>()
+        .into()
 }
