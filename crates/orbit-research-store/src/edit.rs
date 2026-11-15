@@ -19,7 +19,8 @@ pub struct Edit {
     pub status: Option<String>,
     /// Research only: hypotheses this result tests.
     pub tests: Option<Vec<String>>,
-    /// Research only: operational provenance.
+    /// Research only: operational provenance. A `None` field inside the link
+    /// keeps that field's current value.
     pub orbit: Option<OrbitLink>,
     /// Research only: replacement `data/manifest.json` contents.
     pub manifest: Option<Value>,
@@ -123,7 +124,17 @@ pub(crate) fn revise(
         metadata["tests"] = json!(tests);
     }
     if let Some(orbit) = &edit.orbit {
-        metadata["orbit"] = serde_json::to_value(orbit)?;
+        // Each link field keeps its current value when omitted, like every
+        // other field: naming the run must not drop the task.
+        let mut link = metadata["orbit"].as_object().cloned().unwrap_or_default();
+        for (field, value) in [("task", &orbit.task), ("run", &orbit.run)] {
+            if let Some(value) = value {
+                link.insert(field.into(), json!(value));
+            }
+        }
+        if !link.is_empty() {
+            metadata["orbit"] = Value::Object(link);
+        }
     }
     metadata["updated"] = json!(today);
     contract.validate_input(&metadata, &record.path, &record.kind)?;

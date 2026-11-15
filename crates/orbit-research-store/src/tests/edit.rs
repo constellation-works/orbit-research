@@ -1,6 +1,6 @@
 //! Edit policy runs on in-memory records: no Git, no filesystem.
 use crate::{
-    edit::{self, Assessment, Edit},
+    edit::{self, Assessment, Edit, OrbitLink},
     record,
     validation::Contract,
 };
@@ -281,4 +281,39 @@ fn an_edit_with_no_fields_is_empty() {
         }
         .is_empty()
     );
+}
+
+fn link(task: Option<&str>, run: Option<&str>) -> Edit {
+    Edit {
+        orbit: Some(OrbitLink {
+            task: task.map(Into::into),
+            run: run.map(Into::into),
+        }),
+        ..Edit::default()
+    }
+}
+
+#[test]
+fn naming_one_orbit_link_field_keeps_the_other() {
+    let contract = contract();
+    let mut research = corpus().remove(1);
+    let revise = |record: &Record, edit: &Edit| {
+        parsed(&edit::revise(&contract, record, edit, "2026-02-01").expect("revise"))
+    };
+
+    // No link yet: only the named field is written.
+    let metadata = revise(&research, &link(Some("task-1"), None));
+    assert_eq!(metadata["orbit"], json!({"task": "task-1"}));
+
+    research.metadata = metadata;
+    let metadata = revise(&research, &link(None, Some("run-1")));
+    assert_eq!(metadata["orbit"], json!({"task": "task-1", "run": "run-1"}));
+
+    research.metadata = metadata;
+    let metadata = revise(&research, &link(Some("task-2"), None));
+    assert_eq!(metadata["orbit"], json!({"task": "task-2", "run": "run-1"}));
+
+    research.metadata = metadata;
+    let metadata = revise(&research, &link(Some("task-3"), Some("run-3")));
+    assert_eq!(metadata["orbit"], json!({"task": "task-3", "run": "run-3"}));
 }
