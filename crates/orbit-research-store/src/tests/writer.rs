@@ -979,6 +979,39 @@ fn stale_revise_refuses_untouched_and_identical_retry_adopts() {
 }
 
 #[test]
+fn a_request_repeated_after_the_record_went_back_is_a_new_write() {
+    let temp = revision_fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let tag = |blob: &str, tag: &str| {
+        corpus
+            .revise_question("Q001", blob, None, None, Some(vec![tag.into()]))
+            .unwrap()
+    };
+    // Start from bytes the writer rendered, so going back reproduces them.
+    let start = tag(&blob(&corpus, "Q001"), "a").git_blob;
+    let first = tag(&start, "x");
+    assert!(!first.replayed);
+
+    // An identical retry while the record still holds that write replays it.
+    let retried = tag(&start, "x");
+    assert!(retried.replayed);
+    assert_eq!(retried.commit, first.commit);
+
+    // An ordinary write takes the record back to the starting bytes.
+    assert_eq!(tag(&first.git_blob, "a").git_blob, start);
+
+    // The first request again starts from the same blob, so it has the same
+    // key. It must change the record, not answer with the undone write.
+    let again = tag(&start, "x");
+    assert!(!again.replayed);
+    assert_ne!(again.commit, first.commit);
+    assert_eq!(again.commit, git(temp.path(), &["rev-parse", "HEAD"]));
+    assert_eq!(metadata(&corpus, "Q001")["tags"], serde_json::json!(["x"]));
+    assert_eq!(blob(&corpus, "Q001"), again.git_blob);
+    assert!(tag(&start, "x").replayed);
+}
+
+#[test]
 fn primary_revise_leaves_research_results_to_their_run() {
     let temp = hypothesis_fixture();
     let corpus = Corpus::open(temp.path()).unwrap();
