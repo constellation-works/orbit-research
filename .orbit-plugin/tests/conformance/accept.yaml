@@ -3,11 +3,12 @@
 # orbit.task.show/orbit.task.artifact.{get,put} callbacks. `accept` checks
 # the bound workspace opens as a corpus before touching any host callback
 # (the same fail-fast order `link` uses), so this pins that deterministic
-# refusal. Success, the idempotent retry, and each other refusal (a
-# non-terminal/failed run, a validate finding at the published commit, a
+# refusal. Success, the idempotent retry, and the other refusals (a task
+# that is not review or done, a validate finding at the published commit, a
 # stored-evidence mismatch) are covered by `cargo test -p orbit-research-cli`
 # (src/tests/plugin.rs), which drives `serve_plugin_tool_call_with_host` with
-# an in-memory fake task host over a real git-backed corpus.
+# an in-memory fake task host over a real git-backed corpus. The refusal of a
+# task with no recorded run is covered by tests/skill_walkthrough.rs.
 schemaVersion: 1
 kind: PluginTest
 tests:

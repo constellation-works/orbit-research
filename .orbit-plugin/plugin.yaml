@@ -88,9 +88,10 @@ spec:
       description: >-
         Create the Orbit task from a plan via the orbit.task.add callback,
         tagged research-request:<key> with plan's context_files as the task
-        scope. Idempotent by request key: an identical retry adopts the one
-        task already tagged with that key instead of creating another, and
-        the same key with a different scope conflicts. Accepts plan's output
+        scope. Idempotent by request key (1 to 256 bytes, bound to its
+        research item and scope): an identical retry adopts the one task
+        already tagged with that key instead of creating another, and the
+        same key for a different research item or scope conflicts. Accepts plan's output
         unchanged; an optional context_files must equal what plan derives for
         that research item (its directory, one contribution unit's code and
         artifacts paths, or the synthesis files) and any other value is
@@ -106,7 +107,9 @@ spec:
         not the bound workspace): owner schema, five written README sections,
         orbit.task/orbit.run naming this run, manifest digests matching local
         input bytes, existing lineage targets, and no ID allocated or other
-        record changed. Fails the call on any finding. Read-only.
+        record changed. Fails the call on any finding. Takes the run's task
+        and run ids from the job step's context, so a call outside a run
+        answers run_context_required. Read-only.
       execution_kind: read_only
       mcp_scope: workspace
       input_schema: { $ref: schemas/validate.request.json }
@@ -116,9 +119,12 @@ spec:
         re-run validate at the published commit on the bound workspace, then
         persist research-acceptance.json (record id, blob, commit, artifact
         digests, run id) as a task artifact. Idempotent: a matching retry
-        returns the stored evidence without writing again. Refuses before
-        delivery lands, for a failed or non-terminal run, on a validate
-        finding, or on a stored-evidence mismatch.
+        returns the stored evidence without writing again. Reads the task's
+        status and recorded run id and never inspects the run itself: refuses
+        a task that is not review or done (delivery has not landed, or its
+        run failed), a task with no recorded run, a validate finding
+        (including an orbit.task or orbit.run that does not name the task and
+        its recorded run), and a stored-evidence mismatch.
       execution_kind: mutating
       mcp_scope: workspace
       input_schema: { $ref: schemas/accept.request.json }
