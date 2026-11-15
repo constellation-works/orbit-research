@@ -309,7 +309,22 @@ impl Corpus {
             let bytes = if let Some(view) = committed {
                 view.bytes(&entry.path)?
             } else {
-                self.working_bytes(&entry.path)?
+                match self.working_bytes(&entry.path) {
+                    Ok(bytes) => bytes,
+                    // A result directory without its README, or a plain file
+                    // named like one, is one damaged record, not an unreadable
+                    // corpus: name it and keep reading the rest.
+                    Err(Error::Io(error)) => {
+                        issues.push(CorpusIssue {
+                            path: entry.path.clone(),
+                            field: None,
+                            message: unreadable_file(&entry, &error),
+                        });
+                        unreadable.insert(entry.id);
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
             };
             let record = match self.decode_record(contract, &entry, &bytes) {
                 Ok(record) => record,
@@ -427,6 +442,21 @@ impl Corpus {
 
     pub(crate) fn safe_path(&self, relative: &Path) -> Result<PathBuf> {
         safe_path(&self.root, relative)
+    }
+}
+
+/// Why a record file named by its directory entry could not be read.
+fn unreadable_file(entry: &RecordEntry, error: &std::io::Error) -> String {
+    let holder = entry.path.strip_suffix("/README.md");
+    match (error.kind(), holder) {
+        (std::io::ErrorKind::NotFound, Some(directory)) => format!(
+            "the file is missing; `{directory}/` needs its README.md. Restore it, or remove the directory if {} was never written",
+            entry.id
+        ),
+        (std::io::ErrorKind::NotADirectory, Some(directory)) => {
+            format!("`{directory}` is a file; a research record is a directory holding README.md")
+        }
+        _ => format!("the file cannot be read: {error}"),
     }
 }
 

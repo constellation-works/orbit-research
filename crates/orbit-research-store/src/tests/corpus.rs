@@ -690,3 +690,21 @@ fn a_missing_owner_directory_is_named() {
         "{message}"
     );
 }
+
+#[test]
+fn a_result_directory_without_its_readme_is_named_beside_the_readable_records() {
+    let temp = canonical_fixture();
+    let root = temp.path();
+    fs::create_dir(root.join("research/R002-half-made")).unwrap();
+    fs::write(root.join("research/R003-not-a-directory"), "x").unwrap();
+    let all = issues(Corpus::open(root).unwrap().snapshot().unwrap_err());
+    let found: Vec<(&str, &str)> = all
+        .iter()
+        .map(|issue| (issue.path.as_str(), issue.message.as_str()))
+        .collect();
+    assert_eq!(found.len(), 2, "{found:?}");
+    assert_eq!(found[0].0, "research/R002-half-made/README.md");
+    assert!(found[0].1.starts_with("the file is missing"), "{found:?}");
+    assert_eq!(found[1].0, "research/R003-not-a-directory/README.md");
+    assert!(found[1].1.contains("is a file"), "{found:?}");
+}
