@@ -11,7 +11,7 @@ metadata:
     validate delivery gate; accept, which persists acceptance evidence
     once delivery lands; four read-only dashboard panels (open questions,
     results awaiting acceptance, hypotheses and assessments, corpus
-    health); and the orbit-research-native skill.
+    health); and the research-loop skill.
   publisher: constellation-works
   origin: orbit
   homepage: https://github.com/constellation-works/orbit-research
@@ -175,7 +175,7 @@ spec:
     activities: [definitions/activities/*.yaml]
     jobs: [definitions/jobs/*.yaml]
 
-  skills: [skills/native]
+  skills: [skills/loop]
 
   web:
     panels:

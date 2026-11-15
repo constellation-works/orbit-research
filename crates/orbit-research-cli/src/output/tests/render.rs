@@ -231,6 +231,15 @@ fn the_packaged_resource_ends_with_exactly_one_newline() {
 }
 
 #[test]
+fn one_packaged_reference_renders_as_its_text() {
+    let value = serde_json::json!({
+        "version": 1,
+        "reference": {"name": "link", "text": "# Heading\nlast line\n"}
+    });
+    assert_eq!(human(&value), "# Heading\nlast line\n");
+}
+
+#[test]
 fn pipe_output_escapes_tabs_newlines_and_backslashes_in_fields() {
     let value = serde_json::json!({"records": [{
         "id": "Q001", "kind": "Q", "path": "questions/Q001-x.md",

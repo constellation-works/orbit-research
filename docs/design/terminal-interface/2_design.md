@@ -39,7 +39,8 @@ it does not read Markdown independently or introduce another store.
 prints long root help to stdout and exits 0. Explicit help and root version also
 exit 0 with readable text, even with `--format json`. A missing required argument
 or unknown command is a usage error on stderr with exit 2. `resource --version 1`
-selects the packaged resource version and is distinct from root `--version`.
+selects the packaged resource version and is distinct from root `--version`;
+`resource --reference <name>` prints one of the packaged skill's references instead of the skill.
 
 ## 3. Sink Resolution
 
