@@ -23,6 +23,15 @@ The `research_investigation` job's `base_branch` input defaults to `main`, the b
 or add `--workspace <name>`. Orbit owns dispatch, status and cancellation
 (`orbit run show`, `orbit run cancel`).
 
+## Other files in record directories
+
+A record directory (`questions/`, `hypotheses/`, `theories/`, `research/`) may hold
+other files, such as an index `README.md` or a `HOWTO.md`: a name that does not start
+with the kind letter followed by a digit is not a record and is ignored. A name that
+does, such as `R1-foo` or `Q01-why.md`, is taken as a record and must be a valid record
+name (`Q001-short-slug.md`, or `R001-short-slug/` for a result directory), or every
+read of the corpus reports it.
+
 ## An older corpus
 
 A corpus made by `workspace init` is ready. For an older one, `link` refuses before
