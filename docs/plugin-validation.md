@@ -121,7 +121,7 @@ scenario name:
 | reserve-and-link | reserve two hypotheses and seven results, `plan` then `link` each: one task per result, an identical retry adopts it |
 | investigation | `orbit run job` with a scripted agent: every step completes, the task reaches `review`, the delivery commit holds exactly the README, manifest, code and artifact |
 | validation gate | four runs whose record has a missing section, a wrong run id, a tampered input digest or a hand-allocated id fail at the `plugin.tool_call` validate step; nothing commits, the corpus stays clean, the task stays out of `review` |
-| acceptance | `accept` refuses a failed run and a never-dispatched task and stores nothing; before acceptance `assess` refuses; `accept` stores `research-acceptance.json` (read back through `orbit.task.artifact.get`) and a re-run is idempotent |
+| acceptance | `accept` refuses the task of a run that failed validation and a never-dispatched task (neither is in `review` or `done`) and stores nothing; before acceptance `assess` refuses; `accept` stores `research-acceptance.json` (read back through `orbit.task.artifact.get`) and a re-run is idempotent |
 | negative result | a run whose control fails delivers a valid result, is accepted, and `assess` records `inconclusive` |
 | revised hypothesis | a body edit bumps the revision to 2 and reopens the status while the revision-1 assessment stays; `assess` against revision 3 refuses |
 | concurrency | four simultaneous primary writers get four ids and four commits; a stale expected blob refuses |
