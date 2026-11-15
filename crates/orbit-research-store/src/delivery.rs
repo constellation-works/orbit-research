@@ -3,7 +3,7 @@
 //! so the sandboxed plugin can run it; nothing here writes.
 use crate::{
     Error, Result,
-    corpus::{Corpus, Record, RecordEntry},
+    corpus::{Corpus, Record, RecordEntry, Snapshot},
     edit, git, record,
     validation::validate_records,
     worktree::BINDING,
@@ -23,7 +23,7 @@ use std::{
 #[serde(rename_all = "snake_case")]
 pub enum Reason {
     /// No research record to check: no `research_id` and no worktree binding,
-    /// or the named id is not an R at the checkout's HEAD.
+    /// or the named id is not an R at the delivery's base.
     ResearchUnbound,
     /// The record does not parse or fails the owner schema, ID or slug rules.
     RecordInvalid,
@@ -41,12 +41,16 @@ pub enum Reason {
     ArtifactDigestMismatch,
     /// A lineage or reference target does not exist in the checkout.
     DanglingLineage,
-    /// The checkout names a record absent from its HEAD: an allocated ID.
+    /// The checkout names a record absent from the delivery's base: an
+    /// allocated ID.
     IdAllocated,
     /// A record other than the research record changed or disappeared.
     OtherRecordChanged,
     /// The rest of the corpus fails the checker's whole-corpus rules.
     CorpusInvalid,
+    /// `_scripts/schema.json` differs from the delivery's base: a run does
+    /// not change the rules its result is checked against.
+    ContractChanged,
 }
 
 impl Reason {
@@ -64,6 +68,7 @@ impl Reason {
             Self::IdAllocated => "id_allocated",
             Self::OtherRecordChanged => "other_record_changed",
             Self::CorpusInvalid => "corpus_invalid",
+            Self::ContractChanged => "contract_changed",
         }
     }
 }
@@ -112,28 +117,56 @@ impl DeliveryReport {
 
 impl Corpus {
     /// Validate one research record in this checkout's working tree against
-    /// its HEAD. Reads only this checkout; an `Err` means the checkout itself
-    /// could not be read, not that the record failed.
+    /// the delivery's base: the commit a linked worktree left the primary
+    /// checkout's history at, or `HEAD` in the primary checkout. The owner
+    /// schema and the other records are read from that base, so neither an
+    /// edited schema nor a change the run committed itself can pass. Reads
+    /// only this repository; an `Err` means the checkout itself could not be
+    /// read, not that the record failed.
     pub fn validate_delivery(&self, expected: &Expected<'_>) -> Result<DeliveryReport> {
-        let head = self.committed_snapshot()?;
+        let base = git::read::delivery_base(self.root())?;
+        let (gate, base) = self.pinned(&base)?;
         let mut report = DeliveryReport {
             research_id: None,
             path: None,
             blob: None,
-            revision: head.revision.clone(),
+            revision: self.head_commit()?,
             findings: Vec::new(),
             unverified_inputs: Vec::new(),
             artifact_digests: BTreeMap::new(),
         };
-        let Some(id) = self.delivered_id(expected, &mut report)? else {
-            return Ok(report);
+        if gate.contract.schema != self.contract.schema {
+            report.fail(
+                Reason::ContractChanged,
+                format!(
+                    "_scripts/schema.json differs from the delivery's base {}; a run does not change the corpus schema, and the other checks use the base's. Restore the file; a schema change is its own commit on the primary checkout",
+                    short(&base.revision)
+                ),
+            );
+        }
+        gate.check_delivery(expected, &base, &mut report)?;
+        Ok(report)
+    }
+
+    /// The record checks, run on a corpus view pinned to the base's schema.
+    fn check_delivery(
+        &self,
+        expected: &Expected<'_>,
+        head: &Snapshot,
+        report: &mut DeliveryReport,
+    ) -> Result<()> {
+        let Some(id) = self.delivered_id(expected, report)? else {
+            return Ok(());
         };
         let Some(reserved) = head.records.iter().find(|r| r.id == id && r.kind == "R") else {
             report.fail(
                 Reason::ResearchUnbound,
-                format!("{id} is not a research record at the checkout's HEAD"),
+                format!(
+                    "{id} is not a research record at the delivery's base {}",
+                    short(&head.revision)
+                ),
             );
-            return Ok(report);
+            return Ok(());
         };
         report.research_id = Some(id.clone());
         report.path = Some(reserved.path.clone());
@@ -161,26 +194,26 @@ impl Corpus {
                     && let Ok(text) = std::str::from_utf8(&bytes)
                     && let Ok((_, body)) = record::parse(&entry.path, text)
                 {
-                    self.check_sections(&entry.path, &body, &mut report);
+                    self.check_sections(&entry.path, &body, report);
                 }
-                return Ok(report);
+                return Ok(());
             }
             None => {
                 report.fail(
                     Reason::RecordInvalid,
                     format!("{} is missing from the checkout", reserved.path),
                 );
-                return Ok(report);
+                return Ok(());
             }
         };
         report.blob = Some(record.git_blob.clone());
 
-        self.check_sections(&record.path, &record.body, &mut report);
-        check_provenance(&record, expected, &mut report);
-        self.check_manifest(&record, &mut report);
-        self.check_lineage(&record, &entries, &mut report);
-        self.check_scope(&head.records, &record, &entries, &mut report);
-        Ok(report)
+        self.check_sections(&record.path, &record.body, report);
+        check_provenance(&record, expected, report);
+        self.check_manifest(&record, report);
+        self.check_lineage(&record, &entries, report);
+        self.check_scope(&head.records, &record, &entries, report);
+        Ok(())
     }
 
     /// The research ID to check: explicit, else the worktree writer's binding.
@@ -379,7 +412,7 @@ impl Corpus {
                 report.fail(
                     Reason::IdAllocated,
                     format!(
-                        "{} ({}) is not in the checkout's HEAD; only primary-mode create allocates IDs",
+                        "{} ({}) is not in the delivery's base; only primary-mode create allocates IDs",
                         entry.id, entry.path
                     ),
                 );
@@ -425,6 +458,11 @@ impl Corpus {
             report.fail(Reason::CorpusInvalid, error.to_string());
         }
     }
+}
+
+/// A commit id shortened for a message.
+fn short(revision: &str) -> &str {
+    revision.get(..12).unwrap_or(revision)
 }
 
 impl DeliveryReport {

@@ -298,8 +298,12 @@ commits. `edit.rs` owns the record edit policy (frozen identity and lineage,
 hypothesis revision bumps, append-only assessments, `verdict_status`) and the
 whole-corpus record checks; it reads neither Git nor the clock, so later
 validation can reuse it. `delivery.rs` owns the delivery gate: it checks one
-research record in a checkout's working tree against that checkout's HEAD and
-returns typed findings. Any finding fails the gate. It reads Git in-process
+research record in a checkout's working tree against the delivery's base and
+returns typed findings. In a linked worktree the base is the commit where its
+history left the primary checkout's (their merge base); in the primary checkout
+it is HEAD. The owner schema and the other records are read from the base, so a
+schema edited in the worktree is the `contract_changed` finding and a change the
+run committed itself is still reported. Any finding fails the gate. It reads Git in-process
 (including a linked worktree's own Git directory, for the writer's binding) and
 writes nothing, so the sandboxed plugin can run it. Request correlation and
 initial workspace scaffolding remain in `request_log.rs` and `workspace.rs`.

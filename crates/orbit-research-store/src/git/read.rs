@@ -118,6 +118,49 @@ pub(crate) fn with_head<T>(
     })
 }
 
+/// Like [`with_head`], pinned to the commit `revision` names.
+pub(crate) fn with_commit<T>(
+    root: &Path,
+    revision: &str,
+    read: impl FnOnce(CommittedView<'_>) -> Result<T>,
+) -> Result<T> {
+    let repo = open(root)?;
+    let commit = resolve_commit(&repo, revision)?;
+    let tree = commit
+        .tree()
+        .map_err(|error| Error::Internal(error.to_string()))?;
+    read(CommittedView {
+        revision: commit.id.to_string(),
+        tree,
+    })
+}
+
+/// The commit a delivery in this checkout is compared with. In a linked
+/// worktree it is where this checkout's history left the primary checkout's
+/// (their merge base), so a commit made on the run's branch counts as the
+/// run's change. In the primary checkout it is `HEAD`.
+pub(crate) fn delivery_base(root: &Path) -> Result<String> {
+    let repo = open(root)?;
+    let own = head(&repo, root)?.id;
+    if repo.git_dir() == repo.common_dir() {
+        return Ok(own.to_string());
+    }
+    let primary = repo
+        .main_repo()
+        .map_err(|error| Error::Refused(format!("Unable to resolve primary checkout: {error}")))?;
+    let theirs = head(&primary, root)?.id;
+    if own == theirs {
+        return Ok(own.to_string());
+    }
+    repo.merge_base(own, theirs)
+        .map(|base| base.to_string())
+        .map_err(|_| {
+            Error::Invalid(
+                "This worktree shares no history with the corpus's primary checkout, so its delivery has no base to compare with; create the worktree from the primary checkout's branch".into(),
+            )
+        })
+}
+
 impl CommittedView<'_> {
     pub(crate) fn revision(&self) -> &str {
         &self.revision
