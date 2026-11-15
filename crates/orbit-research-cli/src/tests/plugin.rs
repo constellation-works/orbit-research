@@ -1602,3 +1602,53 @@ fn accept_refuses_an_unknown_task() {
     let reply = call_accept(delivered.primary.path(), "task-unknown", "R001", &host);
     assert_eq!(reply["ok"], false, "{reply:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn artifact_callback_falls_back_only_on_tool_not_found() {
+    use super::super::plugin::artifact_call;
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().expect("fixture");
+    let script = temp.path().join("orbit");
+    let calls = temp.path().join("calls");
+    let body = format!(
+        r#"#!/bin/sh
+printf '%s %s\n' "$3" "$5" >> '{}'
+if [ "$3" = orbit.task.artifact ]; then
+  printf '%s\n' '{{"code":"tool_not_found","error":"missing"}}' >&2
+  exit 1
+fi
+printf '%s\n' '{{"content":"stored"}}'
+"#,
+        calls.display()
+    );
+    fs::write(&script, body).expect("script");
+    fs::set_permissions(&script, fs::Permissions::from_mode(0o700)).expect("permissions");
+    for action in ["put", "get"] {
+        let reply = artifact_call(
+            script.to_str().expect("path"),
+            None,
+            action,
+            json!({"id":"task", "path":"evidence"}),
+            None,
+        )
+        .expect("fallback");
+        assert_eq!(reply["content"], "stored");
+    }
+    let log = fs::read_to_string(&calls).expect("calls");
+    assert!(
+        log.contains("orbit.task.artifact.put {\"id\":\"task\",\"path\":\"evidence\"}"),
+        "{log}"
+    );
+    assert!(
+        log.contains("orbit.task.artifact.get {\"id\":\"task\",\"path\":\"evidence\"}"),
+        "{log}"
+    );
+    fs::write(
+        &script,
+        "#!/bin/sh\necho '{\"code\":\"permission_denied\"}' >&2\nexit 1\n",
+    )
+    .expect("refusal script");
+    assert!(artifact_call(script.to_str().expect("path"), None, "put", json!({}), None).is_err());
+    assert_eq!(fs::read_to_string(calls).expect("calls"), log);
+}

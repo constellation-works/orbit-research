@@ -42,6 +42,8 @@ spec:
         orbit.task.add,
         orbit.task.list,
         orbit.task.show,
+        orbit.pipeline.wait,
+        orbit.task.artifact,
         orbit.task.artifact.get,
         orbit.task.artifact.put,
       ]

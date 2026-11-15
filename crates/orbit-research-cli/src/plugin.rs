@@ -173,6 +173,7 @@ pub(crate) enum CallError {
     TimedOut(String),
     /// `orbit` answered with a failure or something unreadable.
     Failed(String),
+    ToolNotFound(String),
 }
 
 impl From<CallError> for Error {
@@ -180,7 +181,8 @@ impl From<CallError> for Error {
         match error {
             CallError::Unavailable(message)
             | CallError::TimedOut(message)
-            | CallError::Failed(message) => Error::Internal(message),
+            | CallError::Failed(message)
+            | CallError::ToolNotFound(message) => Error::Internal(message),
         }
     }
 }
@@ -238,16 +240,56 @@ pub(crate) fn run_orbit_tool_limited(
     };
     if !output.status.success() {
         let message = String::from_utf8_lossy(&output.stderr);
-        return Err(CallError::Failed(format!(
-            "`orbit tool run {name}` failed: {}",
-            message.trim()
-        )));
+        let detail = format!("`orbit tool run {name}` failed: {}", message.trim());
+        let missing = [output.stderr.as_slice(), output.stdout.as_slice()]
+            .iter()
+            .any(|bytes| {
+                String::from_utf8_lossy(bytes).lines().any(|line| {
+                    serde_json::from_str::<Value>(line)
+                        .ok()
+                        .and_then(|v| v.get("code").and_then(Value::as_str).map(str::to_owned))
+                        .as_deref()
+                        == Some("tool_not_found")
+                })
+            });
+        return Err(if missing {
+            CallError::ToolNotFound(detail)
+        } else {
+            CallError::Failed(detail)
+        });
     }
     serde_json::from_slice(&output.stdout).map_err(|error| {
         CallError::Failed(format!(
             "`orbit tool run {name}` returned non-JSON output: {error}"
         ))
     })
+}
+
+/// Prefer the action API, falling back only when the host reports it absent.
+pub(crate) fn artifact_call(
+    orbit: &str,
+    cwd: Option<&Path>,
+    action: &str,
+    mut input: Value,
+    limit: Option<CallLimit>,
+) -> std::result::Result<Value, CallError> {
+    input["action"] = json!(action);
+    match run_orbit_tool_limited(orbit, cwd, "orbit.task.artifact", &input, limit) {
+        Err(CallError::ToolNotFound(_)) => {
+            input
+                .as_object_mut()
+                .expect("artifact input object")
+                .remove("action");
+            run_orbit_tool_limited(
+                orbit,
+                cwd,
+                &format!("orbit.task.artifact.{action}"),
+                &input,
+                limit,
+            )
+        }
+        result => result,
+    }
 }
 
 /// Run `command` to completion, or kill it after `timeout`. The child's own
@@ -353,13 +395,7 @@ pub(crate) fn read_task_artifact_limited(
     if !present {
         return Ok(None);
     }
-    let output = run_orbit_tool_limited(
-        orbit,
-        cwd,
-        "orbit.task.artifact.get",
-        &json!({"id": id, "path": path}),
-        limit,
-    )?;
+    let output = artifact_call(orbit, cwd, "get", json!({"id": id, "path": path}), limit)?;
     output
         .get("content")
         .and_then(Value::as_str)
@@ -460,13 +496,16 @@ impl TaskHost for OrbitCliTaskHost {
     }
 
     fn put_artifact(&self, source_path: &Path, id: &str, path: &str) -> Result<()> {
-        run_orbit_tool(
-            "orbit.task.artifact.put",
-            &json!({
+        artifact_call(
+            &self.orbit(),
+            None,
+            "put",
+            json!({
                 "id": id,
                 "source_path": source_path.to_string_lossy(),
                 "path": path,
             }),
+            None,
         )?;
         Ok(())
     }

@@ -1,5 +1,11 @@
 # Orbit plugin validation
 
+The supported Orbit range is `>=0.25.0 <1.0.0`. Artifact reads and writes
+prefer `orbit.task.artifact` with an action and fall back to the corresponding
+`orbit.task.artifact.get` or `.put` only on `tool_not_found`; the manifest grants
+all three names. The installed own-session test exercises acceptance and assessment
+on Orbit 0.25.0 and 0.50.0, including installation with those grants.
+
 The required local gate is `make test`. It covers the plugin request schemas,
 exec input limits, launcher failures and a real Git-backed fixture corpus.
 The plugin's sixteen conformance goldens (twelve tools) cover its corpus-independent
@@ -77,7 +83,7 @@ A second installed test, `awaiting_acceptance_reads_task_artifacts_through_callb
 delivers the fixture result and calls `awaiting-acceptance` through the operator CLI
 and through an MCP session without operator capability (the capability a dashboard
 panel read uses). It requires the task to read `awaiting acceptance`, which proves the
-`orbit.task.show` and `orbit.task.artifact.get` callbacks answer a read-only panel
+`orbit.task.show` and artifact-get callbacks answer a read-only panel
 source rather than leaving it `acceptance unknown`.
 
 These deterministic checks do not run an investigation provider. The installed

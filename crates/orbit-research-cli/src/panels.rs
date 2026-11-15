@@ -445,7 +445,7 @@ fn failure_reason(error: &CallError, past_deadline: bool) -> &'static str {
         CallError::Unavailable(_) => "orbit not available",
         CallError::TimedOut(_) if past_deadline => "time budget exceeded",
         CallError::TimedOut(_) => "orbit call timed out",
-        CallError::Failed(_) => "task unreadable",
+        CallError::Failed(_) | CallError::ToolNotFound(_) => "task unreadable",
     }
 }
 
