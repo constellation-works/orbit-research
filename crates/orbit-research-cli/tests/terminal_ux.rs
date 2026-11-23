@@ -206,7 +206,7 @@ fn resource_version_option_is_not_confused_with_cli_version_help() {
     assert_success(&output);
     assert!(output.stderr.is_empty());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("name: research-loop"), "{stdout}");
+    assert!(stdout.contains("name: loop"), "{stdout}");
     assert!(stdout.contains("orbit-research research list"), "{stdout}");
 }
 

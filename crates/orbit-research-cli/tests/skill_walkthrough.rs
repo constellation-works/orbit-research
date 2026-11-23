@@ -21,7 +21,7 @@ use std::process::{Command, Stdio};
 
 const SKILL: &str = include_str!("../../../.orbit-plugin/skills/loop/SKILL.md");
 const LOOP: &str = "## The loop";
-const OWN_SESSION: &str = "## Investigate in your own session";
+
 const BINARY: &str = env!("CARGO_BIN_EXE_orbit-research");
 
 /// A stub `orbit`: logs each call, keeps one task and answers the two
@@ -355,7 +355,10 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
         corpus.display(),
         scratch[0].display()
     );
-    for (_, text) in reference_files() {
+    for (name, text) in reference_files() {
+        if name == "own-session" {
+            continue;
+        }
         steps.push_str(&fenced_blocks(&text, "sh").concat());
     }
     assert!(
@@ -368,7 +371,9 @@ fn the_skills_loop_reaches_plan_and_link_as_written() {
         "## Next\\n\\nRepeat with a working control.\\n' > \"$scratch/body.md\"\n",
         "printf '{\"inputs\": []}\\n' > \"$scratch/manifest.json\"\n",
     ));
-    let own_session = fenced_blocks(section(OWN_SESSION), "sh");
+    let own_session_text = fs::read_to_string(skill_directory().join("references/own-session.md"))
+        .expect("own-session reference");
+    let own_session = fenced_blocks(&own_session_text, "sh");
     assert!(
         own_session.concat().contains("--mode worktree"),
         "the own-session path writes with the worktree writer"
@@ -470,7 +475,11 @@ fn the_binary_ships_exactly_the_skill_directory() {
             .find_map(|line| line.strip_prefix(&format!("{name}: ")))
             .unwrap_or_else(|| panic!("no `{name}` in the frontmatter"))
     };
-    assert_eq!(field("name"), "research-loop");
+    assert_eq!(field("name"), "loop");
+    assert_eq!(
+        skill_directory().file_name().expect("skill directory name"),
+        field("name")
+    );
     assert!(
         field("description").len() < 1024,
         "the description stays under the provider limit"

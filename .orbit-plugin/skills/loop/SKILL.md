@@ -1,6 +1,6 @@
 ---
-name: research-loop
-description: Records experiments as questions, hypotheses, theories and results in an orbit-research corpus and keeps their verdicts honest. Use when about to run an experiment, measurement, benchmark or comparison whose result should be kept; when stating or testing a hypothesis; when capturing a research question; when writing up a result; when working in a repository that holds `questions/`, `hypotheses/`, `theories/` and `research/` records with Q/H/T/R ids; and when accepting a delivered result or assessing a hypothesis. Covers both dispatching the `research_investigation` Orbit job and investigating directly in the current session. Not for ordinary debugging or one-off checks nobody will cite, for reading or web research that produces no recorded result, or for Orbit task and run mechanics, which the Orbit skills cover.
+name: loop
+description: Records experiments as questions, hypotheses, theories and results in an orbit-research corpus and keeps verdicts honest. Use for experiments, measurements, benchmarks, comparisons, hypotheses, questions or results worth keeping; for repositories with Q/H/T/R records; and to accept results or assess hypotheses, whether dispatching research_investigation or investigating directly. Not for one-off debugging, unrecorded reading or web research, or task and run mechanics; use the Orbit skill for the latter.
 ---
 
 # Research loop
@@ -63,7 +63,7 @@ ORBIT_OPERATOR=1 orbit tool run orbit.research.link --input "$(jq --arg id R001 
 ```
 
 4. **Investigate.** Run the job with the `task_id` that `link` printed, or do the work yourself
-   (next section). The job's agent writes the reserved R in a worktree, `validate` gates it, then
+   (see References). The job's agent writes the reserved R in a worktree, `validate` gates it, then
    Orbit commits, merges and moves the task to `review`. Never edit around a `validate` failure.
 
 ```sh orbit
@@ -83,42 +83,14 @@ revision=$(orbit-research --json research show --corpus "$corpus" --id H001 | jq
 orbit-research research assess --corpus "$corpus" --id H001 --expected-blob "$blob" --research R001 --revision "$revision" --verdict inconclusive --strength anecdote --note "Control run failed; no claim either way"
 ```
 
-## Investigate in your own session
-
-When you run the experiment yourself instead of dispatching the job, do steps 1 and 2, then write
-the reserved R from a linked worktree of the corpus: the primary checkout refuses to write an R.
-`--test` names the hypothesis the result tests. Step 3 is optional and only adds a task that tracks
-the work; name it on `revise` with `--orbit-task <task-id>`.
-
-```sh
-blob=$(orbit-research --json research show --corpus "$corpus" --id R001 | jq -r .git_blob)
-git -C "$corpus" worktree add -b investigate-R001 "$scratch/R001"
-# Run the experiment here, then draft "$scratch/body.md" and "$scratch/manifest.json".
-orbit-research research revise --corpus "$scratch/R001" --mode worktree --id R001 --expected-blob "$blob" --status done --test H001 --body-file "$scratch/body.md" --manifest-file "$scratch/manifest.json"
-orbit-research research check --corpus "$scratch/R001"
-git -C "$scratch/R001" add research
-git -C "$scratch/R001" commit -m "Record the R001 result"
-git -C "$corpus" merge --ff-only investigate-R001
-git -C "$corpus" worktree remove "$scratch/R001"
-```
-
-- The body is exactly `## Question`, `## Method`, `## Result`, `## Limitations` and `## Next`, in
-  that order, each written. Outside a run nothing checks this: `check` passes stub text.
-- The manifest lists every input (`name`, `source`, `sha256`, `size`, `fetch`), or is
-  `{"inputs": []}`. In the worktree's R directory, code goes under `code/`, outputs under
-  `artifacts/` and input bytes under `data/`, which stays ignored.
-- Finish the record before you commit: the writer refuses a committed `done` R.
-- Stop there. `accept` refuses a task with no recorded run and `assess` refuses a result with no
-  acceptance, so this result cannot carry a verdict today. State the finding in Result, leave the
-  hypothesis alone and tell the user it is unassessed. Never invent a run id to get past this. For
-  an assessable result, reserve a new R and run steps 3 to 5.
-
 ## Writer modes
 
 Every write reports its `mode`; `--mode primary|worktree` makes a mismatch refuse. **Primary** (the
 corpus's main checkout) allocates ids and commits: `capture`, `create`, `revise` of Q/H/T,
 `revise-question` and `assess`. **Worktree** (a linked worktree) writes only one reserved R's
-README and `data/manifest.json`, and never commits. `revise` and `assess` take `--expected-blob`,
+README and `data/manifest.json`, and never commits.
+
+`revise` and `assess` take `--expected-blob`,
 the `git_blob` from `show`, so a concurrent change refuses. Changing a hypothesis's title or body
 bumps its revision and reopens it. A committed `done` R is final: never edit it by hand, accepted
 or not. To revise it, reserve a new R derived from it.
@@ -137,6 +109,7 @@ or not. To revise it, reserve a new R derived from it.
 
 Read one when its situation comes up; `orbit-research resource --reference <name>` also prints it.
 
+- [own-session](references/own-session.md): investigating directly instead of dispatching the job.
 - [corpus](references/corpus.md): creating a corpus, a corpus not on `main`, or `link` refuses an unprepared one.
 - [link](references/link.md): planning a contribution or synthesis, or `link` refuses a scope or key.
 - [operator-mcp](references/operator-mcp.md): a mutating tool is refused, or the tools are called over MCP.
