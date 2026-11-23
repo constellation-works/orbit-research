@@ -246,10 +246,10 @@ never imports Core or reads files.
 Store owns its packaged `assets/schema.json`. Do not introduce a parallel
 `resources/` directory.
 
-The research skill has one copy, the directory `.orbit-plugin/skills/loop/`, declared under
-`spec.skills`. Orbit links a plugin skill into provider discovery as `<namespace>-<directory>`,
-here `research-loop`, and the frontmatter `name` is the same. `SKILL.md` holds the procedure:
-finding the corpus, the loop, investigating without the job, the writer modes and the scientific
+The research skill has one copy, the directory `.orbit-plugin/skills/research-loop/`, declared under
+`spec.skills`. Its frontmatter `name` is `research-loop`, matching the directory.
+`SKILL.md` holds the procedure:
+finding the corpus, the loop, the writer modes and the scientific
 safeguards. Topics an agent needs only in one situation are `references/<name>.md`, each linked
 from `SKILL.md` with the situation that calls for it. Core embeds the same files, `SKILL.md` as
 `RESEARCH_LOOP_SKILL` and each reference in `RESEARCH_LOOP_REFERENCES`, and the CLI's `resource`

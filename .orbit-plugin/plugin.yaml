@@ -183,7 +183,7 @@ spec:
     activities: [definitions/activities/*.yaml]
     jobs: [definitions/jobs/*.yaml]
 
-  skills: [skills/loop]
+  skills: [skills/research-loop]
 
   web:
     panels:
