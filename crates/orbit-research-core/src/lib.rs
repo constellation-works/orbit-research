@@ -21,6 +21,10 @@ pub const RESEARCH_LOOP_SKILL: &str = include_str!("../../../.orbit-plugin/skill
 /// lists them. The CLI's skill tests fail when this list and the directory differ.
 pub const RESEARCH_LOOP_REFERENCES: &[(&str, &str)] = &[
     (
+        "own-session",
+        include_str!("../../../.orbit-plugin/skills/loop/references/own-session.md"),
+    ),
+    (
         "corpus",
         include_str!("../../../.orbit-plugin/skills/loop/references/corpus.md"),
     ),
