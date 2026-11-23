@@ -1,25 +1,11 @@
 # orbit-research-core
 
-Core owns research application policy and composition. Follow the repository
-[architecture](../../ARCHITECTURE.md) and owning feature contracts.
+Core owns research application policy and composition. Follow the repository [architecture](../../ARCHITECTURE.md) and owning feature contracts.
 
-- `application/`: shared use cases, planning and local request correlation.
-- `bootstrap.rs`: local assembly and workspace initialization delegation.
-- `runtime.rs`: process-scoped handles; no scheduler or execution engine.
+## Rules
 
-The crate bundles no data. The plugin's skill, job and activities live in
-`.orbit-plugin/skills/`, `.orbit-plugin/definitions/jobs/` and
-`.orbit-plugin/definitions/activities/`, not here.
-
-Use local research types. Do not import Orbit utilities, types or implementation
-crates. Persistence belongs in Store, passive shared values in Common, transport
-protocols in CLI. Keep scientific support separate from execution success.
-
-Orbit owns execution, dispatch and cancellation directly (`orbit run show`,
-`orbit task update`, `orbit run job`, `orbit run cancel`); this crate no longer
-shells out to an Orbit CLI adapter. See the plugin conversion spec
-(constellation `operations/research/orbit-research-plugin.md`) for the
-`plan`/`link`/`validate`/`accept` design. `accept` itself lives in the CLI's
-`src/plugin.rs`, alongside `link` and `validate`, since only that transport
-reaches Orbit's task callbacks; this crate owns only the `Acceptance` shape
-and lookup seam it persists to and reads from.
+- Use local research types. Do not import Orbit utilities, types or implementation crates.
+- Persistence belongs in Store, passive shared values in Common, transport protocols in CLI; see [Core module ownership](../../ARCHITECTURE.md#core-module-ownership).
+- Orbit owns execution, dispatch and cancellation directly; this crate never shells out to Orbit.
+- Keep scientific support separate from execution success.
+- The crate bundles no data. The plugin's skill, job and activities live under `.orbit-plugin/`, not here.
