@@ -1,6 +1,6 @@
 # orbit-research — agent guide
 
-Loaded as both `AGENTS.md` and `CLAUDE.md`.
+A local research workbench: a Rust CLI, MCP server and Orbit plugin over a Git-backed Markdown research corpus. `CLAUDE.md` imports this file.
 
 ## Rules
 
@@ -10,16 +10,23 @@ Loaded as both `AGENTS.md` and `CLAUDE.md`.
 - Releases require Daniel's explicit authorization. General implementation or merge approval does not authorize version bumps, release tags or package publication.
 - Update affected docs in the same PR as the code. Stale docs are a review blocker.
 
+## Gates
+
+- `make test` is the required validation gate.
+- `make clippy` applies `[workspace.lints]` from `Cargo.toml` to all CLI targets with `--no-deps` and denies warnings; it is not a workspace-wide Clippy gate.
+- Report commands and outcomes at handoff — passed, failed, not run — never "tested".
+
 ## Code
 
 - Layering and scoping: [`ARCHITECTURE.md`](ARCHITECTURE.md). Reusable patterns: [`docs/design-patterns/`](docs/design-patterns/).
-- `[workspace.lints]` denies `dbg_macro` and warns on `print_stdout` and `unwrap_used`. `make clippy` checks all CLI targets with `--no-deps` and denies warnings; it is not a workspace-wide Clippy gate. `make test` is the required validation gate.
 - Propagate `orbit_research_common::Error` at fallible boundaries. CLI output belongs in its renderer; libraries return values/errors rather than printing payloads.
 - Default to `pub(crate)`; workspace deps via `.workspace = true`; typed `thiserror` variants.
-- Unit tests live in a sibling `tests/` dir mirroring source filenames ([`test_layout.md`](docs/design-patterns/test_layout.md)); crate-root `tests/` is integration only.
 - Never expose internal task/friction IDs in user-facing output, CLI help (Clap renders `///`), or MCP text.
 - Prefer the fewest moving parts: delete dead code and stale docs together, keep compatibility only for an external contract or persisted format, ~800 lines per file is a split signal.
-- Report commands and outcomes at handoff — passed, failed, not run — never "tested".
+
+## Tests
+
+- Unit tests live in a sibling `tests/` dir mirroring source filenames ([`test_layout.md`](docs/design-patterns/test_layout.md)); crate-root `tests/` is integration only.
 
 ## Orbit Workflow
 
