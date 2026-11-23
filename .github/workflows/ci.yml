@@ -31,6 +31,7 @@ jobs:
       - run: cargo build --workspace --locked
       - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
       - run: git diff --check
+      - run: sh docs/standards/check.sh
 
   portability:
     name: Test (${{ matrix.os }})
