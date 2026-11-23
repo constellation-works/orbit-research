@@ -40,3 +40,15 @@ For any Orbit lifecycle work, invoke the `orbit` skill; its `SKILL.md` routes to
 - Move implemented work out of in-progress. Keep it in review when review is deferred; completion needs the applicable validation and delivery evidence.
 - Split residual work explicitly: the completed scope and its remaining follow-up must each have accurate criteria. Never silently drop an unmet criterion.
 - An in-progress task is not evidence of a running agent. Record the run when one exists, and mark deliberately parked work with its actual blocker or deferral.
+
+<!-- constellation-standards:begin -->
+<!-- Managed by the constellation's operations/scripts/sync-standards.sh; edits inside this block are overwritten. -->
+## Constellation standards
+
+This repository adopts these constellation standards, vendored read-only in `docs/standards/` (each a directory: `STD-nn.md` holds the rules, `why.md` and `checks.md` the reasons and gates):
+
+- `STD-11@2` — [docs/standards/STD-11-agent-skills/STD-11.md](docs/standards/STD-11-agent-skills/STD-11.md): Agent skills — a short router and core procedure in SKILL.md, with everything else in task-sized references it links by…
+
+Follow them; they are normative. To deviate from a rule, record a decision in `docs/design/<feature>/4_decisions.md` citing `STD-nn@<version> §Rn`; never edit `docs/standards/` (`sh docs/standards/check.sh` enforces this).
+Reviewers check every change against the adopted standards and report violations as `STD-nn §Rn` with file:line evidence.
+<!-- constellation-standards:end -->
