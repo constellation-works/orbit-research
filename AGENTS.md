@@ -13,7 +13,7 @@ A local research workbench: a Rust CLI, MCP server and Orbit plugin over a Git-b
 ## Gates
 
 - `make test` is the required validation gate.
-- `make clippy` applies `[workspace.lints]` from `Cargo.toml` to all CLI targets with `--no-deps` and denies warnings; it is not a workspace-wide Clippy gate.
+- `make clippy` applies [`[workspace.lints]`](Cargo.toml) to all CLI targets with `--no-deps` and denies warnings; it is not a workspace-wide Clippy gate.
 - Report commands and outcomes at handoff — passed, failed, not run — never "tested".
 
 ## Code

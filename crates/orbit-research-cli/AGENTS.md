@@ -5,6 +5,7 @@ The CLI is the composition boundary for the research application: argument parsi
 ## Rules
 
 - Do not add alternate stores or tool arguments in the CLI. Transports only translate a wire protocol; see the transport entries in [`ARCHITECTURE.md`](../../ARCHITECTURE.md).
+- Keep the MCP stdio request input bounded.
 - Do not copy Orbit's audit middleware dependency on its runtime and persistent audit store into this app.
 - Research mutations keep Git and Core/Store correlation evidence; execution audit stays with Orbit.
 - Add a CLI audit adapter only against a defined Core contract, never as a duplicate engine.
