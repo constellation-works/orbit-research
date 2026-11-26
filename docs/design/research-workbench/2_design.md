@@ -111,31 +111,30 @@ comparing its owned paths with Git's staged paths.
 
 Intents are written through synced temporary files and atomically published, then
 the parent directory is synced. Canonical files use the same atomic publication
-mechanism. Existing revision file permissions are retained. A failed commit leaves
-inspectable intent and file state; it does not roll back potentially external edits.
+mechanism. Existing revision file permissions are retained. When Git definitely
+refuses staging or committing, the writer rolls back its files and index entries
+and discards the intent after rollback. Uncertain outcomes and conflicts retain
+the intent for recovery.
 
-Recovery verifies the request trailer and parent commit when the receipt was not
-saved. It checks every owned file with exact bytes, including an R item's manifest,
-and rejects unrelated changed paths. Completed retries return the saved commit
-rather than allocating again. Older creation intents without the new `files` field
-are read using their existing path/text plus the canonical R manifest.
+Recovery searches from the intent's parent through HEAD for the request's trailer
+commit. It verifies the commit's first parent and every owned file's exact bytes,
+including an R item's manifest, and rejects unrelated changed paths. A retry returns
+the commit that completed the request. With an unfinished intent, an advanced HEAD,
+and no matching commit, a clean checkout lets the writer discard the intent and
+evaluate the request against the current corpus. Older creation intents without
+`files` are read using their existing path and text plus the canonical R manifest.
 
 ## 5. Concerns & Honest Limitations
 
 - The lock coordinates this writer only. Owner scaffolders and external Git or
   filesystem writers must cooperate; validation is not a substitute for that
   authority contract. Path checks are not a hostile-filesystem sandbox.
-- Recovery after commit but before receipt currently recognizes the current HEAD
-  only. If unrelated commits have advanced it, the operation refuses for manual
-  reconciliation rather than guessing which commit completed the request.
 - Working-tree reads can span concurrent filesystem edits. They are not atomic
   snapshots; only committed reads promise one immutable revision.
 - Each record still requires Git subprocess work. No persistent index or new
   storage service is introduced. Optimize process count only with measured need.
 - Directory synchronization is exercised on the supported Mac/Unix execution
   environment; this change does not certify Windows filesystem behavior.
-- No automatic rollback or intent deletion is provided. Recovery evidence stays
-  inspectable. Review remains deferred at Daniel's request.
 
 ## Task References
 

@@ -81,18 +81,28 @@ cannot allocate from linked worktrees. For an existing owner corpus, reservation
 requires its supported writer capability. An app-local lock does not make the owner
 scaffolder cooperate: parallel live dispatch stays disabled until that owner contract
 is available and verified. Synthetic corpus tests are not proof of that capability. A stale blob or dirty integration tree refuses
-an edit before modifying files. Unknown commit or backend submission outcomes require
-reconciliation, never blind replay. External/noncooperating writers must not be
-silently overwritten. Keep incomplete attempts inspectable.
+an edit before modifying files. Retry a write with the same request after an
+uncertain outcome. An uncertain backend submission requires reconciliation.
 
 Both creation and revision persist an atomic intent before replacing canonical
 files. Revision retry identity includes the expected blob and complete requested
 content. The same retry may resume original or intended bytes; different external
 edits refuse without overwrite. Intent publication syncs the complete file and its
 containing directory. Recovery checks exact committed bytes for every owned file,
-including manifests; whitespace differences are differences. A failed Git hook or
-commit leaves recoverable state and never triggers blind rollback. If HEAD moved
-past an incomplete operation's recognizable commit, require manual reconciliation.
+including manifests. On a definite `git add` or `git commit` failure, the writer
+restores its files and index entries and removes the intent after rollback. The
+error includes Git's stdout and stderr, including any hook diagnostics. Fix the
+reported cause and repeat the same command. If rollback encounters conflicting
+edits, preserve them and reconcile the affected files and index before retrying.
+
+After interruption, the same request can finish writing and committing while
+HEAD is still at the intent's parent. If HEAD has moved, recovery searches
+`parent..HEAD` for the request trailer and verifies the commit's first parent,
+changed paths and owned file bytes. Recovery returns the original commit in the
+receipt, even after later commits have landed. With no matching commit and a
+clean checkout, the writer discards the unfinished intent and evaluates the
+request against the current corpus. A dirty checkout in that case requires
+manual reconciliation.
 
 The writer refuses a working owner schema that changed since its handle opened.
 Existing creation intents remain readable; malformed intents are preserved and

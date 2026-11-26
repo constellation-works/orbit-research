@@ -8,11 +8,17 @@ use std::process::{Command, Output};
 
 pub(crate) mod read;
 
-fn command_error(operation: &str, output: &Output) -> Error {
+pub(crate) fn command_error(operation: &str, output: &Output) -> Error {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = [stderr.trim(), stdout.trim()]
+        .into_iter()
+        .filter(|stream| !stream.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
     Error::Internal(format!(
-        "git {operation} failed ({}): {}",
-        output.status,
-        String::from_utf8_lossy(&output.stderr).trim()
+        "git {operation} failed ({}): {detail}",
+        output.status
     ))
 }
 

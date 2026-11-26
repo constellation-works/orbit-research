@@ -19,6 +19,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod commit;
+
 #[derive(Debug, Serialize, Deserialize)]
 struct WriteFile {
     path: String,
@@ -401,7 +403,7 @@ impl<'a> Writer<'a> {
     }
 
     fn require_clean(&self) -> Result<()> {
-        let status = self.corpus.git_bytes(&["status", "--porcelain"])?;
+        let status = self.checkout_status()?;
         if status.is_empty() {
             return Ok(());
         }
@@ -433,8 +435,13 @@ impl<'a> Writer<'a> {
         Err(Error::Invalid(message))
     }
 
+    fn checkout_status(&self) -> Result<Vec<u8>> {
+        self.corpus
+            .git_bytes(&["status", "--porcelain", "--untracked-files=normal"])
+    }
+
     fn load(&self, key: &str, request_digest: &str) -> Result<Option<ReservationIntent>> {
-        let path = self.state.join(format!("{key}.json"));
+        let path = self.intent_path(key);
         let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -453,24 +460,37 @@ impl<'a> Writer<'a> {
         }
         intent.normalize_paths();
         intent.upgrade_files();
+        if intent.reservation.is_none() {
+            let head = self.corpus.git(&["rev-parse", "HEAD"])?;
+            if head != intent.parent
+                && self.checkout_status()?.is_empty()
+                && self.find_request_commit(key, &intent, &head)?.is_none()
+            {
+                self.discard_intent(key)?;
+                return Ok(None);
+            }
+        }
         Ok(Some(intent))
     }
 
-    fn save_new(&self, key: &str, intent: &ReservationIntent) -> Result<()> {
-        atomic_write(
-            &self.state.join(format!("{key}.json")),
-            &serde_json::to_vec(intent)?,
-            false,
-        )
+    fn intent_path(&self, key: &str) -> PathBuf {
+        self.state.join(format!("{key}.json"))
     }
 
-    /// Put a new intent in place of a finished one that [`Self::superseded`].
+    fn discard_intent(&self, key: &str) -> Result<()> {
+        fs::remove_file(self.intent_path(key))?;
+        #[cfg(unix)]
+        File::open(&self.state)?.sync_all()?;
+        Ok(())
+    }
+
+    fn save_new(&self, key: &str, intent: &ReservationIntent) -> Result<()> {
+        atomic_write(&self.intent_path(key), &serde_json::to_vec(intent)?, false)
+    }
+
+    /// Publish the receipt or replace an intent that [`Self::superseded`] identified.
     fn replace(&self, key: &str, intent: &ReservationIntent) -> Result<()> {
-        atomic_write(
-            &self.state.join(format!("{key}.json")),
-            &serde_json::to_vec(intent)?,
-            true,
-        )
+        atomic_write(&self.intent_path(key), &serde_json::to_vec(intent)?, true)
     }
 
     /// Whether a finished rewrite has stopped answering its key. A rewrite's
@@ -501,9 +521,9 @@ impl<'a> Writer<'a> {
             });
         }
         let head = self.corpus.git(&["rev-parse", "HEAD"])?;
-        let commit = if head != intent.parent {
-            self.recover_commit(key, &intent, &head)?;
-            head
+        let replayed = head != intent.parent;
+        let commit = if replayed {
+            self.recover_commit(key, &intent, &head)?
         } else {
             self.apply_files(&intent)?;
             self.corpus.snapshot()?;
@@ -517,14 +537,10 @@ impl<'a> Writer<'a> {
             commit,
             request_digest: intent.request_digest.clone(),
             git_blob: self.corpus.hash_bytes(intent.text.as_bytes())?,
-            replayed: false,
+            replayed,
         };
         intent.reservation = Some(reservation.clone());
-        atomic_write(
-            &self.state.join(format!("{key}.json")),
-            &serde_json::to_vec(&intent)?,
-            true,
-        )?;
+        self.replace(key, &intent)?;
         Ok(reservation)
     }
 
@@ -577,89 +593,6 @@ impl<'a> Writer<'a> {
                 file.path
             ))),
         }
-    }
-
-    fn commit(&self, key: &str, intent: &ReservationIntent) -> Result<String> {
-        if self.corpus.git(&["rev-parse", "HEAD"])? != intent.parent {
-            return Err(Error::Conflict(
-                "Corpus advanced before commit; reconcile incomplete write".into(),
-            ));
-        }
-        let paths: Vec<&str> = intent.files.iter().map(|f| f.path.as_str()).collect();
-        self.check_staged(intent)?;
-        let mut args = vec!["add", "--"];
-        args.extend(&paths);
-        self.corpus.git(&args)?;
-        self.check_staged(intent)?;
-        if !self
-            .corpus
-            .git(&["diff", "--cached", "--name-only"])?
-            .is_empty()
-        {
-            self.corpus.git(&[
-                "commit",
-                "-m",
-                &format!(
-                    "Write research record {}\n\nOrbit-Research-Request: {key}",
-                    intent.id
-                ),
-            ])?;
-        }
-        self.corpus.git(&["rev-parse", "HEAD"])
-    }
-
-    fn check_staged(&self, intent: &ReservationIntent) -> Result<()> {
-        let staged = self
-            .corpus
-            .git_bytes(&["diff", "--cached", "--name-only", "-z"])?;
-        for path in staged.split(|b| *b == 0).filter(|b| !b.is_empty()) {
-            let file = intent
-                .files
-                .iter()
-                .find(|f| f.path.as_bytes() == path)
-                .ok_or_else(|| {
-                    Error::Invalid("Unrelated staged changes appeared; refusing commit".into())
-                })?;
-            let bytes = self
-                .corpus
-                .git_bytes(&["show", &format!(":{}", file.path)])?;
-            if bytes != file.text.as_bytes()
-                && file.before.as_ref().is_none_or(|s| bytes != s.as_bytes())
-            {
-                return Err(Error::Conflict(format!(
-                    "Staged path {} has conflicting edits; refusing commit",
-                    file.path
-                )));
-            }
-        }
-        Ok(())
-    }
-
-    fn recover_commit(&self, key: &str, intent: &ReservationIntent, head: &str) -> Result<()> {
-        let parent = self.corpus.git(&["rev-parse", &format!("{head}^")])?;
-        let message = self.corpus.git(&["log", "-1", "--format=%B", head])?;
-        if parent != intent.parent
-            || !message
-                .lines()
-                .any(|l| l == format!("Orbit-Research-Request: {key}"))
-        {
-            return Err(Error::Invalid(
-                "Corpus advanced during incomplete reservation; manual reconciliation required"
-                    .into(),
-            ));
-        }
-        let changed =
-            self.corpus
-                .git(&["diff-tree", "--no-commit-id", "--name-only", "-r", head])?;
-        if changed
-            .lines()
-            .any(|p| !intent.files.iter().any(|f| f.path == p))
-        {
-            return Err(Error::Invalid(
-                "Recovered commit contains unrelated paths".into(),
-            ));
-        }
-        self.verify_files(intent, head)
     }
 
     fn verify_files(&self, intent: &ReservationIntent, commit: &str) -> Result<()> {

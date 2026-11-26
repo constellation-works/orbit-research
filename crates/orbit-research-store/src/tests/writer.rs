@@ -417,12 +417,20 @@ fn hypothesis_revision_is_a_plain_yaml_integer() {
 
 #[cfg(unix)]
 fn install_failing_pre_commit(root: &Path) -> PathBuf {
+    install_pre_commit(
+        root,
+        "#!/bin/sh\necho hook-refusal-stdout\necho hook-refusal-marker >&2\nexit 1\n",
+    )
+}
+
+#[cfg(unix)]
+fn install_pre_commit(root: &Path, script: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
 
     let hooks = root.join(".git/test-hooks");
     fs::create_dir(&hooks).unwrap();
     let hook = hooks.join("pre-commit");
-    fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
+    fs::write(&hook, script).unwrap();
     let mut permissions = fs::metadata(&hook).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&hook, permissions).unwrap();
@@ -432,13 +440,14 @@ fn install_failing_pre_commit(root: &Path) -> PathBuf {
 
 #[cfg(unix)]
 #[test]
-fn failed_question_commit_is_inspectable_and_identical_retry_succeeds() {
+fn failed_question_commit_rolls_back_and_identical_retry_succeeds() {
     let temp = revision_fixture();
     let corpus = Corpus::open(temp.path()).unwrap();
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
+    let original = fs::read(temp.path().join("questions/Q001-original.md")).unwrap();
     let hook = install_failing_pre_commit(temp.path());
 
-    corpus
+    let error = corpus
         .revise_question(
             "Q001",
             &old,
@@ -447,11 +456,11 @@ fn failed_question_commit_is_inspectable_and_identical_retry_succeeds() {
             Some(vec!["retry".into()]),
         )
         .unwrap_err();
-    let edited = fs::read(temp.path().join("questions/Q001-original.md")).unwrap();
-    assert!(String::from_utf8_lossy(&edited).contains("Retryable edit"));
+    assert!(error.to_string().contains("hook-refusal-marker"), "{error}");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
     assert_eq!(
-        git(temp.path(), &["diff", "--cached", "--name-only"]),
-        "questions/Q001-original.md"
+        fs::read(temp.path().join("questions/Q001-original.md")).unwrap(),
+        original
     );
 
     fs::remove_file(hook).unwrap();
@@ -465,17 +474,164 @@ fn failed_question_commit_is_inspectable_and_identical_retry_succeeds() {
         )
         .unwrap();
     assert_eq!(revision.commit, git(temp.path(), &["rev-parse", "HEAD"]));
-    assert_eq!(fs::read(temp.path().join(&revision.path)).unwrap(), edited);
+    assert!(
+        fs::read_to_string(temp.path().join(&revision.path))
+            .unwrap()
+            .contains("Retryable edit")
+    );
     assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
 }
 
 #[cfg(unix)]
 #[test]
-fn conflicting_edit_after_failed_question_commit_is_preserved_and_refused() {
+fn failed_capture_reports_hook_output_and_leaves_clean_corpus_for_other_writes() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let hook = install_failing_pre_commit(temp.path());
+    let head = git(temp.path(), &["rev-parse", "HEAD"]);
+
+    let error = corpus
+        .reserve(
+            "hook-refused",
+            "Q",
+            "Refused question",
+            "body",
+            vec!["capture".into()],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("hook-refusal-marker"), "{error}");
+    assert!(error.to_string().contains("hook-refusal-stdout"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains("repeat the same command to try again"),
+        "{error}"
+    );
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+    assert_eq!(git(temp.path(), &["rev-parse", "HEAD"]), head);
+    assert!(git(temp.path(), &["diff", "--cached", "--name-only"]).is_empty());
+    assert!(
+        fs::read_dir(temp.path().join("questions"))
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    assert!(read_intent_path(temp.path()).is_none());
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 0);
+
+    fs::remove_file(hook).unwrap();
+    let other = reserve_q(&corpus, "other-write", "Other question", "other");
+    assert_eq!(other.id, "Q001");
+    let retry = reserve_q(&corpus, "hook-refused", "Refused question", "body");
+    assert_eq!(retry.id, "Q002");
+    assert_eq!(
+        reserve_q(&corpus, "hook-refused", "Refused question", "body").commit,
+        retry.commit
+    );
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_research_reservation_rolls_back_readme_and_manifest() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let hook = install_failing_pre_commit(temp.path());
+    let error = corpus
+        .reserve(
+            "hook-refused-r",
+            "R",
+            "Refused study",
+            "question",
+            vec![],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("hook-refusal-marker"), "{error}");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 0);
+
+    fs::remove_file(hook).unwrap();
+    let reservation = corpus
+        .reserve(
+            "hook-refused-r",
+            "R",
+            "Refused study",
+            "question",
+            vec![],
+            vec![],
+        )
+        .unwrap();
+    assert_eq!(reservation.id, "R001");
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 1);
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn failed_add_rolls_back_even_when_the_index_is_locked() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let lock = temp.path().join(".git/index.lock");
+    fs::write(&lock, "external lock").unwrap();
+
+    let error = corpus
+        .reserve(
+            "add-refused",
+            "Q",
+            "Refused add",
+            "body",
+            vec!["capture".into()],
+            vec![],
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("git add failed"), "{error}");
+    assert!(error.contains("The write was rolled back"), "{error}");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+    assert!(read_intent_path(temp.path()).is_none());
+    assert_eq!(fs::read_to_string(lock).unwrap(), "external lock");
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_commit_preserves_a_hooks_conflicting_staged_edit() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    install_pre_commit(
+        temp.path(),
+        "#!/bin/sh\nset -eu\nblob=$(printf 'external staged edit' | git hash-object -w --stdin)\ngit update-index --cacheinfo \"100644,$blob,questions/Q001-refused-question.md\"\nexit 1\n",
+    );
+
+    let error = corpus
+        .reserve(
+            "hook-conflict",
+            "Q",
+            "Refused question",
+            "body",
+            vec![],
+            vec![],
+        )
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("conflicting edits"), "{error}");
+    assert_eq!(
+        git(
+            temp.path(),
+            &["show", ":questions/Q001-refused-question.md"]
+        ),
+        "external staged edit"
+    );
+    assert!(read_intent_path(temp.path()).is_some());
+}
+
+#[test]
+fn conflicting_edit_after_crash_before_commit_is_preserved_and_refused() {
     let temp = revision_fixture();
     let corpus = Corpus::open(temp.path()).unwrap();
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
-    let hook = install_failing_pre_commit(temp.path());
+    // Simulate a crash after files were written and before the commit:
+    // an unfinished intent, its bytes unstaged in the working tree.
     corpus
         .revise_question(
             "Q001",
@@ -484,8 +640,13 @@ fn conflicting_edit_after_failed_question_commit_is_preserved_and_refused() {
             Some("body"),
             Some(vec!["retry".into()]),
         )
-        .unwrap_err();
-    fs::remove_file(hook).unwrap();
+        .unwrap();
+    clear_reservation_result(temp.path());
+    git(temp.path(), &["reset", "--soft", "HEAD^"]);
+    git(
+        temp.path(),
+        &["reset", "-q", "--", "questions/Q001-original.md"],
+    );
 
     let path = temp.path().join("questions/Q001-original.md");
     let conflicting = b"external edit with exact bytes  \n\n";
@@ -499,20 +660,22 @@ fn conflicting_edit_after_failed_question_commit_is_preserved_and_refused() {
             Some(vec!["retry".into()]),
         )
         .unwrap_err();
-    assert!(error.to_string().contains("conflicting"));
+    assert!(error.to_string().contains("conflicting"), "{error}");
     assert_eq!(fs::read(path).unwrap(), conflicting);
 }
 
-fn clear_reservation_result(root: &Path) -> PathBuf {
-    let state = root.join(".git/orbit-research-writer");
-    let intent_path = fs::read_dir(&state)
+fn read_intent_path(root: &Path) -> Option<PathBuf> {
+    fs::read_dir(root.join(".git/orbit-research-writer"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
         .find(|path| {
             path.extension()
                 .is_some_and(|extension| extension == "json")
         })
-        .unwrap();
+}
+
+fn clear_reservation_result(root: &Path) -> PathBuf {
+    let intent_path = read_intent_path(root).unwrap();
     let mut intent: serde_json::Value =
         serde_json::from_slice(&fs::read(&intent_path).unwrap()).unwrap();
     intent["reservation"] = serde_json::Value::Null;
@@ -566,6 +729,94 @@ fn retry_recovers_research_committed_before_receipt_was_saved() {
     assert_eq!(recovered.commit, first.commit);
     assert_eq!(recovered.request_digest, first.request_digest);
     assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "2");
+}
+
+#[test]
+fn retry_recovers_commit_buried_under_a_later_commit() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let first = reserve_q(&corpus, "buried-commit", "Buried", "exact body");
+    clear_reservation_result(temp.path());
+    // A later, unrelated commit lands on top before the intent finished.
+    fs::write(temp.path().join("notes.txt"), "later\n").unwrap();
+    git(temp.path(), &["add", "notes.txt"]);
+    git(temp.path(), &["commit", "-q", "-m", "later commit"]);
+
+    let recovered = reserve_q(&corpus, "buried-commit", "Buried", "exact body");
+    assert!(recovered.replayed);
+    assert_eq!(recovered.id, first.id);
+    assert_eq!(recovered.commit, first.commit);
+    assert_ne!(recovered.commit, git(temp.path(), &["rev-parse", "HEAD"]));
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "3");
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 1);
+}
+
+#[test]
+fn stale_intent_without_commit_on_clean_advanced_tree_runs_as_new() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    // Manufacture an unfinished intent that never produced a commit,
+    // as a previous build or a manual `git reset --hard` would leave it.
+    reserve_q(&corpus, "stale-intent", "Stale question", "body");
+    clear_reservation_result(temp.path());
+    git(temp.path(), &["reset", "--hard", "-q", "HEAD^"]);
+    // `reset --hard` removes the now-empty record directory with the file.
+    for directory in ["questions", "hypotheses", "theories", "research"] {
+        fs::create_dir_all(temp.path().join(directory)).unwrap();
+    }
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+    // Another write advances HEAD and takes the first ID.
+    let other = reserve_q(&corpus, "advancing-write", "Advancing", "other");
+    assert_eq!(other.id, "Q001");
+
+    // A Git setting that hides untracked files must not make the tree clean.
+    git(temp.path(), &["config", "status.showUntrackedFiles", "no"]);
+    let note = temp.path().join("pending.txt");
+    fs::write(&note, "external edit").unwrap();
+    let error = corpus
+        .reserve(
+            "stale-intent",
+            "Q",
+            "Stale question",
+            "body",
+            vec!["capture".into()],
+            vec![],
+        )
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("manual reconciliation"),
+        "{error}"
+    );
+    assert_eq!(fs::read_to_string(&note).unwrap(), "external edit");
+    fs::remove_file(note).unwrap();
+
+    let fresh = reserve_q(&corpus, "stale-intent", "Stale question", "body");
+    assert_eq!(fresh.id, "Q002");
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 2);
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+}
+
+#[test]
+fn crash_after_files_written_before_commit_is_completed_by_retry() {
+    let temp = fixture();
+    let corpus = Corpus::open(temp.path()).unwrap();
+    let first = reserve_q(&corpus, "crash-before-commit", "Crashed", "exact body");
+    let bytes = fs::read(temp.path().join(&first.path)).unwrap();
+    // Simulate the crash: unfinished intent, files written, no commit.
+    clear_reservation_result(temp.path());
+    git(temp.path(), &["reset", "--soft", "HEAD^"]);
+    git(temp.path(), &["reset", "-q", "--", &first.path]);
+
+    let recovered = reserve_q(&corpus, "crash-before-commit", "Crashed", "exact body");
+    assert_eq!(recovered.id, first.id);
+    assert_eq!(recovered.path, first.path);
+    assert_eq!(fs::read(temp.path().join(&first.path)).unwrap(), bytes);
+    assert_eq!(corpus.snapshot().unwrap().records.len(), 1);
+    assert_eq!(git(temp.path(), &["rev-list", "--count", "HEAD"]), "2");
+    assert!(git(temp.path(), &["status", "--porcelain"]).is_empty());
+
+    let replayed = reserve_q(&corpus, "crash-before-commit", "Crashed", "exact body");
+    assert_eq!(replayed.commit, recovered.commit);
 }
 
 #[test]
@@ -791,13 +1042,13 @@ fn research_reservation_recovery_validates_the_exact_manifest_bytes() {
     assert_eq!(fs::read(manifest).unwrap(), changed);
 }
 
-#[cfg(unix)]
 #[test]
 fn retry_preserves_conflicting_index_even_when_working_file_matches_intent() {
     let temp = revision_fixture();
     let corpus = Corpus::open(temp.path()).unwrap();
     let old = corpus.snapshot().unwrap().records[0].git_blob.clone();
-    let hook = install_failing_pre_commit(temp.path());
+    // Simulate a crash before the receipt was saved: unfinished intent,
+    // HEAD back at the intent's parent, its bytes staged.
     corpus
         .revise_question(
             "Q001",
@@ -806,8 +1057,9 @@ fn retry_preserves_conflicting_index_even_when_working_file_matches_intent() {
             Some("body"),
             Some(vec![]),
         )
-        .unwrap_err();
-    fs::remove_file(hook).unwrap();
+        .unwrap();
+    clear_reservation_result(temp.path());
+    git(temp.path(), &["reset", "--soft", "HEAD^"]);
     let relative = "questions/Q001-original.md";
     let path = temp.path().join(relative);
     let intended = fs::read(&path).unwrap();
