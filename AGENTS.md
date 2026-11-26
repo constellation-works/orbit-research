@@ -14,6 +14,7 @@ A local research workbench for canonical Observatory Markdown records, with a CL
 
 - `make test` is the required validation gate.
 - `make clippy` checks all CLI targets with `--no-deps` and denies warnings; it is not a workspace-wide Clippy gate. The lint policy is `[workspace.lints]` in [`Cargo.toml`](Cargo.toml).
+- Run `./scripts/check-agent-context.sh --self-test` alongside `sh docs/standards/check.sh` when changing instruction files, CI gates, or standards configuration.
 - Report commands and outcomes at handoff — passed, failed, not run — never "tested".
 
 ## Code

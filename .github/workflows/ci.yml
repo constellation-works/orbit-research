@@ -32,6 +32,7 @@ jobs:
       - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
       - run: git diff --check
       - run: sh docs/standards/check.sh
+      - run: ./scripts/check-agent-context.sh --self-test
 
   portability:
     name: Test (${{ matrix.os }})
