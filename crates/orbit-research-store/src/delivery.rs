@@ -6,7 +6,7 @@ use crate::{
     corpus::{Corpus, Record, RecordEntry, Snapshot},
     edit, git, record,
     validation::validate_records,
-    worktree::BINDING,
+    worktree::binding_path,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -225,7 +225,7 @@ impl Corpus {
         expected: &Expected<'_>,
         report: &mut DeliveryReport,
     ) -> Result<Option<String>> {
-        let binding = git::read::own_git_dir(self.root())?.join(BINDING);
+        let binding = binding_path(self.root());
         let bound = match fs::read_to_string(&binding) {
             Ok(bound) => Some(bound.trim().to_owned()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,

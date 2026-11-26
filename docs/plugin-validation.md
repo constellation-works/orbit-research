@@ -189,9 +189,12 @@ validate step, `git_commit`, `git_merge` and `update_task` all run unmodified. T
 what the activity's instruction tells an agent to do (reads the stub, runs a small experiment
 with a control, writes the README and manifest with the worktree-mode writer, names the new
 files as task context and persists an execution summary) and never commits or moves the task.
-Nothing calls a provider. The executor gets `allow_fallback: true`, because GitHub's Ubuntu
-image has no `/usr/bin/bwrap` and Orbit otherwise refuses to start the agent; the fallback
-applies only where the trusted sandbox binary is missing.
+Nothing calls a provider. The executor gets `allow_fallback: true`, because a GitHub Ubuntu
+image may have no usable `/usr/bin/bwrap` and Orbit otherwise refuses to start the agent; the
+fallback applies only where the trusted sandbox binary is missing. Where the sandbox does start,
+the script runs confined, with the run worktree's Git directory read-only, so the worktree-mode
+writer must keep its state in the worktree's `.orbit/tmp/` (it does); a writer that wrote into the
+Git directory would pass only on an image without the sandbox.
 
 One difference from production: a directory install has no verified first-party origin (Orbit's
 `first_party_source` accepts only a `git+` URL of a constellation-works repository), so its tools

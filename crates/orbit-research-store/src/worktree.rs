@@ -9,7 +9,10 @@ use crate::{
     writer::{atomic_write, exclusive_lock, refuse_unsafe_path, safe_create_dirs},
 };
 use serde::Serialize;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// Files written in a run worktree, uncommitted.
 #[derive(Debug, Serialize)]
@@ -28,8 +31,18 @@ fn is_changed(changed: &bool) -> bool {
     *changed
 }
 
+/// Where the writer keeps its lock and binding, relative to the worktree root.
+/// An agent's sandbox mounts the worktree's Git directory read-only, so this
+/// state lives in the worktree's scratch directory, which Orbit never commits.
+const STATE_DIR: &str = ".orbit/tmp/orbit-research";
+
 /// Names the one reserved R this worktree writes, set by its first write.
-pub(crate) const BINDING: &str = "orbit-research-reserved";
+const BINDING: &str = "reserved";
+
+/// The file naming the one reserved R this worktree's writer is bound to.
+pub(crate) fn binding_path(root: &Path) -> PathBuf {
+    root.join(STATE_DIR).join(BINDING)
+}
 
 impl Corpus {
     pub(crate) fn write_reserved(
@@ -38,8 +51,15 @@ impl Corpus {
         expected_blob: &str,
         edit: &Edit,
     ) -> Result<WorktreeWrite> {
-        let (own, _) = self.git_dirs()?;
-        let _lock = exclusive_lock(&own.join("orbit-research-writer.lock"))?;
+        let state = self.root().join(STATE_DIR);
+        safe_create_dirs(self.root(), &state)?;
+        // The directory ignores itself, so the checkout stays clean for `git
+        // status`, `git add -A` and `git worktree remove`.
+        let ignore = state.join(".gitignore");
+        if !ignore.exists() {
+            atomic_write(&ignore, b"*\n", false)?;
+        }
+        let _lock = exclusive_lock(&state.join("writer.lock"))?;
         self.require_open_schema()?;
         let head = self.committed_snapshot()?;
         let reserved = head
@@ -52,7 +72,7 @@ impl Corpus {
                     "Worktree mode writes only this run's reserved research record; {id} is not a reserved R stub at the worktree's HEAD"
                 ))
             })?;
-        let binding = own.join(BINDING);
+        let binding = binding_path(self.root());
         let bound = match fs::read_to_string(&binding) {
             Ok(bound) => Some(bound.trim().to_owned()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,

@@ -29,12 +29,6 @@ pub(crate) fn ensure_repository(root: &Path) -> Result<()> {
     open(root).map(|_| ())
 }
 
-/// This checkout's own Git directory: `<common>/worktrees/<name>` in a linked
-/// worktree, the repository's `.git` in the primary checkout.
-pub(crate) fn own_git_dir(root: &Path) -> Result<std::path::PathBuf> {
-    Ok(open(root)?.git_dir().to_owned())
-}
-
 /// The shared Git directory for the primary checkout and all linked worktrees.
 /// Request correlation uses this identity without requiring a Git subprocess.
 pub(crate) fn common_git_dir(root: &Path) -> Result<std::path::PathBuf> {

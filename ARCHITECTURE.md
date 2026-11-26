@@ -294,7 +294,9 @@ primary-mode transaction behind create, capture, revise and assess. `revise` and
 a write that leaves the record as it was makes no commit and reports `changed: false`.
 `worktree.rs` owns worktree mode: in a linked run worktree it writes only the
 reserved R (README and `data/manifest.json`), never allocates IDs and never
-commits. `edit.rs` owns the record edit policy (frozen identity and lineage,
+commits. It keeps its lock and the binding to that one R under the worktree's
+`.orbit/tmp/orbit-research/` (a directory that ignores itself), never in the
+worktree's Git directory, which an agent's sandbox mounts read-only. `edit.rs` owns the record edit policy (frozen identity and lineage,
 hypothesis revision bumps, append-only assessments, `verdict_status`) and the
 whole-corpus record checks; it reads neither Git nor the clock, so later
 validation can reuse it. `delivery.rs` owns the delivery gate: it checks one
@@ -304,7 +306,7 @@ history left the primary checkout's (their merge base); in the primary checkout
 it is HEAD. The owner schema and the other records are read from the base, so a
 schema edited in the worktree is the `contract_changed` finding and a change the
 run committed itself is still reported. Any finding fails the gate. It reads Git in-process
-(including a linked worktree's own Git directory, for the writer's binding) and
+(including the writer's binding under the worktree's `.orbit/tmp/`) and
 writes nothing, so the sandboxed plugin can run it. Request correlation and
 initial workspace scaffolding remain in `request_log.rs` and `workspace.rs`.
 `request_log_layout.rs` owns the versioned shared-state layout and its explicit transition.

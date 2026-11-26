@@ -237,3 +237,32 @@ fn a_worktree_write_that_changes_nothing_says_so() {
     assert_eq!(serde_json::to_value(&again).unwrap()["changed"], false);
     assert_eq!(again.blob, first.blob);
 }
+
+/// An agent's sandbox mounts the run worktree's Git directory read-only, so the
+/// writer's lock and binding must live in the worktree's scratch directory.
+#[test]
+fn the_writer_keeps_its_state_out_of_the_worktrees_git_directory() {
+    let run = run();
+    let corpus = Corpus::open(&run.linked).unwrap();
+    let (own, _) = corpus.git_dirs().unwrap();
+    let entries = |dir: &std::path::Path| {
+        let mut names: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        names.sort();
+        names
+    };
+    let before = entries(&own);
+    corpus
+        .revise("R001", &blob(&corpus, "R001"), &result())
+        .unwrap();
+    assert_eq!(entries(&own), before, "the writer touched the git dir");
+    let binding = crate::worktree::binding_path(&run.linked);
+    assert_eq!(fs::read_to_string(binding).unwrap(), "R001\n");
+    assert!(
+        run.linked
+            .join(".orbit/tmp/orbit-research/writer.lock")
+            .is_file()
+    );
+}

@@ -272,9 +272,9 @@ impl Lab {
         let text = fs::read_to_string(&executor).expect("seeded codex executor");
         assert!(text.contains("command: codex\n"), "{text}");
         assert!(!text.contains("allow_fallback"), "{text}");
-        // A runner without `/usr/bin/bwrap` (GitHub's Ubuntu image) cannot start
-        // the agent sandbox; `allow_fallback` permits bare exec only in that case
-        // and keeps the sandbox wherever it is available.
+        // A runner without a usable `/usr/bin/bwrap` cannot start the agent
+        // sandbox; `allow_fallback` permits bare exec only in that case and keeps
+        // the sandbox (with its read-only Git directory) wherever it is available.
         let text = text.replace(
             "command: codex\n",
             &format!("command: {}\n", agent.to_str().expect("UTF-8 path")),
