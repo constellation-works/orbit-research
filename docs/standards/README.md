@@ -10,14 +10,14 @@ fails CI on any edit; changes come only from a re-sync.
 
 | Standard | Version | Title | Rules |
 |---|---|---|---|
-| STD-11 | 2 | Agent skills — a short router and core procedure in SKILL.md, with everything else in task-sized references it links by condition | [STD-11-agent-skills/STD-11.md](STD-11-agent-skills/STD-11.md) |
+| STD-11 | 3 | Agent context files — skills and instruction files loaded by an agent harness | [STD-11-agent-context/STD-11.md](STD-11-agent-context/STD-11.md) |
 
 Each standard is a directory. `STD-nn.md` holds its rules, where they apply and how to
 deviate: read it first. `why.md` explains each rule, `checks.md` names the gate that
 enforces it, `exemplars.md` points at worked examples in Orbit, and `CHANGELOG.md`
 records its versions.
 
-Source: the constellation umbrella `docs/standards/` at commit `dc91b5eb060f7790c70f39b0bea254ecb0906e36`.
+Source: the constellation umbrella `docs/standards/` at commit `1c9e7e77b593c501f7decd0d286adcee523c7809`.
 
 ## Normative
 
